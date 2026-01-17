@@ -155,13 +155,14 @@ export function ONGDialog({ open, onOpenChange, onSuccess }: ONGDialogProps) {
 
       console.log('ONG created successfully:', ong.id)
 
-      // Asociar usuario como director de la ONG
+      // Asociar usuario como facilitador de la ONG
+      // Nota: Este código no debería ejecutarse ya que las ONGs se crean desde la BD
       const { error: usuarioOngError } = await supabase
         .from('usuario_ong')
         .insert({
           usuario_id: user.id,
           ong_id: ong.id,
-          rol: 'director',
+          rol: 'facilitador',
           activo: true,
         })
 

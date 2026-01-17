@@ -18,6 +18,8 @@ import {
 } from '@/components/ui/table'
 import { EstudianteUploadDialog } from './EstudianteUploadDialog'
 import { EstudianteMovimientoDialog } from './EstudianteMovimientoDialog'
+import { useUserRole } from '@/hooks/useUserRole'
+import { RoleGuard } from '@/components/auth/RoleGuard'
 
 interface Estudiante {
   id: string
@@ -47,6 +49,7 @@ export function EstudianteList() {
   const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
   const [searchTerm, setSearchTerm] = useState('')
   const router = useRouter()
+  const { canEdit } = useUserRole(selectedONG)
 
   useEffect(() => {
     loadUserONGs()
@@ -188,7 +191,7 @@ export function EstudianteList() {
           <p className="text-muted-foreground mb-4">
             No tienes ONGs asociadas. Primero crea o únete a una ONG.
           </p>
-          <Button onClick={() => router.push('/ongs')}>
+            <Button onClick={() => router.push('/ongs')}>
             Ir a ONGs
           </Button>
         </CardContent>
@@ -251,18 +254,22 @@ export function EstudianteList() {
             </div>
           </div>
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setIsUploadDialogOpen(true)}
-              disabled={!selectedONG || aulas.length === 0}
-            >
-              <Upload className="mr-2 h-4 w-4" />
-              Cargar Excel
-            </Button>
-            <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedONG || aulas.length === 0}>
-              <Plus className="mr-2 h-4 w-4" />
-              Nuevo Estudiante
-            </Button>
+            <RoleGuard ongId={selectedONG} allowedRoles={['facilitador', 'secretario']}>
+              <Button
+                variant="outline"
+                onClick={() => setIsUploadDialogOpen(true)}
+                disabled={!selectedONG || aulas.length === 0}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                Cargar Excel
+              </Button>
+            </RoleGuard>
+            <RoleGuard ongId={selectedONG} allowedRoles={['facilitador', 'secretario']}>
+              <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedONG || aulas.length === 0}>
+                <Plus className="mr-2 h-4 w-4" />
+                Nuevo Estudiante
+              </Button>
+            </RoleGuard>
           </div>
         </div>
       </div>
@@ -286,18 +293,20 @@ export function EstudianteList() {
             <p className="text-muted-foreground mb-4">
               {searchTerm ? 'No se encontraron estudiantes con ese criterio' : 'No hay estudiantes registrados'}
             </p>
-            <div className="flex gap-2">
-              <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedONG || aulas.length === 0}>
-                <Plus className="mr-2 h-4 w-4" />
-                Agregar Estudiante
-              </Button>
-              {selectedONG && aulas.length > 0 && (
-                <Button variant="outline" onClick={() => setIsUploadDialogOpen(true)}>
-                  <Upload className="mr-2 h-4 w-4" />
-                  Cargar desde Excel
+            <RoleGuard ongId={selectedONG} allowedRoles={['facilitador', 'secretario']}>
+              <div className="flex gap-2">
+                <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedONG || aulas.length === 0}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Agregar Estudiante
                 </Button>
-              )}
-            </div>
+                {selectedONG && aulas.length > 0 && (
+                  <Button variant="outline" onClick={() => setIsUploadDialogOpen(true)}>
+                    <Upload className="mr-2 h-4 w-4" />
+                    Cargar desde Excel
+                  </Button>
+                )}
+              </div>
+            </RoleGuard>
           </CardContent>
         </Card>
       ) : (
@@ -337,18 +346,24 @@ export function EstudianteList() {
                         </span>
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setSelectedEstudianteForMovimiento(estudiante)
-                            setIsMovimientoDialogOpen(true)
-                          }}
-                          disabled={!estudiante.activo || aulas.length <= 1}
-                          title={aulas.length <= 1 ? 'Necesitas al menos 2 aulas para mover estudiantes' : 'Mover a otra aula'}
+                        <RoleGuard 
+                          ongId={selectedONG} 
+                          allowedRoles={['facilitador', 'secretario']}
+                          fallback={<span className="text-sm text-muted-foreground">Solo lectura</span>}
                         >
-                          <ArrowRight className="h-4 w-4" />
-                        </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedEstudianteForMovimiento(estudiante)
+                              setIsMovimientoDialogOpen(true)
+                            }}
+                            disabled={!estudiante.activo || aulas.length <= 1}
+                            title={aulas.length <= 1 ? 'Necesitas al menos 2 aulas para mover estudiantes' : 'Mover a otra aula'}
+                          >
+                            <ArrowRight className="h-4 w-4" />
+                          </Button>
+                        </RoleGuard>
                       </TableCell>
                     </TableRow>
                   ))}

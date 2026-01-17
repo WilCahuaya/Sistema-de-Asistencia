@@ -1,177 +1,166 @@
-# Supabase CLI
+# Sistema de Gestión de Asistencias
 
-[![Coverage Status](https://coveralls.io/repos/github/supabase/cli/badge.svg?branch=main)](https://coveralls.io/github/supabase/cli?branch=main) [![Bitbucket Pipelines](https://img.shields.io/bitbucket/pipelines/supabase-cli/setup-cli/master?style=flat-square&label=Bitbucket%20Canary)](https://bitbucket.org/supabase-cli/setup-cli/pipelines) [![Gitlab Pipeline Status](https://img.shields.io/gitlab/pipeline-status/sweatybridge%2Fsetup-cli?label=Gitlab%20Canary)
-](https://gitlab.com/sweatybridge/setup-cli/-/pipelines)
+Sistema web para la gestión de asistencias de estudiantes en Organizaciones No Gubernamentales (ONG). Desarrollado con Next.js 14, TypeScript, Supabase y Tailwind CSS.
 
-[Supabase](https://supabase.io) is an open source Firebase alternative. We're building the features of Firebase using enterprise-grade open source tools.
+## Características
 
-This repository contains all the functionality for Supabase CLI.
+- ✅ **Autenticación con Google OAuth** - Inicio de sesión seguro con Google
+- ✅ **Gestión Multi-entidad** - Soporte para múltiples ONGs con datos aislados
+- ✅ **Gestión de Aulas** - Crear y administrar aulas por ONG
+- ✅ **Gestión de Estudiantes** - Registro individual y carga masiva desde Excel
+- ✅ **Registro de Asistencias** - Registro diario con estados: Presente, Faltó, Permiso
+- ✅ **Movimiento de Estudiantes** - Transferencia entre aulas con historial de auditoría
+- ✅ **Reportes y Exportación** - Generación de reportes semanales, mensuales y generales en Excel y PDF
+- ✅ **Row Level Security (RLS)** - Seguridad a nivel de base de datos para multi-tenancy
+- ✅ **Control de Acceso por Roles** - Director, Secretario y Tutor con permisos específicos
 
-- [x] Running Supabase locally
-- [x] Managing database migrations
-- [x] Creating and deploying Supabase Functions
-- [x] Generating types directly from your database schema
-- [x] Making authenticated HTTP requests to [Management API](https://supabase.com/docs/reference/api/introduction)
+## Tecnologías
 
-## Getting started
+- **Frontend**: Next.js 14 (App Router), React 18, TypeScript
+- **Backend**: Supabase (PostgreSQL, Auth, Storage)
+- **Estilos**: Tailwind CSS, shadcn/ui
+- **Autenticación**: Google OAuth 2.0
+- **Formularios**: React Hook Form + Zod
+- **Exportación**: xlsx, jspdf
 
-### Install the CLI
+## Requisitos Previos
 
-Available via [NPM](https://www.npmjs.com) as dev dependency. To install:
+- Node.js 18+ y npm
+- Cuenta de Supabase
+- Credenciales de Google OAuth (para autenticación)
+
+## Instalación
+
+1. Clonar el repositorio:
+```bash
+git clone <url-del-repositorio>
+cd Asistencia
+```
+
+2. Instalar dependencias:
+```bash
+npm install
+```
+
+3. Configurar variables de entorno:
+```bash
+cp .env.example .env.local
+```
+
+Editar `.env.local` y agregar tus credenciales de Supabase:
+```env
+NEXT_PUBLIC_SUPABASE_URL=tu_url_de_supabase
+NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_anon_key
+```
+
+4. Configurar base de datos:
+   - Crear un proyecto en Supabase
+   - Ejecutar las migraciones SQL desde `supabase/migrations/` en el SQL Editor de Supabase
+   - Ver `docs/CONFIGURACION_SUPABASE.md` para más detalles
+
+5. Configurar Google OAuth:
+   - Ver `docs/CONFIGURACION_GOOGLE_OAUTH.md` para instrucciones detalladas
+
+6. Ejecutar el proyecto en desarrollo:
+```bash
+npm run dev
+```
+
+Abrir [http://localhost:3000](http://localhost:3000) en el navegador.
+
+## Estructura del Proyecto
+
+```
+Asistencia/
+├── app/                    # Next.js App Router
+│   ├── (auth)/            # Rutas de autenticación
+│   ├── (dashboard)/       # Rutas del dashboard (protegidas)
+│   ├── api/               # API routes
+│   └── globals.css        # Estilos globales
+├── components/            # Componentes React
+│   ├── features/         # Componentes por funcionalidad
+│   ├── layout/           # Componentes de layout
+│   └── ui/               # Componentes UI (shadcn/ui)
+├── contexts/             # Contextos de React
+├── lib/                  # Utilidades y helpers
+│   └── supabase/         # Clientes de Supabase
+├── supabase/
+│   └── migrations/       # Migraciones SQL
+└── docs/                 # Documentación
+
+```
+
+## Roles y Permisos
+
+### Director
+- Acceso completo a todas las funcionalidades
+- Gestión de ONGs, aulas y estudiantes
+- Registro y edición de asistencias
+- Generación y exportación de reportes
+
+### Secretario
+- Mismas capacidades que el Director
+- Gestión completa de datos
+
+### Tutor/Docente
+- Solo visualización de asistencias
+- No puede crear, editar o eliminar registros
+
+## Funcionalidades Principales
+
+### Gestión de Estudiantes
+- Registro individual de estudiantes
+- Carga masiva desde archivos Excel (.xlsx)
+- Búsqueda y filtrado por ONG, aula, nombre o código
+- Movimiento de estudiantes entre aulas
+
+### Registro de Asistencias
+- Registro diario por aula
+- Estados: Presente, Faltó, Permiso
+- Edición de asistencias individuales
+- Campos opcionales de observaciones
+
+### Reportes
+- **Reporte Semanal**: Estadísticas de la semana actual
+- **Reporte Mensual**: Estadísticas del mes actual
+- **Reporte General**: Estadísticas desde el inicio del año
+- Exportación a Excel (múltiples hojas)
+- Exportación a PDF
+
+## Migraciones de Base de Datos
+
+Las migraciones SQL se encuentran en `supabase/migrations/` y deben ejecutarse en orden:
+
+1. `20240101000000_initial_schema.sql` - Esquema inicial
+2. `20240101000001_rls_policies.sql` - Políticas RLS
+3. `20240101000002_trigger_usuario.sql` - Trigger de sincronización de usuarios
+4. ... (migraciones adicionales para correcciones)
+
+Ver `docs/INSTRUCCIONES_MIGRACIONES.md` para más detalles.
+
+## Desarrollo
+
+### Scripts Disponibles
 
 ```bash
-npm i supabase --save-dev
+npm run dev      # Servidor de desarrollo
+npm run build    # Construcción para producción
+npm run start    # Servidor de producción
+npm run lint     # Linting con ESLint
 ```
 
-When installing with yarn 4, you need to disable experimental fetch with the following nodejs config.
+## Seguridad
 
-```
-NODE_OPTIONS=--no-experimental-fetch yarn add supabase
-```
+- Row Level Security (RLS) habilitado en todas las tablas
+- Datos aislados por ONG mediante políticas RLS
+- Autenticación JWT con Supabase Auth
+- Validación de formularios con Zod
+- Control de acceso basado en roles
 
-> **Note**
-For Bun versions below v1.0.17, you must add `supabase` as a [trusted dependency](https://bun.sh/guides/install/trusted) before running `bun add -D supabase`.
+## Licencia
 
-<details>
-  <summary><b>macOS</b></summary>
+MIT
 
-  Available via [Homebrew](https://brew.sh). To install:
+## Soporte
 
-  ```sh
-  brew install supabase/tap/supabase
-  ```
-
-  To install the beta release channel:
-  
-  ```sh
-  brew install supabase/tap/supabase-beta
-  brew link --overwrite supabase-beta
-  ```
-  
-  To upgrade:
-
-  ```sh
-  brew upgrade supabase
-  ```
-</details>
-
-<details>
-  <summary><b>Windows</b></summary>
-
-  Available via [Scoop](https://scoop.sh). To install:
-
-  ```powershell
-  scoop bucket add supabase https://github.com/supabase/scoop-bucket.git
-  scoop install supabase
-  ```
-
-  To upgrade:
-
-  ```powershell
-  scoop update supabase
-  ```
-</details>
-
-<details>
-  <summary><b>Linux</b></summary>
-
-  Available via [Homebrew](https://brew.sh) and Linux packages.
-
-  #### via Homebrew
-
-  To install:
-
-  ```sh
-  brew install supabase/tap/supabase
-  ```
-
-  To upgrade:
-
-  ```sh
-  brew upgrade supabase
-  ```
-
-  #### via Linux packages
-
-  Linux packages are provided in [Releases](https://github.com/supabase/cli/releases). To install, download the `.apk`/`.deb`/`.rpm`/`.pkg.tar.zst` file depending on your package manager and run the respective commands.
-
-  ```sh
-  sudo apk add --allow-untrusted <...>.apk
-  ```
-
-  ```sh
-  sudo dpkg -i <...>.deb
-  ```
-
-  ```sh
-  sudo rpm -i <...>.rpm
-  ```
-
-  ```sh
-  sudo pacman -U <...>.pkg.tar.zst
-  ```
-</details>
-
-<details>
-  <summary><b>Other Platforms</b></summary>
-
-  You can also install the CLI via [go modules](https://go.dev/ref/mod#go-install) without the help of package managers.
-
-  ```sh
-  go install github.com/supabase/cli@latest
-  ```
-
-  Add a symlink to the binary in `$PATH` for easier access:
-
-  ```sh
-  ln -s "$(go env GOPATH)/bin/cli" /usr/bin/supabase
-  ```
-
-  This works on other non-standard Linux distros.
-</details>
-
-<details>
-  <summary><b>Community Maintained Packages</b></summary>
-
-  Available via [pkgx](https://pkgx.sh/). Package script [here](https://github.com/pkgxdev/pantry/blob/main/projects/supabase.com/cli/package.yml).
-  To install in your working directory:
-
-  ```bash
-  pkgx install supabase
-  ```
-
-  Available via [Nixpkgs](https://nixos.org/). Package script [here](https://github.com/NixOS/nixpkgs/blob/master/pkgs/development/tools/supabase-cli/default.nix).
-</details>
-
-### Run the CLI
-
-```bash
-supabase bootstrap
-```
-
-Or using npx:
-
-```bash
-npx supabase bootstrap
-```
-
-The bootstrap command will guide you through the process of setting up a Supabase project using one of the [starter](https://github.com/supabase-community/supabase-samples/blob/main/samples.json) templates.
-
-## Docs
-
-Command & config reference can be found [here](https://supabase.com/docs/reference/cli/about).
-
-## Breaking changes
-
-We follow semantic versioning for changes that directly impact CLI commands, flags, and configurations.
-
-However, due to dependencies on other service images, we cannot guarantee that schema migrations, seed.sql, and generated types will always work for the same CLI major version. If you need such guarantees, we encourage you to pin a specific version of CLI in package.json.
-
-## Developing
-
-To run from source:
-
-```sh
-# Go >= 1.22
-go run . help
-```
+Para problemas o preguntas, consulta la documentación en `docs/` o abre un issue en el repositorio.

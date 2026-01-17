@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { checkUserAccess } from '@/lib/utils/check-user-access'
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -47,13 +48,32 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Si el usuario está autenticado y está en /login, redirigir al dashboard
+  // Si el usuario está autenticado y está en /login, verificar acceso y redirigir
   // EXCEPTO si hay un parámetro logout=true (indicando que estamos cerrando sesión)
   const isLogout = request.nextUrl.searchParams.get('logout') === 'true'
   if (user && request.nextUrl.pathname.startsWith('/login') && !isLogout) {
+    // Verificar si el usuario tiene acceso (tiene al menos una ONG)
+    const accessCheck = await checkUserAccess(user.id)
     const url = request.nextUrl.clone()
-    url.pathname = '/dashboard'
+    if (accessCheck.hasAccess) {
+      url.pathname = '/dashboard'
+    } else {
+      url.pathname = '/dashboard/no-autorizado'
+    }
     return NextResponse.redirect(url)
+  }
+
+  // Si el usuario está autenticado y accede a rutas del dashboard, verificar que tenga ONGs
+  // EXCEPTO la ruta /no-autorizado que debe ser accesible
+  const isDashboardRoute = request.nextUrl.pathname.startsWith('/dashboard')
+  const isNoAutorizadoRoute = request.nextUrl.pathname.startsWith('/dashboard/no-autorizado')
+  if (user && isDashboardRoute && !isNoAutorizadoRoute) {
+    const accessCheck = await checkUserAccess(user.id)
+    if (!accessCheck.hasAccess) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/dashboard/no-autorizado'
+      return NextResponse.redirect(url)
+    }
   }
 
   // IMPORTANT: You *must* return the supabaseResponse object as it is. If you're

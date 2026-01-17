@@ -20,7 +20,6 @@ export default async function DashboardPage() {
     .single()
 
   // Si no existe el usuario en la tabla, se creará automáticamente por el trigger
-  // pero mostramos la información del auth.users por ahora
   if (usuarioError) {
     console.log('Usuario no encontrado en tabla usuarios (se creará automáticamente):', usuarioError)
   }
@@ -39,27 +38,54 @@ export default async function DashboardPage() {
     console.error('Error loading ONGs:', ongsError)
   }
 
-  // Obtener estadísticas básicas (primera ONG como ejemplo)
+  // Bloquear acceso si el usuario no tiene ONGs asignadas
+  if (!ongs || ongs.length === 0) {
+    redirect('/dashboard/no-autorizado')
+  }
+
+  // Obtener estadísticas básicas usando función RPC que respeta RLS
+  // Esto asegura que las políticas se apliquen correctamente para todos los roles
   let estadisticas = null
   if (ongs && ongs.length > 0) {
-    const primeraOng = ongs[0].ong
-    if (primeraOng) {
-      const { count: countAulas } = await supabase
-        .from('aulas')
-        .select('*', { count: 'exact', head: true })
-        .eq('ong_id', primeraOng.id)
-        .eq('activa', true)
+    let totalAulas = 0
+    let totalEstudiantes = 0
 
-      const { count: countEstudiantes } = await supabase
-        .from('estudiantes')
-        .select('*', { count: 'exact', head: true })
-        .eq('ong_id', primeraOng.id)
-        .eq('activo', true)
+    // Usar función RPC que respeta explícitamente las políticas RLS
+    // Llamar sin parámetros para obtener stats de todas las ONGs del usuario
+    const { data: statsData, error: statsError } = await supabase.rpc('get_dashboard_stats', { p_ong_id: null })
 
-      estadisticas = {
-        aulas: countAulas || 0,
-        estudiantes: countEstudiantes || 0,
+    if (statsError) {
+      console.error('Error obteniendo estadísticas del dashboard:', statsError)
+      // Fallback a método anterior si la función RPC no está disponible
+      for (const usuarioOng of ongs) {
+        if (usuarioOng.ong) {
+          const { count: countAulas } = await supabase
+            .from('aulas')
+            .select('id', { count: 'exact' })
+            .eq('ong_id', usuarioOng.ong.id)
+            .eq('activa', true)
+
+          const { count: countEstudiantes } = await supabase
+            .from('estudiantes')
+            .select('id', { count: 'exact' })
+            .eq('ong_id', usuarioOng.ong.id)
+            .eq('activo', true)
+
+          totalAulas += countAulas || 0
+          totalEstudiantes += countEstudiantes || 0
+        }
       }
+    } else if (statsData && statsData.length > 0) {
+      // Sumar estadísticas de todas las ONGs
+      for (const stat of statsData) {
+        totalAulas += stat.total_aulas || 0
+        totalEstudiantes += stat.total_estudiantes || 0
+      }
+    }
+
+    estadisticas = {
+      aulas: totalAulas,
+      estudiantes: totalEstudiantes,
     }
   }
 
@@ -76,7 +102,7 @@ export default async function DashboardPage() {
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
         {/* Card de ONGs */}
-        <Link href="/dashboard/ongs">
+        <Link href="/ongs">
           <Card className="cursor-pointer transition-shadow hover:shadow-lg">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">ONGs</CardTitle>
@@ -92,7 +118,7 @@ export default async function DashboardPage() {
         </Link>
 
         {/* Card de Aulas */}
-        <Link href="/dashboard/aulas">
+        <Link href="/aulas">
           <Card className="cursor-pointer transition-shadow hover:shadow-lg">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Aulas</CardTitle>
@@ -106,7 +132,7 @@ export default async function DashboardPage() {
         </Link>
 
         {/* Card de Estudiantes */}
-        <Link href="/dashboard/estudiantes">
+        <Link href="/estudiantes">
           <Card className="cursor-pointer transition-shadow hover:shadow-lg">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Estudiantes</CardTitle>
@@ -120,7 +146,7 @@ export default async function DashboardPage() {
         </Link>
 
         {/* Card de Asistencias */}
-        <Link href="/dashboard/asistencias">
+        <Link href="/asistencias">
           <Card className="cursor-pointer transition-shadow hover:shadow-lg">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Asistencias</CardTitle>
@@ -161,7 +187,7 @@ export default async function DashboardPage() {
                   />
                 </div>
               )}
-              {ongs && ongs.length > 0 ? (
+              {ongs && ongs.length > 0 && (
                 <div className="mt-4">
                   <p className="text-sm font-medium mb-2">Mis ONGs:</p>
                   <div className="space-y-1">
@@ -178,12 +204,6 @@ export default async function DashboardPage() {
                     ))}
                   </div>
                 </div>
-              ) : (
-                <div className="mt-4">
-                  <p className="text-sm text-muted-foreground">
-                    No tienes ONGs asignadas aún. Crea una desde la sección ONGs.
-                  </p>
-                </div>
               )}
             </div>
           </CardContent>
@@ -192,4 +212,3 @@ export default async function DashboardPage() {
     </div>
   )
 }
-

@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Plus, Building2 } from 'lucide-react'
-import { ONGDialog } from './ONGDialog'
+import { Building2, Users } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 
 interface ONG {
   id: string
@@ -20,8 +20,7 @@ interface ONG {
 export function ONGList() {
   const [ongs, setONGs] = useState<ONG[]>([])
   const [loading, setLoading] = useState(true)
-  const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const supabase = createClient()
+  const router = useRouter()
 
   useEffect(() => {
     loadONGs()
@@ -30,17 +29,36 @@ export function ONGList() {
   const loadONGs = async () => {
     try {
       setLoading(true)
+      const supabase = createClient()
+      
+      // Verificar que el usuario esté autenticado
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError || !user) {
+        console.error('Error obteniendo usuario:', userError)
+        setONGs([])
+        return
+      }
+
       const { data, error } = await supabase
         .from('usuario_ong')
         .select(`
           *,
           ong:ongs(*)
         `)
+        .eq('usuario_id', user.id)
         .eq('activo', true)
 
       if (error) throw error
 
-      const ongsList = data?.map((item: any) => item.ong).filter(Boolean) || []
+      // Filtrar y mapear ONGs, eliminando duplicados por ID
+      const ongsMap = new Map<string, ONG>()
+      data?.forEach((item: any) => {
+        if (item.ong && item.ong.id) {
+          ongsMap.set(item.ong.id, item.ong)
+        }
+      })
+      
+      const ongsList = Array.from(ongsMap.values())
       setONGs(ongsList)
     } catch (error) {
       console.error('Error loading ONGs:', error)
@@ -49,34 +67,26 @@ export function ONGList() {
     }
   }
 
-  const handleONGCreated = () => {
-    loadONGs()
-    setIsDialogOpen(false)
-  }
-
   if (loading) {
     return <div className="text-center py-8">Cargando ONGs...</div>
   }
 
   return (
     <div>
-      <div className="mb-6 flex justify-between items-center">
+      <div className="mb-6">
         <h2 className="text-xl font-semibold">Mis ONGs</h2>
-        <Button onClick={() => setIsDialogOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Crear ONG
-        </Button>
+        <p className="text-sm text-muted-foreground mt-1">
+          Las ONGs y facilitadores se gestionan desde la base de datos. Contacta al administrador para crear una nueva ONG.
+        </p>
       </div>
 
       {ongs.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Building2 className="h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground mb-4">No tienes ONGs registradas</p>
-            <Button onClick={() => setIsDialogOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Crear primera ONG
-            </Button>
+            <p className="text-muted-foreground mb-4 text-center">
+              No tienes ONGs asignadas. Contacta a un facilitador para que te agregue a una ONG.
+            </p>
           </CardContent>
         </Card>
       ) : (
@@ -106,7 +116,7 @@ export function ONGList() {
                       <span className="font-medium">Email:</span> {ong.email}
                     </p>
                   )}
-                  <div className="pt-2">
+                  <div className="pt-2 flex items-center justify-between">
                     <span
                       className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
                         ong.activa
@@ -116,6 +126,15 @@ export function ONGList() {
                     >
                       {ong.activa ? 'Activa' : 'Inactiva'}
                     </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => router.push(`/ongs/${ong.id}/miembros`)}
+                      className="text-xs"
+                    >
+                      <Users className="mr-1 h-3 w-3" />
+                      Miembros
+                    </Button>
                   </div>
                 </div>
               </CardContent>
@@ -123,12 +142,6 @@ export function ONGList() {
           ))}
         </div>
       )}
-
-      <ONGDialog
-        open={isDialogOpen}
-        onOpenChange={setIsDialogOpen}
-        onSuccess={handleONGCreated}
-      />
     </div>
   )
 }

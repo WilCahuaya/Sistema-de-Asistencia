@@ -18,6 +18,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
+import { useUserRole } from '@/hooks/useUserRole'
+import { RoleGuard } from '@/components/auth/RoleGuard'
 
 interface Asistencia {
   id: string
@@ -48,6 +50,7 @@ export function AsistenciaList() {
   const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
   const [searchTerm, setSearchTerm] = useState('')
   const router = useRouter()
+  const { canEdit } = useUserRole(selectedONG)
 
   useEffect(() => {
     loadUserONGs()
@@ -276,16 +279,18 @@ export function AsistenciaList() {
           />
         </div>
 
-        <div className="flex items-end">
-          <Button
-            onClick={() => setIsRegistroDialogOpen(true)}
-            disabled={!selectedONG || !selectedAula}
-            className="w-full"
-          >
-            <Calendar className="mr-2 h-4 w-4" />
-            Registrar Asistencias
-          </Button>
-        </div>
+        <RoleGuard ongId={selectedONG} allowedRoles={['facilitador', 'secretario']}>
+          <div className="flex items-end">
+            <Button
+              onClick={() => setIsRegistroDialogOpen(true)}
+              disabled={!selectedONG || !selectedAula}
+              className="w-full"
+            >
+              <Calendar className="mr-2 h-4 w-4" />
+              Registrar Asistencias
+            </Button>
+          </div>
+        </RoleGuard>
       </div>
 
       <div className="mb-4">
@@ -312,15 +317,17 @@ export function AsistenciaList() {
                 ? 'No hay asistencias registradas para esta fecha'
                 : 'No se encontraron asistencias que coincidan con la búsqueda'}
             </p>
-            {asistencias.length === 0 && (
-              <Button
-                onClick={() => setIsRegistroDialogOpen(true)}
-                disabled={!selectedONG || !selectedAula}
-              >
-                <Calendar className="mr-2 h-4 w-4" />
-                Registrar Asistencias
-              </Button>
-            )}
+            <RoleGuard ongId={selectedONG} allowedRoles={['facilitador', 'secretario']}>
+              {asistencias.length === 0 && (
+                <Button
+                  onClick={() => setIsRegistroDialogOpen(true)}
+                  disabled={!selectedONG || !selectedAula}
+                >
+                  <Calendar className="mr-2 h-4 w-4" />
+                  Registrar Asistencias
+                </Button>
+              )}
+            </RoleGuard>
           </CardContent>
         </Card>
       ) : (
@@ -347,13 +354,19 @@ export function AsistenciaList() {
                     {asistencia.observaciones || '-'}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEditAsistencia(asistencia)}
+                    <RoleGuard 
+                      ongId={selectedONG} 
+                      allowedRoles={['facilitador', 'secretario']}
+                      fallback={<span className="text-sm text-muted-foreground">Solo lectura</span>}
                     >
-                      <Edit className="h-4 w-4" />
-                    </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleEditAsistencia(asistencia)}
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                    </RoleGuard>
                   </TableCell>
                 </TableRow>
               ))}
