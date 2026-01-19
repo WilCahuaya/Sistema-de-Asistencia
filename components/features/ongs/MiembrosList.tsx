@@ -24,17 +24,17 @@ interface Miembro {
   id: string
   usuario_id: string | null
   email_pendiente?: string | null
-  ong_id: string
-  rol: 'facilitador' | 'secretario' | 'tutor'
+  fcp_id: string
+  rol: 'facilitador' | 'director' | 'secretario' | 'tutor'
   activo: boolean
   fecha_asignacion: string
   usuario?: {
     email: string
     nombre_completo?: string
   }
-  ong?: {
+  fcp?: {
     id: string
-    nombre: string
+    razon_social: string
   }
   aulas?: Array<{
     id: string
@@ -43,58 +43,60 @@ interface Miembro {
 }
 
 interface MiembrosListProps {
-  ongId: string
+  fcpId: string
 }
 
-export function MiembrosList({ ongId }: MiembrosListProps) {
+export function MiembrosList({ fcpId }: MiembrosListProps) {
   const [miembros, setMiembros] = useState<Miembro[]>([])
   const [loading, setLoading] = useState(true)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [selectedMiembro, setSelectedMiembro] = useState<Miembro | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
-  const [ongNombre, setOngNombre] = useState<string>('')
-  const { isFacilitador } = useUserRole(ongId)
+  const [fcpNombre, setFcpNombre] = useState<string>('')
+  const { isFacilitador, isDirector, isSecretario } = useUserRole(fcpId)
+  const canView = isFacilitador || isDirector || isSecretario
+  const canManage = isDirector || isSecretario // Facilitadores solo pueden ver
 
   useEffect(() => {
-    if (ongId) {
+    if (fcpId) {
       loadMiembros()
-      loadONGNombre()
+      loadFCPNombre()
     }
-  }, [ongId])
+  }, [fcpId])
 
-  const loadONGNombre = async () => {
-    if (!ongId) return
+  const loadFCPNombre = async () => {
+    if (!fcpId) return
 
     try {
       const supabase = createClient()
       const { data, error } = await supabase
-        .from('ongs')
-        .select('nombre')
-        .eq('id', ongId)
+        .from('fcps')
+        .select('razon_social')
+        .eq('id', fcpId)
         .single()
 
       if (error) throw error
       if (data) {
-        setOngNombre(data.nombre)
+        setFcpNombre(data.razon_social)
       }
     } catch (error) {
-      console.error('Error loading ONG nombre:', error)
+      console.error('Error loading FCP nombre:', error)
     }
   }
 
   const loadMiembros = async () => {
-    if (!ongId) return
+    if (!fcpId) return
 
     try {
       setLoading(true)
       const supabase = createClient()
       const { data, error } = await supabase
-        .from('usuario_ong')
+        .from('fcp_miembros')
         .select(`
           id,
           usuario_id,
           email_pendiente,
-          ong_id,
+          fcp_id,
           rol,
           activo,
           fecha_asignacion,
@@ -102,12 +104,13 @@ export function MiembrosList({ ongId }: MiembrosListProps) {
             email,
             nombre_completo
           ),
-          ong:ongs(
+          fcp:fcps(
             id,
-            nombre
+            razon_social
           )
         `)
-        .eq('ong_id', ongId)
+        .eq('fcp_id', fcpId)
+        .neq('rol', 'facilitador') // Excluir facilitadores de la lista
         .order('fecha_asignacion', { ascending: false })
 
       if (error) throw error
@@ -168,9 +171,9 @@ export function MiembrosList({ ongId }: MiembrosListProps) {
                   nombre
                 )
               `)
-              .eq('usuario_ong_id', miembro.id)
+              .eq('fcp_miembro_id', miembro.id)
               .eq('activo', true)
-              .eq('ong_id', ongId)
+              .eq('fcp_id', fcpId)
             
             if (tutorAulasError) {
               console.error('Error cargando aulas del tutor:', tutorAulasError)
@@ -233,13 +236,13 @@ export function MiembrosList({ ongId }: MiembrosListProps) {
     setIsEditDialogOpen(true)
   }
 
-  if (!isFacilitador) {
+  if (!canView) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
           <Users className="h-12 w-12 text-muted-foreground mb-4" />
           <p className="text-muted-foreground mb-4">
-            Solo los facilitadores pueden gestionar miembros de la ONG.
+            Solo los facilitadores, directores y secretarios pueden ver miembros de la FCP.
           </p>
         </CardContent>
       </Card>
@@ -258,15 +261,15 @@ export function MiembrosList({ ongId }: MiembrosListProps) {
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Users className="h-5 w-5" />
-                Miembros de la ONG
+                Miembros de la FCP
               </CardTitle>
-              {ongNombre && (
+              {fcpNombre && (
                 <p className="text-sm text-muted-foreground mt-1">
-                  ONG: <span className="font-medium">{ongNombre}</span>
+                  FCP: <span className="font-medium">{fcpNombre}</span>
                 </p>
               )}
             </div>
-            <RoleGuard ongId={ongId} allowedRoles={['facilitador']}>
+            <RoleGuard fcpId={fcpId} allowedRoles={['director', 'secretario']}>
               <Button onClick={() => setIsAddDialogOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
                 Agregar Miembro
@@ -279,9 +282,9 @@ export function MiembrosList({ ongId }: MiembrosListProps) {
             <div className="text-center py-8">
               <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <p className="text-muted-foreground mb-4">
-                No hay miembros registrados en esta ONG
+                No hay miembros registrados en esta FCP
               </p>
-              <RoleGuard ongId={ongId} allowedRoles={['facilitador']}>
+              <RoleGuard fcpId={fcpId} allowedRoles={['director', 'secretario']}>
                 <Button onClick={() => setIsAddDialogOpen(true)}>
                   <Plus className="mr-2 h-4 w-4" />
                   Agregar Primer Miembro
@@ -295,7 +298,7 @@ export function MiembrosList({ ongId }: MiembrosListProps) {
                   <TableRow>
                     <TableHead>Nombre</TableHead>
                     <TableHead>Email</TableHead>
-                    <TableHead>ONG</TableHead>
+                    <TableHead>FCP</TableHead>
                     <TableHead>Rol</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead>Fecha de Asignación</TableHead>
@@ -319,7 +322,7 @@ export function MiembrosList({ ongId }: MiembrosListProps) {
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="font-normal">
-                          {miembro.ong?.nombre || 'Sin ONG'}
+                          {miembro.fcp?.razon_social || 'Sin FCP'}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -365,7 +368,7 @@ export function MiembrosList({ ongId }: MiembrosListProps) {
                         )}
                       </TableCell>
                       <TableCell>
-                        <RoleGuard ongId={ongId} allowedRoles={['facilitador']}>
+                        <RoleGuard fcpId={fcpId} allowedRoles={['director', 'secretario']}>
                           <Button
                             variant="ghost"
                             size="sm"
@@ -388,7 +391,7 @@ export function MiembrosList({ ongId }: MiembrosListProps) {
         open={isAddDialogOpen}
         onOpenChange={setIsAddDialogOpen}
         onSuccess={handleMiembroAdded}
-        ongId={ongId}
+        fcpId={fcpId}
       />
 
       {selectedMiembro && (

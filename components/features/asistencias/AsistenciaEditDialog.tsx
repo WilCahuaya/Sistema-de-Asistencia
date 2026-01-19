@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Textarea } from '@/components/ui/textarea'
 import { Edit } from 'lucide-react'
+import { useUserRole } from '@/hooks/useUserRole'
 
 interface Asistencia {
   id: string
@@ -29,7 +30,7 @@ interface Asistencia {
       nombre: string
     }
   }
-  ong_id: string
+  fcp_id: string
 }
 
 interface AsistenciaEditDialogProps {
@@ -48,6 +49,7 @@ export function AsistenciaEditDialog({
   const [loading, setLoading] = useState(false)
   const [estado, setEstado] = useState<'presente' | 'falto' | 'permiso'>(asistencia.estado)
   const [observaciones, setObservaciones] = useState(asistencia.observaciones || '')
+  const { canEdit, role } = useUserRole(asistencia.fcp_id)
 
   useEffect(() => {
     if (open) {
@@ -57,6 +59,12 @@ export function AsistenciaEditDialog({
   }, [open, asistencia])
 
   const onSubmit = async () => {
+    // Validar permisos: solo director y secretario pueden editar asistencias
+    if (!canEdit || (role !== 'director' && role !== 'secretario')) {
+      alert('No tienes permisos para editar asistencias. Solo los directores y secretarios pueden realizar esta acción.')
+      return
+    }
+
     try {
       setLoading(true)
 

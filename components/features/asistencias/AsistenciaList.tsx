@@ -34,7 +34,7 @@ interface Asistencia {
       nombre: string
     }
   }
-  ong_id: string
+  fcp_id: string
 }
 
 export function AsistenciaList() {
@@ -43,74 +43,105 @@ export function AsistenciaList() {
   const [isRegistroDialogOpen, setIsRegistroDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [selectedAsistencia, setSelectedAsistencia] = useState<Asistencia | null>(null)
-  const [selectedONG, setSelectedONG] = useState<string | null>(null)
+  const [selectedFCP, setSelectedONG] = useState<string | null>(null)
   const [selectedAula, setSelectedAula] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0])
-  const [userONGs, setUserONGs] = useState<Array<{ id: string; nombre: string }>>([])
+  const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string }>>([])
   const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
   const [searchTerm, setSearchTerm] = useState('')
   const router = useRouter()
-  const { canEdit } = useUserRole(selectedONG)
+  const { canEdit } = useUserRole(selectedFCP)
 
   useEffect(() => {
-    loadUserONGs()
+    loadUserFCPs()
   }, [])
 
   useEffect(() => {
-    if (userONGs.length > 0 && !selectedONG) {
-      setSelectedONG(userONGs[0].id)
+    if (userFCPs.length > 0 && !selectedFCP) {
+      setSelectedONG(userFCPs[0].id)
     }
-  }, [userONGs])
+  }, [userFCPs])
 
   useEffect(() => {
-    if (selectedONG) {
+    if (selectedFCP) {
       loadAulas()
     }
-  }, [selectedONG])
+  }, [selectedFCP])
 
   useEffect(() => {
-    if (selectedONG) {
+    if (selectedFCP) {
       loadAsistencias()
     }
-  }, [selectedONG, selectedAula, selectedDate])
+  }, [selectedFCP, selectedAula, selectedDate])
 
-  const loadUserONGs = async () => {
+  const loadUserFCPs = async () => {
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      const { data, error } = await supabase
-        .from('usuario_ong')
-        .select(`
-          ong_id,
-          ong:ongs(id, nombre)
-        `)
+      // Verificar si el usuario es facilitador en alguna FCP
+      const { data: usuarioFcpData, error: usuarioFcpError } = await supabase
+        .from('fcp_miembros')
+        .select('rol')
         .eq('usuario_id', user.id)
+        .eq('rol', 'facilitador')
         .eq('activo', true)
+        .limit(1)
 
-      if (error) throw error
+      if (usuarioFcpError) throw usuarioFcpError
 
-      const ongs = data?.map((item: any) => ({
-        id: item.ong.id,
-        nombre: item.ong.nombre,
-      })) || []
+      const isFacilitador = usuarioFcpData && usuarioFcpData.length > 0
 
-      setUserONGs(ongs)
+      let fcps: Array<{ id: string; nombre: string }> = []
+
+      if (isFacilitador) {
+        // Facilitadores pueden ver todas las FCPs del sistema
+        const { data: todasLasFCPs, error: fcpsError } = await supabase
+          .from('fcps')
+          .select('id, razon_social')
+          .eq('activa', true)
+          .order('razon_social', { ascending: true })
+        
+        if (fcpsError) throw fcpsError
+        fcps = (todasLasFCPs || []).map(fcp => ({
+          id: fcp.id,
+          nombre: fcp.razon_social
+        }))
+      } else {
+        // Usuarios no facilitadores solo ven sus FCPs
+        const { data, error } = await supabase
+          .from('fcp_miembros')
+          .select(`
+            fcp_id,
+            fcp:fcps(id, razon_social)
+          `)
+          .eq('usuario_id', user.id)
+          .eq('activo', true)
+
+        if (error) throw error
+
+        fcps = data?.map((item: any) => ({
+          id: item.fcp.id,
+          nombre: item.fcp.razon_social,
+        })) || []
+      }
+
+      setUserFCPs(fcps)
     } catch (error) {
-      console.error('Error loading ONGs:', error)
+      console.error('Error loading FCPs:', error)
     }
   }
 
   const loadAulas = async () => {
-    if (!selectedONG) return
+    if (!selectedFCP) return
 
     try {
       const supabase = createClient()
       const { data, error } = await supabase
         .from('aulas')
         .select('id, nombre')
-        .eq('ong_id', selectedONG)
+        .eq('fcp_id', selectedFCP)
         .eq('activa', true)
         .order('nombre', { ascending: true })
 
@@ -122,7 +153,7 @@ export function AsistenciaList() {
   }
 
   const loadAsistencias = async () => {
-    if (!selectedONG) return
+    if (!selectedFCP) return
 
     try {
       setLoading(true)
@@ -134,7 +165,7 @@ export function AsistenciaList() {
         const { data: estudiantesData, error: estudiantesError } = await supabase
           .from('estudiantes')
           .select('id')
-          .eq('ong_id', selectedONG)
+          .eq('fcp_id', selectedFCP)
           .eq('aula_id', selectedAula)
           .eq('activo', true)
 
@@ -153,7 +184,7 @@ export function AsistenciaList() {
             aula:aulas(nombre)
           )
         `)
-        .eq('ong_id', selectedONG)
+        .eq('fcp_id', selectedFCP)
         .eq('fecha', selectedDate)
 
       // Si hay filtro por aula, filtrar por IDs de estudiantes
@@ -216,16 +247,16 @@ export function AsistenciaList() {
     )
   })
 
-  if (userONGs.length === 0) {
+  if (userFCPs.length === 0) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
           <ClipboardList className="h-12 w-12 text-muted-foreground mb-4" />
           <p className="text-muted-foreground mb-4">
-            No tienes ONGs asociadas. Primero crea o únete a una ONG.
+            No tienes FCPs asociadas. Primero crea o únete a una FCP.
           </p>
-          <Button onClick={() => router.push('/ongs')}>
-            Ir a ONGs
+          <Button onClick={() => router.push('/fcps')}>
+            Ir a FCPs
           </Button>
         </CardContent>
       </Card>
@@ -236,18 +267,18 @@ export function AsistenciaList() {
     <div>
       <div className="mb-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div>
-          <label className="text-sm font-medium mb-2 block">ONG:</label>
+          <label className="text-sm font-medium mb-2 block">FCP:</label>
           <select
-            value={selectedONG || ''}
+            value={selectedFCP || ''}
             onChange={(e) => {
               setSelectedONG(e.target.value)
               setSelectedAula(null)
             }}
             className="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
           >
-            {userONGs.map((ong) => (
-              <option key={ong.id} value={ong.id}>
-                {ong.nombre}
+            {userFCPs.map((fcp) => (
+              <option key={fcp.id} value={fcp.id}>
+                {fcp.nombre}
               </option>
             ))}
           </select>
@@ -279,11 +310,11 @@ export function AsistenciaList() {
           />
         </div>
 
-        <RoleGuard ongId={selectedONG} allowedRoles={['facilitador', 'secretario']}>
+        <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
           <div className="flex items-end">
             <Button
               onClick={() => setIsRegistroDialogOpen(true)}
-              disabled={!selectedONG || !selectedAula}
+              disabled={!selectedFCP || !selectedAula}
               className="w-full"
             >
               <Calendar className="mr-2 h-4 w-4" />
@@ -317,11 +348,11 @@ export function AsistenciaList() {
                 ? 'No hay asistencias registradas para esta fecha'
                 : 'No se encontraron asistencias que coincidan con la búsqueda'}
             </p>
-            <RoleGuard ongId={selectedONG} allowedRoles={['facilitador', 'secretario']}>
+            <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
               {asistencias.length === 0 && (
                 <Button
                   onClick={() => setIsRegistroDialogOpen(true)}
-                  disabled={!selectedONG || !selectedAula}
+                  disabled={!selectedFCP || !selectedAula}
                 >
                   <Calendar className="mr-2 h-4 w-4" />
                   Registrar Asistencias
@@ -355,8 +386,8 @@ export function AsistenciaList() {
                   </TableCell>
                   <TableCell>
                     <RoleGuard 
-                      ongId={selectedONG} 
-                      allowedRoles={['facilitador', 'secretario']}
+                      fcpId={selectedFCP} 
+                      allowedRoles={['director', 'secretario']}
                       fallback={<span className="text-sm text-muted-foreground">Solo lectura</span>}
                     >
                       <Button
@@ -375,12 +406,12 @@ export function AsistenciaList() {
         </Card>
       )}
 
-      {selectedONG && selectedAula && (
+      {selectedFCP && selectedAula && (
         <AsistenciaRegistroDialog
           open={isRegistroDialogOpen}
           onOpenChange={setIsRegistroDialogOpen}
           onSuccess={handleAsistenciaCreated}
-          ongId={selectedONG}
+          fcpId={selectedFCP}
           aulaId={selectedAula}
           fecha={selectedDate}
         />

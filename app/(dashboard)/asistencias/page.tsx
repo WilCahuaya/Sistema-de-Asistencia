@@ -9,19 +9,19 @@ import { ClipboardList } from 'lucide-react'
 
 export default function AsistenciasPage() {
   const searchParams = useSearchParams()
-  const [selectedONG, setSelectedONG] = useState<string | null>(null)
+  const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
   const [selectedAula, setSelectedAula] = useState<string | null>(null)
-  const [userONGs, setUserONGs] = useState<Array<{ id: string; nombre: string }>>([])
+  const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string }>>([])
 
   useEffect(() => {
-    loadUserONGs()
+    loadUserFCPs()
   }, [])
 
   useEffect(() => {
-    if (userONGs.length > 0 && !selectedONG) {
-      setSelectedONG(userONGs[0].id)
+    if (userFCPs.length > 0 && !selectedFCP) {
+      setSelectedFCP(userFCPs[0].id)
     }
-  }, [userONGs])
+  }, [userFCPs])
 
   // Leer parámetros de URL al cargar la página
   useEffect(() => {
@@ -37,35 +37,66 @@ export default function AsistenciasPage() {
     // pero no se necesitan aquí, el componente los manejará internamente
   }, [searchParams])
 
-  const loadUserONGs = async () => {
+  const loadUserFCPs = async () => {
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      const { data, error } = await supabase
-        .from('usuario_ong')
-        .select(`
-          ong_id,
-          ong:ongs(id, nombre)
-        `)
+      // Verificar si el usuario es facilitador
+      const { data: facilitadorData, error: facilitadorError } = await supabase
+        .from('fcp_miembros')
+        .select('rol')
         .eq('usuario_id', user.id)
+        .eq('rol', 'facilitador')
         .eq('activo', true)
+        .limit(1)
 
-      if (error) throw error
+      if (facilitadorError) throw facilitadorError
 
-      const ongs = data?.map((item: any) => ({
-        id: item.ong.id,
-        nombre: item.ong.nombre,
-      })) || []
+      const esFacilitador = facilitadorData && facilitadorData.length > 0
 
-      setUserONGs(ongs)
+      let fcps: Array<{ id: string; nombre: string }> = []
+
+      if (esFacilitador) {
+        // Facilitadores pueden ver todas las FCPs del sistema
+        const { data: todasLasFCPs, error: fcpsError } = await supabase
+          .from('fcps')
+          .select('id, razon_social')
+          .eq('activa', true)
+          .order('razon_social', { ascending: true })
+        
+        if (fcpsError) throw fcpsError
+        fcps = (todasLasFCPs || []).map((fcp: any) => ({
+          id: fcp.id,
+          nombre: fcp.razon_social || 'FCP',
+        }))
+      } else {
+        // Usuarios no facilitadores solo ven sus FCPs
+        const { data, error } = await supabase
+          .from('fcp_miembros')
+          .select(`
+            fcp_id,
+            fcp:fcps(id, razon_social)
+          `)
+          .eq('usuario_id', user.id)
+          .eq('activo', true)
+
+        if (error) throw error
+
+        fcps = data?.map((item: any) => ({
+          id: item.fcp?.id,
+          nombre: item.fcp?.razon_social || 'FCP',
+        })).filter((fcp: any) => fcp.id) || []
+      }
+
+      setUserFCPs(fcps)
     } catch (error) {
-      console.error('Error loading ONGs:', error)
+      console.error('Error loading FCPs:', error)
     }
   }
 
-  if (userONGs.length === 0) {
+  if (userFCPs.length === 0) {
     return (
       <div className="container mx-auto py-6">
         <h1 className="text-3xl font-bold mb-6">Asistencias</h1>
@@ -73,7 +104,7 @@ export default function AsistenciasPage() {
           <CardContent className="flex flex-col items-center justify-center py-12">
             <ClipboardList className="h-12 w-12 text-muted-foreground mb-4" />
             <p className="text-muted-foreground mb-4">
-              No tienes ONGs asociadas. Primero crea o únete a una ONG.
+              No tienes FCPs asociadas. Primero crea o únete a una FCP.
             </p>
           </CardContent>
         </Card>
@@ -85,29 +116,29 @@ export default function AsistenciasPage() {
     <div className="container mx-auto py-6">
       <h1 className="text-3xl font-bold mb-6">Asistencias</h1>
 
-      {userONGs.length > 1 && (
+      {userFCPs.length > 1 && (
         <div className="mb-4">
-          <label className="text-sm font-medium mb-2 block">ONG:</label>
+          <label className="text-sm font-medium mb-2 block">FCP:</label>
           <select
-            value={selectedONG || ''}
+            value={selectedFCP || ''}
             onChange={(e) => {
-              setSelectedONG(e.target.value)
+              setSelectedFCP(e.target.value)
               setSelectedAula(null)
             }}
             className="w-full sm:w-auto px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
           >
-            {userONGs.map((ong) => (
-              <option key={ong.id} value={ong.id}>
-                {ong.nombre}
+            {userFCPs.map((fcp) => (
+              <option key={fcp.id} value={fcp.id}>
+                {fcp.nombre}
               </option>
             ))}
           </select>
         </div>
       )}
 
-      {selectedONG && (
+      {selectedFCP && (
         <AsistenciaCalendarView
-          ongId={selectedONG}
+          fcpId={selectedFCP}
           aulaId={selectedAula || searchParams.get('aulaId')}
           initialMonth={searchParams.get('month') ? parseInt(searchParams.get('month')!) : null}
           initialYear={searchParams.get('year') ? parseInt(searchParams.get('year')!) : null}

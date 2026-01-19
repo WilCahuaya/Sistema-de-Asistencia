@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { checkUserAccess } from '@/lib/utils/check-user-access'
+import { getUserRole } from '@/lib/utils/get-user-role'
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -52,26 +53,35 @@ export async function updateSession(request: NextRequest) {
   // EXCEPTO si hay un parámetro logout=true (indicando que estamos cerrando sesión)
   const isLogout = request.nextUrl.searchParams.get('logout') === 'true'
   if (user && request.nextUrl.pathname.startsWith('/login') && !isLogout) {
-    // Verificar si el usuario tiene acceso (tiene al menos una ONG)
+    // Verificar si el usuario tiene acceso (tiene al menos un rol asignado)
     const accessCheck = await checkUserAccess(user.id)
     const url = request.nextUrl.clone()
+    
     if (accessCheck.hasAccess) {
+      // Obtener el rol del usuario para redirigir al dashboard correcto
+      const roleInfo = await getUserRole(user.id)
+      
+      // Redirigir según el rol (todos van a /dashboard pero el contenido se adapta)
+      // Facilitador → Dashboard Facilitador (solo reportes mensuales y perfil)
+      // Director/Secretario → Dashboard completo
+      // Tutor → Vista limitada
       url.pathname = '/dashboard'
     } else {
-      url.pathname = '/dashboard/no-autorizado'
+      // Sin rol → /pendiente
+      url.pathname = '/pendiente'
     }
     return NextResponse.redirect(url)
   }
 
-  // Si el usuario está autenticado y accede a rutas del dashboard, verificar que tenga ONGs
-  // EXCEPTO la ruta /no-autorizado que debe ser accesible
+  // Si el usuario está autenticado y accede a rutas del dashboard, verificar que tenga roles
+  // EXCEPTO la ruta /pendiente que debe ser accesible
   const isDashboardRoute = request.nextUrl.pathname.startsWith('/dashboard')
-  const isNoAutorizadoRoute = request.nextUrl.pathname.startsWith('/dashboard/no-autorizado')
-  if (user && isDashboardRoute && !isNoAutorizadoRoute) {
+  const isPendienteRoute = request.nextUrl.pathname.startsWith('/pendiente')
+  if (user && isDashboardRoute && !isPendienteRoute) {
     const accessCheck = await checkUserAccess(user.id)
     if (!accessCheck.hasAccess) {
       const url = request.nextUrl.clone()
-      url.pathname = '/dashboard/no-autorizado'
+      url.pathname = '/pendiente'
       return NextResponse.redirect(url)
     }
   }

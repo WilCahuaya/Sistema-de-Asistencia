@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Textarea } from '@/components/ui/textarea'
 import { Calendar, CheckCircle2 } from 'lucide-react'
+import { useUserRole } from '@/hooks/useUserRole'
 
 interface Estudiante {
   id: string
@@ -26,7 +27,7 @@ interface AsistenciaRegistroDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  ongId: string
+  fcpId: string
   aulaId: string
   fecha: string
 }
@@ -41,7 +42,7 @@ export function AsistenciaRegistroDialog({
   open,
   onOpenChange,
   onSuccess,
-  ongId,
+  fcpId,
   aulaId,
   fecha,
 }: AsistenciaRegistroDialogProps) {
@@ -49,6 +50,7 @@ export function AsistenciaRegistroDialog({
   const [estudiantes, setEstudiantes] = useState<Estudiante[]>([])
   const [asistencias, setAsistencias] = useState<Map<string, AsistenciaFormData>>(new Map())
   const [savedCount, setSavedCount] = useState(0)
+  const { canEdit, role } = useUserRole(fcpId)
 
   useEffect(() => {
     if (open) {
@@ -63,7 +65,7 @@ export function AsistenciaRegistroDialog({
       const { data, error } = await supabase
         .from('estudiantes')
         .select('id, codigo, nombre_completo')
-        .eq('ong_id', ongId)
+        .eq('fcp_id', fcpId)
         .eq('aula_id', aulaId)
         .eq('activo', true)
         .order('nombre_completo', { ascending: true })
@@ -93,7 +95,7 @@ export function AsistenciaRegistroDialog({
       const { data, error } = await supabase
         .from('asistencias')
         .select('estudiante_id, estado, observaciones')
-        .eq('ong_id', ongId)
+        .eq('fcp_id', fcpId)
         .eq('fecha', fecha)
 
       if (error) throw error
@@ -148,8 +150,14 @@ export function AsistenciaRegistroDialog({
   }
 
   const onSubmit = async () => {
-    if (!ongId || !aulaId || !fecha) {
+    if (!fcpId || !aulaId || !fecha) {
       alert('Faltan datos requeridos')
+      return
+    }
+
+    // Validar permisos: solo director y secretario pueden registrar asistencias
+    if (!canEdit || (role !== 'director' && role !== 'secretario')) {
+      alert('No tienes permisos para registrar asistencias. Solo los directores y secretarios pueden realizar esta acción.')
       return
     }
 
@@ -168,7 +176,7 @@ export function AsistenciaRegistroDialog({
 
       // Preparar datos para inserción/actualización
       const asistenciasToSave = Array.from(asistencias.values()).map((asist) => ({
-        ong_id: ongId,
+        fcp_id: fcpId,
         estudiante_id: asist.estudianteId,
         fecha,
         estado: asist.estado,

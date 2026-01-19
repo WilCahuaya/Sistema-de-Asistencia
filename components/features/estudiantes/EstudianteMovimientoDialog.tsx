@@ -23,7 +23,7 @@ interface Estudiante {
   aula?: {
     nombre: string
   }
-  ong_id: string
+  fcp_id: string
 }
 
 interface EstudianteMovimientoDialogProps {

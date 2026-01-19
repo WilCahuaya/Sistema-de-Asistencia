@@ -21,7 +21,7 @@ import {
 import { Label } from '@/components/ui/label'
 
 interface Tutor {
-  usuario_ong_id: string
+  usuario_fcp_id: string
   usuario_id: string
   email: string
   nombre_completo?: string
@@ -33,7 +33,7 @@ interface AulaTutorDialogProps {
   onSuccess: () => void
   aulaId: string
   aulaNombre: string
-  ongId: string
+  fcpId: string
   tutorActual?: {
     id: string
     email: string
@@ -47,7 +47,7 @@ export function AulaTutorDialog({
   onSuccess,
   aulaId,
   aulaNombre,
-  ongId,
+  fcpId,
   tutorActual,
 }: AulaTutorDialogProps) {
   const [loading, setLoading] = useState(false)
@@ -58,11 +58,11 @@ export function AulaTutorDialog({
 
   // Cargar tutores cuando el diálogo se abre
   useEffect(() => {
-    if (open && ongId) {
+    if (open && fcpId) {
       loadTutores()
-      // Si hay tutor actual, establecer su usuario_ong_id
+      // Si hay tutor actual, establecer su usuario_fcp_id
       if (tutorActual) {
-        // Necesitamos obtener el usuario_ong_id del tutor actual
+        // Necesitamos obtener el usuario_fcp_id del tutor actual
         loadCurrentTutorUsuarioOngId()
       } else {
         setSelectedTutorUsuarioOngId('__none__')
@@ -73,17 +73,17 @@ export function AulaTutorDialog({
       setSelectedTutorUsuarioOngId('__none__')
       setError(null)
     }
-  }, [open, ongId, tutorActual])
+  }, [open, fcpId, tutorActual])
 
   const loadCurrentTutorUsuarioOngId = async () => {
     if (!tutorActual) return
     
     try {
       const { data, error } = await supabase
-        .from('usuario_ong')
+        .from('fcp_miembros')
         .select('id')
         .eq('usuario_id', tutorActual.id)
-        .eq('ong_id', ongId)
+        .eq('fcp_id', fcpId)
         .eq('rol', 'tutor')
         .eq('activo', true)
         .single()
@@ -93,20 +93,20 @@ export function AulaTutorDialog({
         setSelectedTutorUsuarioOngId(data.id)
       }
     } catch (error) {
-      console.error('Error loading current tutor usuario_ong_id:', error)
+      console.error('Error loading current tutor usuario_fcp_id:', error)
     }
   }
 
   const loadTutores = async () => {
     try {
       const { data, error } = await supabase
-        .from('usuario_ong')
+        .from('fcp_miembros')
         .select(`
           id,
           usuario_id,
           usuario:usuarios!inner(id, email, nombre_completo)
         `)
-        .eq('ong_id', ongId)
+        .eq('fcp_id', fcpId)
         .eq('rol', 'tutor')
         .eq('activo', true)
 
@@ -114,7 +114,7 @@ export function AulaTutorDialog({
 
       const tutoresList = (data || [])
         .map((item: any) => ({
-          usuario_ong_id: item.id,
+          usuario_fcp_id: item.id,
           usuario_id: item.usuario_id,
           email: item.usuario?.email || '',
           nombre_completo: item.usuario?.nombre_completo || '',
@@ -163,9 +163,9 @@ export function AulaTutorDialog({
         const { error: insertError } = await supabase
           .from('tutor_aula')
           .insert({
-            usuario_ong_id: selectedTutorUsuarioOngId,
+            usuario_fcp_id: selectedTutorUsuarioOngId,
             aula_id: aulaId,
-            ong_id: ongId,
+            fcp_id: fcpId,
             activo: true,
           })
 
@@ -207,7 +207,7 @@ export function AulaTutorDialog({
                 <SelectContent>
                   <SelectItem value="__none__">Sin tutor asignado</SelectItem>
                   {tutores.map((tutor) => (
-                    <SelectItem key={tutor.usuario_ong_id} value={tutor.usuario_ong_id}>
+                    <SelectItem key={tutor.usuario_fcp_id} value={tutor.usuario_fcp_id}>
                       {tutor.nombre_completo || tutor.email}
                     </SelectItem>
                   ))}

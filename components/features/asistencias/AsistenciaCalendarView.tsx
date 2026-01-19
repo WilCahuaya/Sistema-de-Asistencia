@@ -23,7 +23,7 @@ interface Asistencia {
 }
 
 interface AsistenciaCalendarViewProps {
-  ongId: string
+  fcpId: string
   aulaId?: string | null
   initialMonth?: number | null
   initialYear?: number | null
@@ -31,7 +31,7 @@ interface AsistenciaCalendarViewProps {
 
 type AsistenciaEstado = 'presente' | 'falto' | 'permiso' | null
 
-export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYear }: AsistenciaCalendarViewProps) {
+export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYear }: AsistenciaCalendarViewProps) {
   const [estudiantes, setEstudiantes] = useState<Estudiante[]>([])
   const [asistencias, setAsistencias] = useState<Map<string, Asistencia>>(new Map())
   const [loading, setLoading] = useState(false)
@@ -44,7 +44,7 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
   const [toast, setToast] = useState<{ message: string; date: string } | null>(null)
   
   const longPressTimerRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
-  const { canEdit } = useUserRole(ongId)
+  const { canEdit, role } = useUserRole(fcpId)
 
   // Generar días del mes seleccionado
   const getDaysInMonth = (month: number, year: number) => {
@@ -66,10 +66,10 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
   const daysInMonth = getDaysInMonth(selectedMonth, selectedYear)
 
   useEffect(() => {
-    if (ongId) {
+    if (fcpId) {
       loadAulas()
     }
-  }, [ongId])
+  }, [fcpId])
 
   // Actualizar aula seleccionada cuando cambia el prop aulaId
   useEffect(() => {
@@ -98,7 +98,7 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
       setEstudiantes([])
       setAsistencias(new Map())
     }
-  }, [selectedAula, selectedMonth, selectedYear, ongId])
+  }, [selectedAula, selectedMonth, selectedYear, fcpId])
 
   useEffect(() => {
     if (selectedAula && estudiantes.length > 0) {
@@ -112,7 +112,7 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
       // Limpiar asistencias si no hay aula o estudiantes
       setAsistencias(new Map())
     }
-  }, [selectedAula, selectedMonth, selectedYear, ongId, estudiantes.length])
+  }, [selectedAula, selectedMonth, selectedYear, fcpId, estudiantes.length])
 
   const loadAulas = async () => {
     try {
@@ -120,7 +120,7 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
       const { data, error } = await supabase
         .from('aulas')
         .select('id, nombre')
-        .eq('ong_id', ongId)
+        .eq('fcp_id', fcpId)
         .eq('activa', true)
         .order('nombre', { ascending: true })
 
@@ -150,7 +150,7 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
       const { data, error } = await supabase
         .from('estudiantes')
         .select('id, codigo, nombre_completo')
-        .eq('ong_id', ongId)
+        .eq('fcp_id', fcpId)
         .eq('aula_id', selectedAula)
         .eq('activo', true)
         .order('nombre_completo', { ascending: true })
@@ -182,8 +182,8 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
       // Optimizar: solo seleccionar campos necesarios, no usar select('*')
       const { data, error } = await supabase
         .from('asistencias')
-        .select('id, estudiante_id, fecha, estado, ong_id')
-        .eq('ong_id', ongId)
+        .select('id, estudiante_id, fecha, estado, fcp_id')
+        .eq('fcp_id', fcpId)
         .in('estudiante_id', estudianteIds)
         .gte('fecha', firstDay)
         .lte('fecha', lastDay)
@@ -237,7 +237,10 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
     fechaStr: string,
     estado: 'presente' | 'falto' | 'permiso'
   ) => {
-    if (!canEdit) return
+    // Validar permisos: solo director y secretario pueden registrar/editar asistencias
+    if (!canEdit || (role !== 'director' && role !== 'secretario')) {
+      return
+    }
 
     const key = `${estudianteId}_${fechaStr}`
     const existingAsistencia = asistencias.get(key)
@@ -274,7 +277,7 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
             estudiante_id: estudianteId,
             fecha: fechaStr,
             estado,
-            ong_id: ongId,
+            fcp_id: fcpId,
           })
           .select()
           .single()
@@ -288,7 +291,7 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
               .select('*')
               .eq('estudiante_id', estudianteId)
               .eq('fecha', fechaStr)
-              .eq('ong_id', ongId)
+              .eq('fcp_id', fcpId)
               .single()
 
             if (fetchError) throw fetchError
@@ -344,7 +347,10 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
     fechaStr: string,
     isDoubleClick: boolean = false
   ) => {
-    if (!canEdit) return
+    // Validar permisos: solo director y secretario pueden registrar/editar asistencias
+    if (!canEdit || (role !== 'director' && role !== 'secretario')) {
+      return
+    }
 
     const currentEstado = getAsistenciaEstado(estudianteId, fechaStr)
 
@@ -370,7 +376,10 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
   }
 
   const handleCellMouseDown = (estudianteId: string, fechaStr: string) => {
-    if (!canEdit) return
+    // Validar permisos: solo director y secretario pueden registrar/editar asistencias
+    if (!canEdit || (role !== 'director' && role !== 'secretario')) {
+      return
+    }
 
     // Limpiar timer previo si existe
     const key = `${estudianteId}_${fechaStr}`
@@ -407,7 +416,10 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
   }
 
   const handleMarkAllPresente = async (fechaStr: string) => {
-    if (!canEdit || !selectedAula) return
+    // Validar permisos: solo director y secretario pueden registrar/editar asistencias
+    if (!canEdit || !selectedAula || (role !== 'director' && role !== 'secretario')) {
+      return
+    }
 
     // Marcar la fecha como guardándose (mostrar ⏳ en el botón)
     setSavingDates((prev) => new Set(prev).add(fechaStr))
@@ -425,7 +437,7 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
           estudiante_id: estudiante.id,
           fecha: fechaStr,
           estado: 'presente',
-          ong_id: ongId,
+          fcp_id: fcpId,
           ...existingAsistencia,
         } as Asistencia)
       })
@@ -437,7 +449,7 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
     
     // Separar actualizaciones e inserciones para mayor eficiencia
     const toUpdate: Array<{ id: string; estudiante_id: string }> = []
-    const toInsert: Array<{ estudiante_id: string; fecha: string; estado: string; ong_id: string }> = []
+    const toInsert: Array<{ estudiante_id: string; fecha: string; estado: string; fcp_id: string }> = []
 
     estudiantes.forEach((estudiante) => {
       const key = `${estudiante.id}_${fechaStr}`
@@ -450,7 +462,7 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
           estudiante_id: estudiante.id,
           fecha: fechaStr,
           estado: 'presente',
-          ong_id: ongId,
+          fcp_id: fcpId,
         })
       }
     })
@@ -526,7 +538,7 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
                   .select('*')
                   .eq('estudiante_id', item.estudiante_id)
                   .eq('fecha', item.fecha)
-                  .eq('ong_id', item.ong_id)
+                  .eq('fcp_id', item.fcp_id)
                   .single()
 
                 if (existing) {
@@ -588,7 +600,10 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
   }
 
   const handleEliminarTodasAsistencias = async (fechaStr: string) => {
-    if (!canEdit || !selectedAula) return
+    // Validar permisos: solo director y secretario pueden eliminar asistencias
+    if (!canEdit || !selectedAula || (role !== 'director' && role !== 'secretario')) {
+      return
+    }
 
     // Confirmar eliminación
     const fechaDate = new Date(fechaStr)
@@ -613,7 +628,7 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
       const { error } = await supabase
         .from('asistencias')
         .delete()
-        .eq('ong_id', ongId)
+        .eq('fcp_id', fcpId)
         .eq('fecha', fechaStr)
         .in('estudiante_id', estudianteIds)
 
@@ -799,7 +814,7 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
                               Sin atención
                             </span>
                           )}
-                          {canEdit && (
+                          {canEdit && (role === 'director' || role === 'secretario') && (
                             <div className="flex items-center gap-0.5">
                               <Button
                                 variant="ghost"
@@ -863,8 +878,10 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
                       return (
                         <td
                           key={day}
-                          className={`border border-gray-300 p-1 text-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${
-                            !canEdit ? 'cursor-not-allowed opacity-60' : ''
+                          className={`border border-gray-300 p-1 text-center transition-colors ${
+                            (canEdit && (role === 'director' || role === 'secretario'))
+                              ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800'
+                              : 'cursor-not-allowed opacity-60'
                           }`}
                           onClick={() => handleCellClick(estudiante.id, fechaStr, false)}
                           onDoubleClick={() => handleCellClick(estudiante.id, fechaStr, true)}
@@ -872,7 +889,7 @@ export function AsistenciaCalendarView({ ongId, aulaId, initialMonth, initialYea
                           onMouseUp={() => handleCellMouseUp(estudiante.id, fechaStr)}
                           onMouseLeave={() => handleCellMouseLeave(estudiante.id, fechaStr)}
                           title={
-                            canEdit
+                            (canEdit && (role === 'director' || role === 'secretario'))
                               ? 'Click: Presente | Doble click: Faltó | Mantén presionado: Permiso'
                               : 'Solo lectura'
                           }

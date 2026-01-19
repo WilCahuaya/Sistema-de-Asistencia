@@ -25,8 +25,8 @@ import { Checkbox } from '@/components/ui/checkbox'
 interface Miembro {
   id: string
   usuario_id: string
-  ong_id: string
-  rol: 'facilitador' | 'secretario' | 'tutor'
+  fcp_id: string
+  rol: 'facilitador' | 'director' | 'secretario' | 'tutor'
   activo: boolean
   usuario?: {
     email: string
@@ -82,11 +82,11 @@ export function MiembroEditDialog({
 
     try {
       setLoadingAulas(true)
-      // 1. Obtener todas las aulas de la ONG
+      // 1. Obtener todas las aulas de la FCP
       const { data: todasLasAulas, error: aulasError } = await supabase
         .from('aulas')
         .select('id, nombre')
-        .eq('ong_id', miembro.ong_id)
+        .eq('fcp_id', miembro.fcp_id)
         .eq('activa', true)
         .order('nombre')
 
@@ -95,8 +95,8 @@ export function MiembroEditDialog({
       // 2. Obtener aulas que ya tienen tutor asignado (excluyendo las asignadas al tutor actual)
       const { data: aulasConTutor, error: tutorError } = await supabase
         .from('tutor_aula')
-        .select('aula_id, usuario_ong_id')
-        .eq('ong_id', miembro.ong_id)
+        .select('aula_id, fcp_miembro_id')
+        .eq('fcp_id', miembro.fcp_id)
         .eq('activo', true)
 
       if (tutorError && tutorError.code !== 'PGRST116') {
@@ -106,7 +106,7 @@ export function MiembroEditDialog({
       // 3. Filtrar aulas sin tutor O aulas asignadas al tutor actual
       const aulasIdsConOtroTutor = new Set(
         (aulasConTutor || [])
-          .filter(ta => ta.usuario_ong_id !== miembro.id)
+          .filter(ta => ta.fcp_miembro_id !== miembro.id)
           .map(ta => ta.aula_id)
       )
       
@@ -130,7 +130,7 @@ export function MiembroEditDialog({
       const { data, error } = await supabase
         .from('tutor_aula')
         .select('aula_id')
-        .eq('usuario_ong_id', miembro.id)
+        .eq('fcp_miembro_id', miembro.id)
         .eq('activo', true)
 
       if (error) throw error
@@ -156,7 +156,7 @@ export function MiembroEditDialog({
       }
 
       const { error: updateError } = await supabase
-        .from('usuario_ong')
+        .from('fcp_miembros')
         .update({
           rol,
           activo,
@@ -165,7 +165,7 @@ export function MiembroEditDialog({
 
       if (updateError) {
         if (updateError.code === '42501') {
-          setError('No tienes permisos para actualizar miembros. Solo los facilitadores pueden hacerlo.')
+          setError('No tienes permisos para actualizar miembros. Solo los facilitadores, directores y secretarios pueden hacerlo.')
         } else {
           throw updateError
         }
@@ -194,16 +194,16 @@ export function MiembroEditDialog({
         const { error: deleteOldAssignmentsError } = await supabase
           .from('tutor_aula')
           .delete()
-          .eq('usuario_ong_id', miembro.id)
+          .eq('fcp_miembro_id', miembro.id)
 
         if (deleteOldAssignmentsError) throw deleteOldAssignmentsError
 
         // Insertar nuevas asignaciones
         if (selectedAulas.length > 0) {
           const assignments = selectedAulas.map(aulaId => ({
-            usuario_ong_id: miembro.id,
+            fcp_miembro_id: miembro.id,
             aula_id: aulaId,
-            ong_id: miembro.ong_id,
+            fcp_id: miembro.fcp_id,
             activo: true,
           }))
 
@@ -218,7 +218,7 @@ export function MiembroEditDialog({
         const { error: deleteAssignmentsError } = await supabase
           .from('tutor_aula')
           .delete()
-          .eq('usuario_ong_id', miembro.id)
+          .eq('fcp_miembro_id', miembro.id)
 
         if (deleteAssignmentsError) throw deleteAssignmentsError
       }
@@ -256,12 +256,13 @@ export function MiembroEditDialog({
           </div>
           <div className="grid gap-2">
             <Label htmlFor="rol">Rol *</Label>
-            <Select value={rol} onValueChange={(value) => setRol(value as 'facilitador' | 'secretario' | 'tutor')}>
+            <Select value={rol} onValueChange={(value) => setRol(value as 'facilitador' | 'director' | 'secretario' | 'tutor')}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecciona un rol" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="facilitador">{getRolDisplayName('facilitador')}</SelectItem>
+                <SelectItem value="director">{getRolDisplayName('director')}</SelectItem>
                 <SelectItem value="secretario">{getRolDisplayName('secretario')}</SelectItem>
                 <SelectItem value="tutor">{getRolDisplayName('tutor')}</SelectItem>
               </SelectContent>

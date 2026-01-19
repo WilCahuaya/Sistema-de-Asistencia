@@ -14,7 +14,8 @@ import { RoleGuard } from '@/components/auth/RoleGuard'
 interface ReporteData {
   ong: {
     id: string
-    nombre: string
+    razon_social: string
+    numero_identificacion?: string
   }
   fechaInicio: string
   fechaFin: string
@@ -71,19 +72,19 @@ interface DiaIncompleto {
 
 export function ReporteList() {
   const [loading, setLoading] = useState(false)
-  const [selectedONG, setSelectedONG] = useState<string | null>(null)
+  const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
   const [fechaInicio, setFechaInicio] = useState<string>('')
   const [fechaFin, setFechaFin] = useState<string>('')
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth())
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear())
-  const [userONGs, setUserONGs] = useState<Array<{ id: string; nombre: string }>>([])
+  const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string }>>([])
   const [reporteData, setReporteData] = useState<ReporteData | null>(null)
   const [responsable, setResponsable] = useState<{ nombre: string; email: string; rol: string } | null>(null)
   const router = useRouter()
-  const { canViewReports, loading: roleLoading } = useUserRole(selectedONG)
+  const { canViewReports, loading: roleLoading } = useUserRole(selectedFCP)
 
   useEffect(() => {
-    loadUserONGs()
+    loadUserFCPs()
     // Inicializar con el mes actual
     const now = new Date()
     setSelectedMonth(now.getMonth())
@@ -104,31 +105,62 @@ export function ReporteList() {
     setFechaFin(fin.toISOString().split('T')[0])
   }, [selectedMonth, selectedYear])
 
-  const loadUserONGs = async () => {
+  const loadUserFCPs = async () => {
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      const { data, error } = await supabase
-        .from('usuario_ong')
-        .select(`
-          ong_id,
-          ong:ongs(id, nombre)
-        `)
+      // Verificar si el usuario es facilitador en alguna ONG
+      const { data: usuarioOngData, error: usuarioOngError } = await supabase
+        .from('fcp_miembros')
+        .select('rol')
         .eq('usuario_id', user.id)
+        .eq('rol', 'facilitador')
         .eq('activo', true)
+        .limit(1)
 
-      if (error) throw error
+      if (usuarioOngError) throw usuarioOngError
 
-      const ongs = data?.map((item: any) => ({
-        id: item.ong.id,
-        nombre: item.ong.nombre,
-      })) || []
+      const isFacilitador = usuarioOngData && usuarioOngData.length > 0
 
-      setUserONGs(ongs)
-      if (ongs.length > 0 && !selectedONG) {
-        setSelectedONG(ongs[0].id)
+      let ongs: Array<{ id: string; nombre: string }> = []
+
+      if (isFacilitador) {
+        // Facilitadores pueden ver todas las ONGs del sistema
+        const { data: todasLasONGs, error: ongsError } = await supabase
+          .from('fcps')
+          .select('id, razon_social')
+          .eq('activa', true)
+          .order('razon_social', { ascending: true })
+        
+        if (ongsError) throw ongsError
+        ongs = (todasLasONGs || []).map((fcp: any) => ({
+          id: fcp.id,
+          nombre: fcp.razon_social || 'FCP',
+        }))
+      } else {
+        // Usuarios no facilitadores solo ven sus ONGs
+        const { data, error } = await supabase
+          .from('fcp_miembros')
+          .select(`
+            fcp_id,
+            fcp:fcps(id, razon_social)
+          `)
+          .eq('usuario_id', user.id)
+          .eq('activo', true)
+
+        if (error) throw error
+
+        ongs = data?.map((item: any) => ({
+          id: item.fcp.id,
+          nombre: item.fcp.razon_social || 'FCP',
+        })) || []
+      }
+
+      setUserFCPs(ongs)
+      if (ongs.length > 0 && !selectedFCP) {
+        setSelectedFCP(ongs[0].id)
       }
     } catch (error) {
       console.error('Error loading ONGs:', error)
@@ -136,7 +168,7 @@ export function ReporteList() {
   }
 
   const generarReporte = async () => {
-    if (!selectedONG) {
+    if (!selectedFCP) {
       alert('Por favor, selecciona una ONG')
       return
     }
@@ -157,19 +189,19 @@ export function ReporteList() {
       if (user) {
         // Obtener rol y datos del usuario en la ONG
         const { data: usuarioOngData, error: usuarioOngError } = await supabase
-          .from('usuario_ong')
+          .from('fcp_miembros')
           .select(`
             rol,
             usuario:usuarios(nombre_completo, email)
           `)
           .eq('usuario_id', user.id)
-          .eq('ong_id', selectedONG)
+          .eq('fcp_id', selectedFCP)
           .eq('activo', true)
           .single()
 
         if (!usuarioOngError && usuarioOngData) {
           const usuario = usuarioOngData.usuario as any
-          const rol = usuarioOngData.rol === 'facilitador' ? 'Facilitador' : usuarioOngData.rol === 'secretario' ? 'Secretario' : ''
+          const rol = usuarioOngData.rol === 'facilitador' ? 'Facilitador' : usuarioOngData.rol === 'director' ? 'Director' : usuarioOngData.rol === 'secretario' ? 'Secretario' : ''
           if (rol && (rol === 'Facilitador' || rol === 'Secretario')) {
             setResponsable({
               nombre: usuario?.nombre_completo || usuario?.email || user.email || '',
@@ -182,9 +214,9 @@ export function ReporteList() {
 
       // Obtener datos de la ONG
       const { data: ongData, error: ongError } = await supabase
-        .from('ongs')
-        .select('id, nombre')
-        .eq('id', selectedONG)
+        .from('fcps')
+        .select('id, razon_social')
+        .eq('id', selectedFCP)
         .single()
 
       if (ongError) throw ongError
@@ -199,7 +231,7 @@ export function ReporteList() {
           aula_id,
           aula:aulas(id, nombre)
         `)
-        .eq('ong_id', selectedONG)
+        .eq('fcp_id', selectedFCP)
         .eq('activo', true)
 
       if (estudiantesError) throw estudiantesError
@@ -208,7 +240,7 @@ export function ReporteList() {
       const { data: asistenciasData, error: asistenciasError } = await supabase
         .from('asistencias')
         .select('estudiante_id, estado, fecha')
-        .eq('ong_id', selectedONG)
+        .eq('fcp_id', selectedFCP)
         .gte('fecha', fechaInicio)
         .lte('fecha', fechaFin)
 
@@ -391,20 +423,20 @@ export function ReporteList() {
           .from('tutor_aula')
           .select(`
             aula_id,
-            usuario_ong_id,
-            usuario_ong:usuario_ong(
+            fcp_miembro_id,
+            fcp_miembro:fcp_miembros(
               usuario_id,
               usuario:usuarios(nombre_completo, email)
             )
           `)
-          .eq('ong_id', selectedONG)
+          .eq('fcp_id', selectedFCP)
           .eq('activo', true)
           .in('aula_id', aulasIds)
 
         // Mapear tutores a aulas
         tutorAulasData?.forEach((ta: any) => {
-          const usuarioOng = ta.usuario_ong
-          const usuario = usuarioOng?.usuario
+          const fcpMiembro = ta.fcp_miembro
+          const usuario = fcpMiembro?.usuario
           const tutorNombre = usuario?.nombre_completo || usuario?.email || 'Sin tutor asignado'
           aulaTutorMap.set(ta.aula_id, tutorNombre)
         })
@@ -457,7 +489,8 @@ export function ReporteList() {
       const reporte: ReporteData = {
         ong: {
           id: ongData.id,
-          nombre: ongData.nombre,
+          razon_social: (ongData as any).razon_social || (ongData as any).numero_identificacion || 'FCP',
+          numero_identificacion: (ongData as any).numero_identificacion,
         },
         fechaInicio,
         fechaFin,
@@ -545,7 +578,7 @@ export function ReporteList() {
         const encabezado = [
           ['Reporte General de Asistencia'],
           [],
-          [`Proyecto: ${reporteData.ong.nombre}`],
+          [`Proyecto: ${reporteData.ong.razon_social}`],
           [`Año: ${year}`],
           [`Mes: ${monthNames[month]} ${year}`],
           ...(responsable ? [[`Responsable: ${responsable.nombre} (${responsable.rol})`], [`Email: ${responsable.email}`]] : []),
@@ -565,6 +598,7 @@ export function ReporteList() {
             }),
           ],
         ]
+
         const rows: any[] = reporteData.reporteDetallado.map((row) => {
           const rowData: any[] = [
             row.no.toString(),
@@ -642,7 +676,7 @@ export function ReporteList() {
         XLSX.utils.book_append_sheet(wb, ws, 'Reporte General')
 
         // Descargar
-        const nombreArchivo = `Reporte_General_${reporteData.ong.nombre}_${monthNames[month]}_${year}.xlsx`
+        const nombreArchivo = `Reporte_General_${reporteData.ong.razon_social}_${monthNames[month]}_${year}.xlsx`
         XLSX.writeFile(wb, nombreArchivo)
       } else {
         // Fallback: formato antiguo si no hay reporte detallado
@@ -650,7 +684,7 @@ export function ReporteList() {
         const wb = XLSX.utils.book_new()
 
         const resumenGeneral = [
-          ['ONG:', reporteData.ong.nombre],
+          ['FCP:', reporteData.ong.razon_social],
           ['Fecha Inicio:', reporteData.fechaInicio],
           ['Fecha Fin:', reporteData.fechaFin],
           [''],
@@ -662,7 +696,7 @@ export function ReporteList() {
         const ws1 = XLSX.utils.aoa_to_sheet(resumenGeneral)
         XLSX.utils.book_append_sheet(wb, ws1, 'Resumen General')
 
-        const nombreArchivo = `Reporte_General_${reporteData.ong.nombre}_${reporteData.fechaInicio}_${reporteData.fechaFin}.xlsx`
+        const nombreArchivo = `Reporte_General_${reporteData.ong.razon_social}_${reporteData.fechaInicio}_${reporteData.fechaFin}.xlsx`
         XLSX.writeFile(wb, nombreArchivo)
       }
     } catch (error) {
@@ -710,7 +744,7 @@ export function ReporteList() {
       // Información general
       doc.setFontSize(10)
       doc.setFont('helvetica', 'normal')
-      doc.text(`Proyecto: ${reporteData.ong.nombre}`, 15, y)
+      doc.text(`Proyecto: ${reporteData.ong.razon_social}`, 15, y)
       y += 5
       const year = selectedYear || new Date().getFullYear()
       const month = selectedMonth !== undefined ? selectedMonth : new Date().getMonth()
@@ -811,7 +845,7 @@ export function ReporteList() {
         }
 
         // Descargar
-        const nombreArchivo = `Reporte_General_${reporteData.ong.nombre}_${monthNames[month]}_${year}.pdf`
+        const nombreArchivo = `Reporte_General_${reporteData.ong.razon_social}_${monthNames[month]}_${year}.pdf`
         doc.save(nombreArchivo)
       } else {
         // Formato anterior para reportes sin detalle (no debería llegar aquí)
@@ -824,13 +858,13 @@ export function ReporteList() {
         y += 10
 
         doc.setFontSize(12)
-        doc.text(`ONG: ${reporteData.ong.nombre}`, 20, y)
+        doc.text(`FCP: ${reporteData.ong.razon_social}`, 20, y)
         y += 6
         doc.text(`Fecha Inicio: ${reporteData.fechaInicio}`, 20, y)
         y += 6
         doc.text(`Fecha Fin: ${reporteData.fechaFin}`, 20, y)
 
-        const nombreArchivo = `Reporte_General_${reporteData.ong.nombre}_${reporteData.fechaInicio}_${reporteData.fechaFin}.pdf`
+        const nombreArchivo = `Reporte_General_${reporteData.ong.razon_social}_${reporteData.fechaInicio}_${reporteData.fechaFin}.pdf`
         doc.save(nombreArchivo)
       }
     } catch (error) {
@@ -839,16 +873,16 @@ export function ReporteList() {
     }
   }
 
-  if (userONGs.length === 0) {
+  if (userFCPs.length === 0) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
           <BarChart3 className="h-12 w-12 text-muted-foreground mb-4" />
           <p className="text-muted-foreground mb-4">
-            No tienes ONGs asociadas. Primero crea o únete a una ONG.
+            No tienes FCPs asociadas. Primero crea o únete a una FCP.
           </p>
           <Button onClick={() => router.push('/ongs')}>
-            Ir a ONGs
+            Ir a FCPs
           </Button>
         </CardContent>
       </Card>
@@ -862,7 +896,7 @@ export function ReporteList() {
         <CardContent className="flex flex-col items-center justify-center py-12">
           <BarChart3 className="h-12 w-12 text-muted-foreground mb-4" />
           <p className="text-muted-foreground mb-4">
-            No tienes permisos para ver reportes. Solo los facilitadores y secretarios pueden acceder a esta funcionalidad.
+            No tienes permisos para ver reportes. Solo los facilitadores, directores y secretarios pueden acceder a esta funcionalidad.
           </p>
         </CardContent>
       </Card>
@@ -878,13 +912,13 @@ export function ReporteList() {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="text-sm font-medium mb-2 block">ONG:</label>
+              <label className="text-sm font-medium mb-2 block">FCP:</label>
               <select
-                value={selectedONG || ''}
-                onChange={(e) => setSelectedONG(e.target.value || null)}
+                value={selectedFCP || ''}
+                onChange={(e) => setSelectedFCP(e.target.value || null)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
               >
-                {userONGs.map((ong) => (
+                {userFCPs.map((ong) => (
                   <option key={ong.id} value={ong.id}>
                     {ong.nombre}
                   </option>
@@ -907,9 +941,9 @@ export function ReporteList() {
             </div>
           </div>
 
-          <RoleGuard ongId={selectedONG} allowedRoles={['facilitador', 'secretario']}>
+          <RoleGuard fcpId={selectedFCP} allowedRoles={['facilitador', 'director', 'secretario']}>
             <div className="mt-4">
-              <Button onClick={generarReporte} disabled={loading || !selectedONG}>
+              <Button onClick={generarReporte} disabled={loading || !selectedFCP}>
                 {loading ? (
                   <>
                     <Calendar className="mr-2 h-4 w-4 animate-pulse" />
@@ -932,7 +966,7 @@ export function ReporteList() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>Reporte Generado</CardTitle>
-              <RoleGuard ongId={selectedONG} allowedRoles={['facilitador', 'secretario']}>
+              <RoleGuard fcpId={selectedFCP} allowedRoles={['facilitador', 'director', 'secretario']}>
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={exportarExcel}>
                     <FileSpreadsheet className="mr-2 h-4 w-4" />
@@ -951,7 +985,7 @@ export function ReporteList() {
               // Reporte General Detallado
               <div className="space-y-4">
                 <div className="text-sm text-muted-foreground mb-4">
-                  <p><strong>Proyecto:</strong> {reporteData.ong.nombre}</p>
+                  <p><strong>Proyecto:</strong> {reporteData.ong.razon_social}</p>
                   <p><strong>Año:</strong> {selectedYear}</p>
                   <p><strong>Mes:</strong> {new Date(selectedYear, selectedMonth).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}</p>
                   {responsable && (

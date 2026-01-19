@@ -24,15 +24,15 @@ interface AulaDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  ongId: string
+  fcpId: string
 }
 
-export function AulaDialog({ open, onOpenChange, onSuccess, ongId }: AulaDialogProps) {
+export function AulaDialog({ open, onOpenChange, onSuccess, fcpId }: AulaDialogProps) {
   const [loading, setLoading] = useState(false)
   const { register, handleSubmit, reset, formState: { errors } } = useForm<AulaFormData>()
 
   const onSubmit = async (data: AulaFormData) => {
-    if (!ongId) {
+    if (!fcpId) {
       alert('Por favor, selecciona una ONG primero')
       return
     }
@@ -57,7 +57,7 @@ export function AulaDialog({ open, onOpenChange, onSuccess, ongId }: AulaDialogP
         .insert({
           nombre: data.nombre,
           descripcion: data.descripcion || null,
-          ong_id: ongId,
+          fcp_id: fcpId,
           created_by: user.id,
         })
 
@@ -115,7 +115,7 @@ export function AulaDialog({ open, onOpenChange, onSuccess, ongId }: AulaDialogP
             >
               Cancelar
             </Button>
-            <Button type="submit" disabled={loading || !ongId}>
+            <Button type="submit" disabled={loading || !fcpId}>
               {loading ? 'Creando...' : 'Crear Aula'}
             </Button>
           </DialogFooter>

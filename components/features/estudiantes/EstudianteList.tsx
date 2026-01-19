@@ -30,9 +30,9 @@ interface Estudiante {
   aula?: {
     nombre: string
   }
-  ong_id: string
-  ong?: {
-    nombre: string
+  fcp_id: string
+  fcp?: {
+    razon_social: string
   }
 }
 
@@ -43,77 +43,108 @@ export function EstudianteList() {
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false)
   const [isMovimientoDialogOpen, setIsMovimientoDialogOpen] = useState(false)
   const [selectedEstudianteForMovimiento, setSelectedEstudianteForMovimiento] = useState<Estudiante | null>(null)
-  const [selectedONG, setSelectedONG] = useState<string | null>(null)
+  const [selectedFCP, setSelectedONG] = useState<string | null>(null)
   const [selectedAula, setSelectedAula] = useState<string | null>(null)
-  const [userONGs, setUserONGs] = useState<Array<{ id: string; nombre: string }>>([])
+  const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string }>>([])
   const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
   const [searchTerm, setSearchTerm] = useState('')
   const router = useRouter()
-  const { canEdit } = useUserRole(selectedONG)
+  const { canEdit } = useUserRole(selectedFCP)
 
   useEffect(() => {
-    loadUserONGs()
+    loadUserFCPs()
   }, [])
 
   useEffect(() => {
-    if (userONGs.length > 0 && !selectedONG) {
-      setSelectedONG(userONGs[0].id)
+    if (userFCPs.length > 0 && !selectedFCP) {
+      setSelectedONG(userFCPs[0].id)
     }
-  }, [userONGs])
+  }, [userFCPs])
 
   useEffect(() => {
-    if (selectedONG) {
+    if (selectedFCP) {
       loadAulas()
     } else {
       setAulas([])
     }
-  }, [selectedONG])
+  }, [selectedFCP])
 
   useEffect(() => {
-    if (selectedONG) {
+    if (selectedFCP) {
       loadEstudiantes()
     } else {
       setEstudiantes([])
     }
-  }, [selectedONG, selectedAula])
+  }, [selectedFCP, selectedAula])
 
-  const loadUserONGs = async () => {
+  const loadUserFCPs = async () => {
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      const { data, error } = await supabase
-        .from('usuario_ong')
-        .select(`
-          ong_id,
-          ong:ongs(id, nombre)
-        `)
+      // Verificar si el usuario es facilitador
+      const { data: facilitadorData, error: facilitadorError } = await supabase
+        .from('fcp_miembros')
+        .select('rol')
         .eq('usuario_id', user.id)
+        .eq('rol', 'facilitador')
         .eq('activo', true)
+        .limit(1)
 
-      if (error) throw error
+      if (facilitadorError) throw facilitadorError
 
-      const ongs = data?.map((item: any) => ({
-        id: item.ong.id,
-        nombre: item.ong.nombre,
-      })) || []
+      const esFacilitador = facilitadorData && facilitadorData.length > 0
 
-      setUserONGs(ongs)
+      let fcps: Array<{ id: string; nombre: string }> = []
+
+      if (esFacilitador) {
+        // Facilitadores pueden ver todas las FCPs del sistema
+        const { data: todasLasFCPs, error: fcpsError } = await supabase
+          .from('fcps')
+          .select('id, razon_social')
+          .eq('activa', true)
+          .order('razon_social', { ascending: true })
+        
+        if (fcpsError) throw fcpsError
+        fcps = (todasLasFCPs || []).map((fcp: any) => ({
+          id: fcp.id,
+          nombre: fcp.razon_social || 'FCP',
+        }))
+      } else {
+        // Usuarios no facilitadores solo ven sus FCPs
+        const { data, error } = await supabase
+          .from('fcp_miembros')
+          .select(`
+            fcp_id,
+            fcp:fcps(id, razon_social)
+          `)
+          .eq('usuario_id', user.id)
+          .eq('activo', true)
+
+        if (error) throw error
+
+        fcps = data?.map((item: any) => ({
+          id: item.fcp?.id,
+          nombre: item.fcp?.razon_social || 'FCP',
+        })).filter((fcp: any) => fcp.id) || []
+      }
+
+      setUserFCPs(fcps)
     } catch (error) {
-      console.error('Error loading ONGs:', error)
+      console.error('Error loading FCPs:', error)
     }
   }
 
   const loadAulas = async () => {
-    if (!selectedONG) return
+    if (!selectedFCP) return
 
     try {
       const supabase = createClient()
       const { data, error } = await supabase
         .from('aulas')
         .select('id, nombre')
-        .eq('ong_id', selectedONG)
+        .eq('fcp_id', selectedFCP)
         .eq('activa', true)
         .order('nombre', { ascending: true })
 
@@ -125,7 +156,7 @@ export function EstudianteList() {
   }
 
   const loadEstudiantes = async () => {
-    if (!selectedONG) return
+    if (!selectedFCP) return
 
     try {
       setLoading(true)
@@ -135,9 +166,9 @@ export function EstudianteList() {
         .select(`
           *,
           aula:aulas(id, nombre),
-          ong:ongs(nombre)
+          fcp:fcps(razon_social)
         `)
-        .eq('ong_id', selectedONG)
+        .eq('fcp_id', selectedFCP)
 
       if (selectedAula) {
         query = query.eq('aula_id', selectedAula)
@@ -183,16 +214,16 @@ export function EstudianteList() {
     )
   })
 
-  if (userONGs.length === 0) {
+  if (userFCPs.length === 0) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
           <GraduationCap className="h-12 w-12 text-muted-foreground mb-4" />
           <p className="text-muted-foreground mb-4">
-            No tienes ONGs asociadas. Primero crea o únete a una ONG.
+            No tienes FCPs asociadas. Primero crea o únete a una FCP.
           </p>
-            <Button onClick={() => router.push('/ongs')}>
-            Ir a ONGs
+            <Button onClick={() => router.push('/fcps')}>
+            Ir a FCPs
           </Button>
         </CardContent>
       </Card>
@@ -208,18 +239,18 @@ export function EstudianteList() {
       <div className="mb-6 flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1">
-            <label className="text-sm font-medium mb-2 block">Seleccionar ONG:</label>
+            <label className="text-sm font-medium mb-2 block">Seleccionar FCP:</label>
             <select
-              value={selectedONG || ''}
+              value={selectedFCP || ''}
               onChange={(e) => {
                 setSelectedONG(e.target.value)
                 setSelectedAula(null)
               }}
               className="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
             >
-              {userONGs.map((ong) => (
-                <option key={ong.id} value={ong.id}>
-                  {ong.nombre}
+              {userFCPs.map((fcp) => (
+                <option key={fcp.id} value={fcp.id}>
+                  {fcp.nombre}
                 </option>
               ))}
             </select>
@@ -254,18 +285,18 @@ export function EstudianteList() {
             </div>
           </div>
           <div className="flex gap-2">
-            <RoleGuard ongId={selectedONG} allowedRoles={['facilitador', 'secretario']}>
+            <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
               <Button
                 variant="outline"
                 onClick={() => setIsUploadDialogOpen(true)}
-                disabled={!selectedONG || aulas.length === 0}
+                disabled={!selectedFCP || aulas.length === 0}
               >
                 <Upload className="mr-2 h-4 w-4" />
                 Cargar Excel
               </Button>
             </RoleGuard>
-            <RoleGuard ongId={selectedONG} allowedRoles={['facilitador', 'secretario']}>
-              <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedONG || aulas.length === 0}>
+            <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
+              <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedFCP || aulas.length === 0}>
                 <Plus className="mr-2 h-4 w-4" />
                 Nuevo Estudiante
               </Button>
@@ -274,7 +305,7 @@ export function EstudianteList() {
         </div>
       </div>
 
-      {aulas.length === 0 && selectedONG ? (
+      {aulas.length === 0 && selectedFCP ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <GraduationCap className="h-12 w-12 text-muted-foreground mb-4" />
@@ -293,13 +324,13 @@ export function EstudianteList() {
             <p className="text-muted-foreground mb-4">
               {searchTerm ? 'No se encontraron estudiantes con ese criterio' : 'No hay estudiantes registrados'}
             </p>
-            <RoleGuard ongId={selectedONG} allowedRoles={['facilitador', 'secretario']}>
+            <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
               <div className="flex gap-2">
-                <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedONG || aulas.length === 0}>
+                <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedFCP || aulas.length === 0}>
                   <Plus className="mr-2 h-4 w-4" />
                   Agregar Estudiante
                 </Button>
-                {selectedONG && aulas.length > 0 && (
+                {selectedFCP && aulas.length > 0 && (
                   <Button variant="outline" onClick={() => setIsUploadDialogOpen(true)}>
                     <Upload className="mr-2 h-4 w-4" />
                     Cargar desde Excel
@@ -347,8 +378,8 @@ export function EstudianteList() {
                       </TableCell>
                       <TableCell>
                         <RoleGuard 
-                          ongId={selectedONG} 
-                          allowedRoles={['facilitador', 'secretario']}
+                          fcpId={selectedFCP} 
+                          allowedRoles={['director', 'secretario']}
                           fallback={<span className="text-sm text-muted-foreground">Solo lectura</span>}
                         >
                           <Button
@@ -378,7 +409,7 @@ export function EstudianteList() {
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}
         onSuccess={handleEstudianteCreated}
-        ongId={selectedONG || ''}
+        fcpId={selectedFCP || ''}
         aulaId={selectedAula || undefined}
         aulas={aulas}
       />
@@ -387,7 +418,7 @@ export function EstudianteList() {
         open={isUploadDialogOpen}
         onOpenChange={setIsUploadDialogOpen}
         onSuccess={handleUploadSuccess}
-        ongId={selectedONG || ''}
+        fcpId={selectedFCP || ''}
         aulas={aulas}
       />
 

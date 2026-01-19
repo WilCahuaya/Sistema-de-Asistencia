@@ -17,7 +17,7 @@ import {
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: Home },
-  { name: 'ONGs', href: '/ongs', icon: Building2 },
+  { name: 'FCPs', href: '/ongs', icon: Building2 },
   { name: 'Aulas', href: '/aulas', icon: Users },
   { name: 'Estudiantes', href: '/estudiantes', icon: GraduationCap },
   { name: 'Asistencias', href: '/asistencias', icon: ClipboardList },

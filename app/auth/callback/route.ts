@@ -1,12 +1,21 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
+import { getUserRole } from '@/lib/utils/get-user-role'
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
   const code = requestUrl.searchParams.get('code')
+  const error = requestUrl.searchParams.get('error')
+  const errorDescription = requestUrl.searchParams.get('error_description')
   const next = requestUrl.searchParams.get('next') ?? '/dashboard'
   const origin = requestUrl.origin
+
+  // Si hay un error de OAuth (usuario canceló, flow expiró, etc.)
+  if (error) {
+    console.error('OAuth error:', error, errorDescription)
+    return NextResponse.redirect(`${origin}/login?error=oauth_error&message=${encodeURIComponent(errorDescription || error)}`)
+  }
 
   // Si no hay código, redirigir a login con error
   if (!code) {
@@ -74,8 +83,18 @@ export async function GET(request: NextRequest) {
     console.log('User authenticated successfully:', user.email)
     console.log('Cookies in response:', response.cookies.getAll().map(c => c.name))
 
+    // Verificar si el usuario tiene algún rol asignado
+    const roleInfo = await getUserRole(user.id)
+    
+    // Redirigir según el rol
+    // Facilitador → Dashboard Facilitador
+    // Director/Secretario → Dashboard completo
+    // Tutor → Vista limitada
+    // Sin rol → /pendiente
+    const redirectPath = roleInfo.hasRole ? '/dashboard' : '/pendiente'
+
     // Crear respuesta de redirección con las cookies establecidas
-    const redirectResponse = NextResponse.redirect(`${origin}${next}`)
+    const redirectResponse = NextResponse.redirect(`${origin}${redirectPath}`)
     
     // Copiar todas las cookies de la respuesta temporal a la respuesta de redirección
     // Esto asegura que el navegador reciba las cookies de autenticación
@@ -89,6 +108,9 @@ export async function GET(request: NextRequest) {
     })
 
     console.log('Redirecting with cookies:', redirectResponse.cookies.getAll().map(c => c.name))
+    console.log('User has roles:', roleInfo.hasRole ? 'Yes' : 'No')
+    console.log('User role:', roleInfo.role || 'None')
+    console.log('Redirecting to:', redirectPath)
     return redirectResponse
   } catch (error: any) {
     console.error('Unexpected error in callback:', error)

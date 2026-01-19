@@ -19,7 +19,7 @@ interface EstudianteUploadDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  ongId: string
+  fcpId: string
   aulas: Array<{ id: string; nombre: string }>
 }
 
@@ -29,7 +29,7 @@ interface EstudianteRow {
   aula: string
 }
 
-export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, ongId, aulas }: EstudianteUploadDialogProps) {
+export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, aulas }: EstudianteUploadDialogProps) {
   const [loading, setLoading] = useState(false)
   const [file, setFile] = useState<File | null>(null)
   const [errors, setErrors] = useState<string[]>([])
@@ -156,7 +156,7 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, ongId, a
           estudiantesToInsert.push({
             codigo: estudiante.codigo,
             nombre_completo: estudiante.nombre_completo,
-            ong_id: ongId,
+            fcp_id: fcpId,
             aula_id: aulaId,
             created_by: user.id,
           })

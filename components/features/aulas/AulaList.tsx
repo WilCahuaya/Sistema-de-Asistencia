@@ -22,9 +22,9 @@ interface Aula {
   nombre: string
   descripcion?: string
   activa: boolean
-  ong_id: string
-  ong?: {
-    nombre: string
+  fcp_id: string
+  fcp?: {
+    razon_social: string
   }
   tutor?: TutorInfo
 }
@@ -36,57 +36,88 @@ export function AulaList() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isTutorDialogOpen, setIsTutorDialogOpen] = useState(false)
   const [selectedAulaForTutor, setSelectedAulaForTutor] = useState<Aula | null>(null)
-  const [selectedONG, setSelectedONG] = useState<string | null>(null)
-  const [userONGs, setUserONGs] = useState<Array<{ id: string; nombre: string }>>([])
+  const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
+  const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string }>>([])
   const router = useRouter()
-  const { isTutor, isFacilitador } = useUserRole(selectedONG)
+  const { isTutor, isFacilitador } = useUserRole(selectedFCP)
 
   useEffect(() => {
-    loadUserONGs()
+    loadUserFCPs()
   }, [])
 
   useEffect(() => {
-    if (userONGs.length > 0 && !selectedONG) {
-      setSelectedONG(userONGs[0].id)
+    if (userFCPs.length > 0 && !selectedFCP) {
+      setSelectedFCP(userFCPs[0].id)
     }
-  }, [userONGs])
+  }, [userFCPs])
 
   useEffect(() => {
-    if (selectedONG) {
+    if (selectedFCP) {
       loadAulas()
     }
-  }, [selectedONG])
+  }, [selectedFCP])
 
-  const loadUserONGs = async () => {
+  const loadUserFCPs = async () => {
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      const { data, error } = await supabase
-        .from('usuario_ong')
-        .select(`
-          ong_id,
-          ong:ongs(id, nombre)
-        `)
+      // Verificar si el usuario es facilitador
+      const { data: facilitadorData, error: facilitadorError } = await supabase
+        .from('fcp_miembros')
+        .select('rol')
         .eq('usuario_id', user.id)
+        .eq('rol', 'facilitador')
         .eq('activo', true)
+        .limit(1)
 
-      if (error) throw error
+      if (facilitadorError) throw facilitadorError
 
-      const ongs = data?.map((item: any) => ({
-        id: item.ong.id,
-        nombre: item.ong.nombre,
-      })) || []
+      const esFacilitador = facilitadorData && facilitadorData.length > 0
 
-      setUserONGs(ongs)
+      let fcps: Array<{ id: string; nombre: string }> = []
+
+      if (esFacilitador) {
+        // Facilitadores pueden ver todas las FCPs del sistema
+        const { data: todasLasFCPs, error: fcpsError } = await supabase
+          .from('fcps')
+          .select('id, razon_social')
+          .eq('activa', true)
+          .order('razon_social', { ascending: true })
+        
+        if (fcpsError) throw fcpsError
+        fcps = (todasLasFCPs || []).map((fcp: any) => ({
+          id: fcp.id,
+          nombre: fcp.razon_social || 'FCP',
+        }))
+      } else {
+        // Usuarios no facilitadores solo ven sus FCPs
+        const { data, error } = await supabase
+          .from('fcp_miembros')
+          .select(`
+            fcp_id,
+            fcp:fcps(id, razon_social)
+          `)
+          .eq('usuario_id', user.id)
+          .eq('activo', true)
+
+        if (error) throw error
+
+        fcps = data?.map((item: any) => ({
+          id: item.fcp?.id,
+          nombre: item.fcp?.razon_social || 'FCP',
+        })).filter((fcp: any) => fcp.id) || []
+      }
+
+      setUserFCPs(fcps)
     } catch (error) {
-      console.error('Error loading ONGs:', error)
+      console.error('Error loading FCPs:', error)
     }
   }
 
   const loadAulas = async () => {
-    if (!selectedONG) return
+    if (!selectedFCP) return
 
     try {
       setLoading(true)
@@ -101,13 +132,13 @@ export function AulaList() {
         return
       }
 
-      console.log('Cargando aulas para ONG:', selectedONG, 'Usuario:', user.email)
+      console.log('Cargando aulas para ONG:', selectedFCP, 'Usuario:', user.email)
       
       // Intentar cargar aulas
       const { data, error } = await supabase
         .from('aulas')
         .select('*')
-        .eq('ong_id', selectedONG)
+        .eq('fcp_id', selectedFCP)
         .eq('activa', true)
         .order('nombre', { ascending: true })
 
@@ -128,62 +159,56 @@ export function AulaList() {
       
       setError(null)
       
-      // Agregar información de ONG si está disponible en userONGs
-      const ongInfo = userONGs.find(ong => ong.id === selectedONG)
+      // Agregar información de FCP si está disponible en userFCPs
+      const fcpInfo = userFCPs.find(fcp => fcp.id === selectedFCP)
       const aulasBase = (data || []).map(aula => ({
         ...aula,
-        ong: ongInfo ? { nombre: ongInfo.nombre } : undefined
+        fcp: fcpInfo ? { razon_social: fcpInfo.nombre } : undefined
       }))
       
-      // Si es facilitador, cargar información de tutores asignados a cada aula
-      // Verificar si el usuario actual es facilitador
-      const { data: { user: currentUser } } = await supabase.auth.getUser()
+      // Cargar información de tutores asignados a cada aula
+      // Directores, secretarios y facilitadores pueden ver los tutores
       let aulasWithTutors = aulasBase
       
-      if (currentUser) {
-        const { data: userOngData } = await supabase
-          .from('usuario_ong')
-          .select('rol')
-          .eq('usuario_id', currentUser.id)
-          .eq('ong_id', selectedONG)
+      if (aulasBase.length > 0) {
+        // Cargar todos los tutores asignados a las aulas de una vez
+        const aulaIds = aulasBase.map(a => a.id)
+        const { data: tutoresData, error: tutoresError } = await supabase
+          .from('tutor_aula')
+          .select(`
+            aula_id,
+            fcp_miembro:fcp_miembros!inner(
+              usuario:usuarios!inner(id, email, nombre_completo)
+            )
+          `)
+          .in('aula_id', aulaIds)
           .eq('activo', true)
-          .maybeSingle()
+          .eq('fcp_id', selectedFCP)
         
-        if (userOngData?.rol === 'facilitador' && aulasBase.length > 0) {
-          // Cargar todos los tutores asignados a las aulas de una vez
-          const aulaIds = aulasBase.map(a => a.id)
-          const { data: tutoresData } = await supabase
-            .from('tutor_aula')
-            .select(`
-              aula_id,
-              usuario_ong:usuario_ong!inner(
-                usuario:usuarios!inner(id, email, nombre_completo)
-              )
-            `)
-            .in('aula_id', aulaIds)
-            .eq('activo', true)
-          
-          // Crear un mapa de aula_id -> tutor para acceso rápido
-          const tutoresMap = new Map<string, TutorInfo>()
-          if (tutoresData) {
-            tutoresData.forEach((tutorData: any) => {
-              if (tutorData.usuario_ong?.usuario && !tutoresMap.has(tutorData.aula_id)) {
-                const usuario = tutorData.usuario_ong.usuario
-                tutoresMap.set(tutorData.aula_id, {
-                  id: usuario.id,
-                  email: usuario.email,
-                  nombre_completo: usuario.nombre_completo
-                })
-              }
-            })
-          }
-          
-          // Agregar información de tutor a cada aula
-          aulasWithTutors = aulasBase.map(aula => ({
-            ...aula,
-            tutor: tutoresMap.get(aula.id)
-          }))
+        if (tutoresError) {
+          console.error('Error cargando tutores:', tutoresError)
         }
+        
+        // Crear un mapa de aula_id -> tutor para acceso rápido
+        const tutoresMap = new Map<string, TutorInfo>()
+        if (tutoresData) {
+          tutoresData.forEach((tutorData: any) => {
+            if (tutorData.fcp_miembro?.usuario && !tutoresMap.has(tutorData.aula_id)) {
+              const usuario = tutorData.fcp_miembro.usuario
+              tutoresMap.set(tutorData.aula_id, {
+                id: usuario.id,
+                email: usuario.email,
+                nombre_completo: usuario.nombre_completo
+              })
+            }
+          })
+        }
+        
+        // Agregar información de tutor a cada aula
+        aulasWithTutors = aulasBase.map(aula => ({
+          ...aula,
+          tutor: tutoresMap.get(aula.id)
+        }))
       }
       
       setAulas(aulasWithTutors)
@@ -212,7 +237,7 @@ export function AulaList() {
     setIsTutorDialogOpen(true)
   }
 
-  if (userONGs.length === 0) {
+  if (userFCPs.length === 0) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
@@ -237,7 +262,7 @@ export function AulaList() {
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
           <p className="text-red-600 dark:text-red-400 mb-4">{error}</p>
-          <Button onClick={() => selectedONG && loadAulas()}>
+          <Button onClick={() => selectedFCP && loadAulas()}>
             Reintentar
           </Button>
         </CardContent>
@@ -249,23 +274,25 @@ export function AulaList() {
     <div>
       <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex-1">
-          <label className="text-sm font-medium mb-2 block">Seleccionar ONG:</label>
+          <label className="text-sm font-medium mb-2 block">Seleccionar FCP:</label>
           <select
-            value={selectedONG || ''}
-            onChange={(e) => setSelectedONG(e.target.value)}
+            value={selectedFCP || ''}
+            onChange={(e) => setSelectedFCP(e.target.value)}
             className="w-full sm:w-auto px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
           >
-            {userONGs.map((ong) => (
-              <option key={ong.id} value={ong.id}>
-                {ong.nombre}
+            {userFCPs.map((fcp) => (
+              <option key={fcp.id} value={fcp.id}>
+                {fcp.nombre}
               </option>
             ))}
           </select>
         </div>
-        <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedONG}>
-          <Plus className="mr-2 h-4 w-4" />
-          Crear Aula
-        </Button>
+        <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
+          <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedFCP}>
+            <Plus className="mr-2 h-4 w-4" />
+            Crear Aula
+          </Button>
+        </RoleGuard>
       </div>
 
       {aulas.length === 0 ? (
@@ -277,8 +304,8 @@ export function AulaList() {
                 ? 'No tienes aulas asignadas. Contacta a un facilitador para que te asigne las aulas que debes gestionar.'
                 : 'No hay aulas registradas para esta ONG.'}
             </p>
-            <RoleGuard ongId={selectedONG} allowedRoles={['facilitador', 'secretario']}>
-              <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedONG}>
+            <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
+              <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedFCP}>
                 <Plus className="mr-2 h-4 w-4" />
                 Crear primera aula
               </Button>
@@ -297,23 +324,23 @@ export function AulaList() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2 text-sm">
-                  {aula.ong && (
+                  {aula.fcp && (
                     <p className="text-muted-foreground">
-                      <span className="font-medium">ONG:</span> {aula.ong.nombre}
+                      <span className="font-medium">FCP:</span> {aula.fcp.razon_social}
                     </p>
                   )}
-                  {isFacilitador && (
-                    <div className="space-y-1">
-                      <p className="text-muted-foreground">
-                        <span className="font-medium">Tutor encargado:</span>{' '}
-                        {aula.tutor ? (
-                          <span>{aula.tutor.nombre_completo || aula.tutor.email}</span>
-                        ) : (
-                          <span className="text-orange-600 dark:text-orange-400 italic">
-                            Falta agregar tutor
-                          </span>
-                        )}
-                      </p>
+                  <div className="space-y-1">
+                    <p className="text-muted-foreground">
+                      <span className="font-medium">Tutor encargado:</span>{' '}
+                      {aula.tutor ? (
+                        <span>{aula.tutor.nombre_completo || aula.tutor.email}</span>
+                      ) : (
+                        <span className="text-orange-600 dark:text-orange-400 italic">
+                          Falta agregar tutor
+                        </span>
+                      )}
+                    </p>
+                    <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
                       <Button
                         type="button"
                         variant="outline"
@@ -324,8 +351,8 @@ export function AulaList() {
                         <Edit className="mr-1 h-3 w-3" />
                         {aula.tutor ? 'Cambiar tutor' : 'Asignar tutor'}
                       </Button>
-                    </div>
-                  )}
+                    </RoleGuard>
+                  </div>
                   <div className="pt-2">
                     <span
                       className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
@@ -348,7 +375,7 @@ export function AulaList() {
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}
         onSuccess={handleAulaCreated}
-        ongId={selectedONG || ''}
+        fcpId={selectedFCP || ''}
       />
 
       {selectedAulaForTutor && (
@@ -358,7 +385,7 @@ export function AulaList() {
           onSuccess={handleTutorAssigned}
           aulaId={selectedAulaForTutor.id}
           aulaNombre={selectedAulaForTutor.nombre}
-          ongId={selectedONG || ''}
+          fcpId={selectedFCP || ''}
           tutorActual={selectedAulaForTutor.tutor}
         />
       )}

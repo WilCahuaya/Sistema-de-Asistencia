@@ -2,8 +2,8 @@
  * Utilidades para manejo de roles
  */
 
-export type RolType = 'facilitador' | 'secretario' | 'tutor'
-export type RolDisplayName = 'Facilitador' | 'Secretario' | 'Tutor'
+export type RolType = 'facilitador' | 'director' | 'secretario' | 'tutor'
+export type RolDisplayName = 'Facilitador' | 'Director' | 'Secretario' | 'Tutor'
 
 /**
  * Mapea el rol interno (BD) al nombre de display (UI)
@@ -12,6 +12,8 @@ export function getRolDisplayName(rol: RolType | null): RolDisplayName | string 
   switch (rol) {
     case 'facilitador':
       return 'Facilitador'
+    case 'director':
+      return 'Director'
     case 'secretario':
       return 'Secretario'
     case 'tutor':
@@ -28,6 +30,8 @@ export function getRolFromDisplayName(displayName: string): RolType | null {
   switch (displayName.toLowerCase()) {
     case 'facilitador':
       return 'facilitador'
+    case 'director':
+      return 'director'
     case 'secretario':
       return 'secretario'
     case 'tutor':
@@ -44,6 +48,8 @@ export function getRolBadgeColor(rol: RolType | null): string {
   switch (rol) {
     case 'facilitador':
       return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+    case 'director':
+      return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200'
     case 'secretario':
       return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
     case 'tutor':
@@ -57,20 +63,21 @@ export function getRolBadgeColor(rol: RolType | null): string {
  * Verifica si un rol tiene permisos de edición
  */
 export function canEdit(rol: RolType | null): boolean {
-  return rol === 'facilitador' || rol === 'secretario'
+  return rol === 'facilitador' || rol === 'director' || rol === 'secretario'
 }
 
 /**
  * Verifica si un rol puede ver reportes
  */
 export function canViewReports(rol: RolType | null): boolean {
-  return rol === 'facilitador' || rol === 'secretario'
+  return rol === 'facilitador' || rol === 'director' || rol === 'secretario'
 }
 
 /**
- * Verifica si un rol puede gestionar miembros
+ * Verifica si un rol puede gestionar miembros (agregar/editar)
+ * Facilitadores solo pueden ver, no gestionar
  */
 export function canManageMembers(rol: RolType | null): boolean {
-  return rol === 'facilitador'
+  return rol === 'director' || rol === 'secretario'
 }
 

@@ -1,20 +1,20 @@
 /**
  * Utilidad para verificar si un usuario tiene acceso al sistema
- * (tiene al menos una ONG asignada)
+ * (tiene al menos un rol asignado en alguna FCP)
  */
 
 import { createClient } from '@/lib/supabase/server'
 
 export interface UserAccessCheck {
   hasAccess: boolean
-  ongCount: number
+  roleCount: number
 }
 
 /**
- * Verifica si el usuario autenticado tiene al menos una ONG activa asignada
+ * Verifica si el usuario autenticado tiene al menos un rol activo asignado
  * 
  * @param userId - ID del usuario (auth.users.id) - opcional, si no se proporciona se obtiene del contexto
- * @returns Objeto con hasAccess y ongCount
+ * @returns Objeto con hasAccess y roleCount
  */
 export async function checkUserAccess(userId?: string): Promise<UserAccessCheck> {
   try {
@@ -25,7 +25,7 @@ export async function checkUserAccess(userId?: string): Promise<UserAccessCheck>
     
     if (userError || !user) {
       console.error('Error getting authenticated user:', userError)
-      return { hasAccess: false, ongCount: 0 }
+      return { hasAccess: false, roleCount: 0 }
     }
 
     // Usar el userId proporcionado o el del usuario autenticado
@@ -33,18 +33,17 @@ export async function checkUserAccess(userId?: string): Promise<UserAccessCheck>
     
     console.log('Checking access for user:', actualUserId, 'email:', user.email)
 
-    // Verificar en usuario_ong
+    // Verificar en fcp_miembros si tiene algún rol activo
+    // Esto incluye facilitadores del sistema (fcp_id IS NULL) y otros roles
     // RLS debería permitir que el usuario vea sus propias membresías (usuario_id = auth.uid())
-    // No necesitamos filtrar por usuario_id explícitamente si RLS está funcionando,
-    // pero lo hacemos por seguridad adicional
     const { data, error } = await supabase
-      .from('usuario_ong')
-      .select('id, activo, rol, ong_id', { count: 'exact' })
+      .from('fcp_miembros')
+      .select('id, activo, rol, fcp_id', { count: 'exact' })
       .eq('usuario_id', actualUserId)
       .eq('activo', true)
 
     if (error) {
-      console.error('Error checking user access in usuario_ong:', error)
+      console.error('Error checking user access in fcp_miembros:', error)
       console.error('Error details:', {
         code: error.code,
         message: error.message,
@@ -52,27 +51,27 @@ export async function checkUserAccess(userId?: string): Promise<UserAccessCheck>
         hint: error.hint,
         userId: actualUserId,
       })
-      return { hasAccess: false, ongCount: 0 }
+      return { hasAccess: false, roleCount: 0 }
     }
 
-    const ongCount = data?.length || 0
+    const roleCount = data?.length || 0
     
     // Log para debug
-    if (ongCount > 0) {
-      console.log(`✅ User ${actualUserId} (${user.email}) has access with ${ongCount} ONG(s)`)
-      console.log('ONGs details:', data.map((uo: any) => ({ ong_id: uo.ong_id, rol: uo.rol })))
+    if (roleCount > 0) {
+      console.log(`✅ User ${actualUserId} (${user.email}) has access with ${roleCount} role(s)`)
+      console.log('Roles details:', data.map((fm: any) => ({ fcp_id: fm.fcp_id, rol: fm.rol })))
     } else {
-      console.log(`❌ User ${actualUserId} (${user.email}) has NO access - no active ONGs found`)
-      console.log('Tip: Verifica que el usuario tenga un registro en usuario_ong con activo=true')
+      console.log(`❌ User ${actualUserId} (${user.email}) has NO access - no active roles found`)
+      console.log('Tip: Verifica que el usuario tenga un registro en fcp_miembros con activo=true y un rol asignado')
     }
 
     return {
-      hasAccess: ongCount > 0,
-      ongCount,
+      hasAccess: roleCount > 0,
+      roleCount,
     }
   } catch (error) {
     console.error('Error in checkUserAccess:', error)
-    return { hasAccess: false, ongCount: 0 }
+    return { hasAccess: false, roleCount: 0 }
   }
 }
 

@@ -24,12 +24,12 @@ interface EstudianteDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  ongId: string
+  fcpId: string
   aulaId?: string
   aulas: Array<{ id: string; nombre: string }>
 }
 
-export function EstudianteDialog({ open, onOpenChange, onSuccess, ongId, aulaId, aulas }: EstudianteDialogProps) {
+export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId, aulas }: EstudianteDialogProps) {
   const [loading, setLoading] = useState(false)
   const [selectedAulaId, setSelectedAulaId] = useState(aulaId || '')
   const { register, handleSubmit, reset, formState: { errors } } = useForm<EstudianteFormData>()
@@ -43,7 +43,7 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, ongId, aulaId,
   }, [aulaId, aulas])
 
   const onSubmit = async (data: EstudianteFormData) => {
-    if (!ongId) {
+    if (!fcpId) {
       alert('Por favor, selecciona una ONG primero')
       return
     }
@@ -73,7 +73,7 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, ongId, aulaId,
         .insert({
           codigo: data.codigo,
           nombre_completo: data.nombre_completo,
-          ong_id: ongId,
+          fcp_id: fcpId,
           aula_id: selectedAulaId,
           created_by: user.id,
         })
@@ -161,7 +161,7 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, ongId, aulaId,
             >
               Cancelar
             </Button>
-            <Button type="submit" disabled={loading || !ongId || !selectedAulaId}>
+            <Button type="submit" disabled={loading || !fcpId || !selectedAulaId}>
               {loading ? 'Creando...' : 'Crear Estudiante'}
             </Button>
           </DialogFooter>

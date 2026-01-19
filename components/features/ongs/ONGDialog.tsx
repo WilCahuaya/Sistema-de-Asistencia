@@ -17,11 +17,13 @@ import { Label } from '@/components/ui/label'
 import { useForm } from 'react-hook-form'
 
 interface ONGFormData {
-  nombre: string
-  descripcion?: string
-  direccion?: string
-  telefono?: string
-  email?: string
+  numero_identificacion: string
+  razon_social: string
+  nombre_completo_contacto: string
+  telefono: string
+  email: string
+  ubicacion: string
+  rol_contacto: string
 }
 
 interface ONGDialogProps {
@@ -34,15 +36,23 @@ export function ONGDialog({ open, onOpenChange, onSuccess }: ONGDialogProps) {
   const [loading, setLoading] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
   const router = useRouter()
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<ONGFormData>()
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<ONGFormData>({
+    defaultValues: {
+      rol_contacto: 'Director',
+    },
+  })
 
-  // Verificar autenticación al abrir el diálogo
+  // Verificar autenticación al abrir el diálogo y establecer valor por defecto del rol
   useEffect(() => {
     if (open) {
       setAuthError(null)
       checkAuth()
+      // Establecer el valor del rol como "Director" cuando se abre el diálogo
+      reset({
+        rol_contacto: 'Director',
+      })
     }
-  }, [open])
+  }, [open, reset])
 
   const checkAuth = async () => {
     try {
@@ -124,64 +134,111 @@ export function ONGDialog({ open, onOpenChange, onSuccess }: ONGDialogProps) {
         console.error('Error calling debug_auth RPC:', error)
       }
 
-      // Crear ONG usando el mismo cliente que tiene la sesión
+      // Crear FCP usando el mismo cliente que tiene la sesión
       // El cliente de Supabase automáticamente incluirá el token en los headers
-      console.log('Attempting to insert ONG...')
-      const { data: ong, error: ongError } = await supabase
-        .from('ongs')
+      console.log('Attempting to insert FCP...')
+      const { data: fcp, error: fcpError } = await supabase
+        .from('fcps')
         .insert({
-          nombre: data.nombre,
-          descripcion: data.descripcion || null,
-          direccion: data.direccion || null,
-          telefono: data.telefono || null,
-          email: data.email || null,
+          numero_identificacion: data.numero_identificacion,
+          razon_social: data.razon_social,
+          nombre_completo_contacto: data.nombre_completo_contacto,
+          telefono: data.telefono,
+          email: data.email,
+          ubicacion: data.ubicacion,
+          rol_contacto: data.rol_contacto,
           created_by: user.id,
         })
         .select()
         .single()
 
-      if (ongError) {
-        console.error('Error creating ONG:', ongError)
-        setAuthError(`Error al crear la ONG: ${ongError.message} (Código: ${ongError.code})`)
+      if (fcpError) {
+        console.error('Error creating FCP:', fcpError)
+        setAuthError(`Error al crear la FCP: ${fcpError.message} (Código: ${fcpError.code})`)
         setLoading(false)
         return
       }
 
-      if (!ong) {
-        setAuthError('Error: La ONG se creó pero no se devolvió correctamente.')
+      if (!fcp) {
+        setAuthError('Error: La FCP se creó pero no se devolvió correctamente.')
         setLoading(false)
         return
       }
 
-      console.log('ONG created successfully:', ong.id)
+      console.log('FCP created successfully:', fcp.id)
 
-      // Asociar usuario como facilitador de la ONG
-      // Nota: Este código no debería ejecutarse ya que las ONGs se crean desde la BD
-      const { error: usuarioOngError } = await supabase
-        .from('usuario_ong')
+      // Asociar usuario como facilitador de la FCP
+      // Nota: Los facilitadores necesitan tener al menos un registro en fcp_miembros con rol 'facilitador'
+      // para que la función es_facilitador() los identifique
+      const { error: fcpMiembroError } = await supabase
+        .from('fcp_miembros')
         .insert({
           usuario_id: user.id,
-          ong_id: ong.id,
+          fcp_id: fcp.id,
           rol: 'facilitador',
           activo: true,
         })
 
-      if (usuarioOngError) {
-        console.error('Error creating usuario_ong:', usuarioOngError)
+      if (fcpMiembroError) {
+        console.error('Error creating fcp_miembros:', fcpMiembroError)
         console.error('Error details:', {
-          message: usuarioOngError.message,
-          code: usuarioOngError.code,
-          details: usuarioOngError.details,
-          hint: usuarioOngError.hint,
+          message: fcpMiembroError.message,
+          code: fcpMiembroError.code,
+          details: fcpMiembroError.details,
+          hint: fcpMiembroError.hint,
         })
-        // Intentar eliminar la ONG creada si falla la asociación
-        await supabase.from('ongs').delete().eq('id', ong.id)
-        setAuthError(`Error al asociar el usuario con la ONG: ${usuarioOngError.message} (Código: ${usuarioOngError.code || 'N/A'}). Detalles: ${usuarioOngError.details || 'Sin detalles'}`)
+        // Intentar eliminar la FCP creada si falla la asociación
+        await supabase.from('fcps').delete().eq('id', fcp.id)
+        setAuthError(`Error al asociar el usuario con la FCP: ${fcpMiembroError.message} (Código: ${fcpMiembroError.code || 'N/A'}). Detalles: ${fcpMiembroError.details || 'Sin detalles'}`)
         setLoading(false)
         return
       }
 
-      console.log('Usuario asociado correctamente a la ONG')
+      console.log('Usuario facilitador asociado correctamente a la FCP')
+
+      // Crear usuario con rol de director para la FCP
+      // Primero intentar asociar usando la función RPC que busca en auth.users
+      try {
+        const { data: rpcResult, error: rpcError } = await supabase
+          .rpc('asociar_director_por_email', {
+            p_fcp_id: fcp.id,
+            p_email: data.email.toLowerCase()
+          })
+
+        if (rpcError) {
+          console.error('Error en asociar_director_por_email:', rpcError)
+          // Si hay error, crear invitación pendiente como fallback
+          throw rpcError
+        }
+
+        if (rpcResult && (rpcResult as any).success) {
+          console.log('Director asociado correctamente usando RPC:', (rpcResult as any).usuario_id)
+        } else {
+          // Si la función RPC no encontró el usuario en auth.users,
+          // crear una invitación pendiente
+          throw new Error('Usuario no encontrado en auth.users')
+        }
+      } catch (error: any) {
+        // Si falla la función RPC o no encuentra el usuario, crear invitación pendiente
+        console.log('Creando invitación pendiente para:', data.email, 'Error:', error?.message)
+        const { error: invitationError } = await supabase
+          .from('fcp_miembros')
+          .insert({
+            usuario_id: null, // NULL indica invitación pendiente
+            fcp_id: fcp.id,
+            rol: 'director',
+            activo: true,
+            email_pendiente: data.email.toLowerCase(),
+            fecha_asignacion: new Date().toISOString(),
+          })
+
+        if (invitationError) {
+          console.error('Error creando invitación pendiente:', invitationError)
+          // No fallar la creación de la FCP si esto falla, solo loguear el error
+        } else {
+          console.log('Invitación pendiente creada para el director')
+        }
+      }
       reset()
       setAuthError(null)
       onSuccess()
@@ -196,9 +253,9 @@ export function ONGDialog({ open, onOpenChange, onSuccess }: ONGDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Crear Nueva ONG</DialogTitle>
+          <DialogTitle>Crear Nueva FCP</DialogTitle>
           <DialogDescription>
-            Completa la información para crear una nueva Organización No Gubernamental
+            Completa la información para crear una nueva FCP
           </DialogDescription>
           </DialogHeader>
         {authError && (
@@ -209,48 +266,84 @@ export function ONGDialog({ open, onOpenChange, onSuccess }: ONGDialogProps) {
         <form onSubmit={handleSubmit(onSubmit)}>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="nombre">Nombre *</Label>
+              <Label htmlFor="numero_identificacion">Número de Identificación *</Label>
               <Input
-                id="nombre"
-                {...register('nombre', { required: 'El nombre es requerido' })}
-                placeholder="Nombre de la ONG"
+                id="numero_identificacion"
+                {...register('numero_identificacion', { required: 'El número de identificación es requerido' })}
+                placeholder="Ej: PE0530"
               />
-              {errors.nombre && (
-                <p className="text-sm text-red-500">{errors.nombre.message}</p>
+              {errors.numero_identificacion && (
+                <p className="text-sm text-red-500">{errors.numero_identificacion.message}</p>
               )}
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="descripcion">Descripción</Label>
+              <Label htmlFor="razon_social">Razón Social *</Label>
               <Input
-                id="descripcion"
-                {...register('descripcion')}
-                placeholder="Breve descripción (opcional)"
+                id="razon_social"
+                {...register('razon_social', { required: 'La razón social es requerida' })}
+                placeholder="Ej: RESCATANDO VALORES"
               />
+              {errors.razon_social && (
+                <p className="text-sm text-red-500">{errors.razon_social.message}</p>
+              )}
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="direccion">Dirección</Label>
+              <Label htmlFor="nombre_completo_contacto">Nombre Completo *</Label>
               <Input
-                id="direccion"
-                {...register('direccion')}
-                placeholder="Dirección (opcional)"
+                id="nombre_completo_contacto"
+                {...register('nombre_completo_contacto', { required: 'El nombre completo es requerido' })}
+                placeholder="Ej: Juan Pérez Camacho"
               />
+              {errors.nombre_completo_contacto && (
+                <p className="text-sm text-red-500">{errors.nombre_completo_contacto.message}</p>
+              )}
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="telefono">Teléfono</Label>
+              <Label htmlFor="telefono">Teléfono *</Label>
               <Input
                 id="telefono"
-                {...register('telefono')}
-                placeholder="Teléfono (opcional)"
+                {...register('telefono', { required: 'El teléfono es requerido' })}
+                placeholder="Ej: +51 987654321"
               />
+              {errors.telefono && (
+                <p className="text-sm text-red-500">{errors.telefono.message}</p>
+              )}
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">Correo Electrónico *</Label>
               <Input
                 id="email"
                 type="email"
-                {...register('email')}
-                placeholder="Email (opcional)"
+                {...register('email', { required: 'El correo electrónico es requerido' })}
+                placeholder="Ej: juan.perez@ci.org"
               />
+              {errors.email && (
+                <p className="text-sm text-red-500">{errors.email.message}</p>
+              )}
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="ubicacion">Ubicación *</Label>
+              <Input
+                id="ubicacion"
+                {...register('ubicacion', { required: 'La ubicación es requerida' })}
+                placeholder="Ej: Lima, Perú"
+              />
+              {errors.ubicacion && (
+                <p className="text-sm text-red-500">{errors.ubicacion.message}</p>
+              )}
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="rol_contacto">Rol *</Label>
+              <Input
+                id="rol_contacto"
+                {...register('rol_contacto', { required: 'El rol es requerido' })}
+                readOnly
+                disabled
+                className="bg-gray-100 dark:bg-gray-800 cursor-not-allowed"
+              />
+              {errors.rol_contacto && (
+                <p className="text-sm text-red-500">{errors.rol_contacto.message}</p>
+              )}
             </div>
           </div>
           <DialogFooter>
@@ -265,7 +358,7 @@ export function ONGDialog({ open, onOpenChange, onSuccess }: ONGDialogProps) {
               Cancelar
             </Button>
             <Button type="submit" disabled={loading}>
-              {loading ? 'Creando...' : 'Crear ONG'}
+              {loading ? 'Creando...' : 'Crear FCP'}
             </Button>
           </DialogFooter>
         </form>

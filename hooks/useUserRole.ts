@@ -3,39 +3,40 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-export type RolType = 'facilitador' | 'secretario' | 'tutor' | null
+export type RolType = 'facilitador' | 'director' | 'secretario' | 'tutor' | null
 
 interface UseUserRoleResult {
   role: RolType
   loading: boolean
   error: Error | null
   isFacilitador: boolean
+  isDirector: boolean
   isSecretario: boolean
   isTutor: boolean
-  canEdit: boolean // Facilitador o Secretario
-  canViewReports: boolean // Facilitador o Secretario
+  canEdit: boolean // Facilitador, Director o Secretario
+  canViewReports: boolean // Facilitador, Director o Secretario
 }
 
 /**
- * Hook para obtener el rol del usuario actual en una ONG específica
+ * Hook para obtener el rol del usuario actual en una FCP específica
  * 
- * @param ongId - ID de la ONG
+ * @param fcpId - ID de la FCP
  * @returns Objeto con el rol del usuario y helpers de permisos
  * 
  * @example
- * const { role, canEdit, loading } = useUserRole(ongId)
+ * const { role, canEdit, loading } = useUserRole(fcpId)
  * 
  * if (canEdit) {
  *   // Mostrar botones de edición
  * }
  */
-export function useUserRole(ongId: string | null): UseUserRoleResult {
+export function useUserRole(fcpId: string | null): UseUserRoleResult {
   const [role, setRole] = useState<RolType>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
 
   useEffect(() => {
-    if (!ongId) {
+    if (!fcpId) {
       setRole(null)
       setLoading(false)
       return
@@ -61,11 +62,33 @@ export function useUserRole(ongId: string | null): UseUserRoleResult {
           return
         }
 
+        // Primero verificar si el usuario es facilitador del sistema (fcp_id = NULL)
+        // Los facilitadores pueden gestionar todas las FCPs
+        const { data: facilitadorData, error: facilitadorError } = await supabase
+          .from('fcp_miembros')
+          .select('rol')
+          .eq('usuario_id', user.id)
+          .is('fcp_id', null)
+          .eq('rol', 'facilitador')
+          .eq('activo', true)
+          .maybeSingle()
+
+        if (cancelled) return
+
+        // Si es facilitador del sistema, retornar ese rol
+        if (facilitadorData && !facilitadorError) {
+          if (!cancelled) {
+            setRole('facilitador')
+          }
+          return
+        }
+
+        // Si no es facilitador del sistema, obtener el rol en la FCP específica
         // Obtener el rol del usuario usando la función RPC
         const { data: rolData, error: rpcError } = await supabase.rpc(
-          'obtener_rol_ong',
+          'obtener_rol_fcp',
           {
-            p_ong_id: ongId,
+            p_fcp_id: fcpId,
             p_usuario_id: user.id,
           }
         )
@@ -79,13 +102,13 @@ export function useUserRole(ongId: string | null): UseUserRoleResult {
           }
 
           // Si falla la RPC, intentar consulta directa
-          const { data: usuarioOngData, error: queryError } = await supabase
-            .from('usuario_ong')
+          const { data: fcpMiembroData, error: queryError } = await supabase
+            .from('fcp_miembros')
             .select('rol')
             .eq('usuario_id', user.id)
-            .eq('ong_id', ongId)
+            .eq('fcp_id', fcpId)
             .eq('activo', true)
-            .single()
+            .maybeSingle()
 
           if (cancelled) return
 
@@ -103,7 +126,7 @@ export function useUserRole(ongId: string | null): UseUserRoleResult {
           }
 
           if (!cancelled) {
-            setRole(usuarioOngData?.rol || null)
+            setRole(fcpMiembroData?.rol || null)
           }
         } else {
           if (!cancelled) {
@@ -133,19 +156,22 @@ export function useUserRole(ongId: string | null): UseUserRoleResult {
     return () => {
       cancelled = true
     }
-  }, [ongId])
+  }, [fcpId])
 
   const isFacilitador = role === 'facilitador'
+  const isDirector = role === 'director'
   const isSecretario = role === 'secretario'
   const isTutor = role === 'tutor'
-  const canEdit = isFacilitador || isSecretario
-  const canViewReports = isFacilitador || isSecretario
+  // Facilitadores NO pueden editar (solo ver)
+  const canEdit = isDirector || isSecretario
+  const canViewReports = isFacilitador || isDirector || isSecretario
 
   return {
     role,
     loading,
     error,
     isFacilitador,
+    isDirector,
     isSecretario,
     isTutor,
     canEdit,

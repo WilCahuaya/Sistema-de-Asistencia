@@ -28,11 +28,11 @@ export default async function MiembrosPage({ params }: MiembrosPageProps) {
           Gestión de Miembros
         </h1>
         <p className="mt-2 text-gray-600 dark:text-gray-400">
-          Administra los miembros y roles de esta ONG
+          Administra los miembros y roles de esta FCP
         </p>
       </div>
 
-      <MiembrosList ongId={resolvedParams.id} />
+      <MiembrosList fcpId={resolvedParams.id} />
     </div>
   )
 }

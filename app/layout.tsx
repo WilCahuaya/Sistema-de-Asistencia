@@ -3,8 +3,8 @@ import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 
 export const metadata: Metadata = {
-  title: "Sistema de Gestión de Asistencias - ONG",
-  description: "Sistema web para la gestión de asistencias de estudiantes en ONG",
+  title: "Sistema de Gestión de Asistencias - FCP",
+  description: "Sistema web para la gestión de asistencias de estudiantes en FCP",
 };
 
 export default function RootLayout({

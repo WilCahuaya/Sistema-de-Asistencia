@@ -11,7 +11,7 @@ import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useRouter } from 'next/navigation'
 
 interface ReporteAsistenciaPorNivelProps {
-  ongId: string | null
+  fcpId: string | null
 }
 
 interface AulaData {
@@ -65,14 +65,14 @@ interface DiaIncompleto {
   aulaId: string
 }
 
-export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenciaPorNivelProps) {
+export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenciaPorNivelProps) {
   const [loading, setLoading] = useState(false)
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth())
-  const [selectedONG, setSelectedONG] = useState<string | null>(ongIdProp || null)
-  const [userONGs, setUserONGs] = useState<Array<{ id: string; nombre: string }>>([])
+  const [selectedFCP, setSelectedFCP] = useState<string | null>(fcpIdProp || null)
+  const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string }>>([])
   const [reporteData, setReporteData] = useState<{
-    ong: { id: string; nombre: string }
+    ong: { id: string; razon_social: string; numero_identificacion?: string }
     year: number
     month: number
     niveles: NivelGroup[]
@@ -80,16 +80,45 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
     diasIncompletos: DiaIncompleto[] // Días que no se completaron
   } | null>(null)
   const [responsable, setResponsable] = useState<{ nombre: string; email: string; rol: string } | null>(null)
-  const { canViewReports, loading: roleLoading } = useUserRole(selectedONG)
+  const [isFacilitador, setIsFacilitador] = useState(false)
+  const { canViewReports, loading: roleLoading } = useUserRole(selectedFCP)
   const router = useRouter()
 
   useEffect(() => {
-    if (ongIdProp) {
-      setSelectedONG(ongIdProp)
-    } else {
-      loadUserONGs()
+    const initialize = async () => {
+      await checkIfFacilitador()
+      if (fcpIdProp) {
+        setSelectedFCP(fcpIdProp)
+      }
+      await loadUserONGs()
     }
-  }, [ongIdProp])
+    initialize()
+  }, [fcpIdProp])
+
+  const checkIfFacilitador = async () => {
+    try {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: usuarioOngData, error: usuarioOngError } = await supabase
+        .from('fcp_miembros')
+        .select('rol')
+        .eq('usuario_id', user.id)
+        .eq('rol', 'facilitador')
+        .eq('activo', true)
+        .limit(1)
+
+      if (usuarioOngError) {
+        console.error('Error checking facilitador:', usuarioOngError)
+        return
+      }
+
+      setIsFacilitador(usuarioOngData && usuarioOngData.length > 0)
+    } catch (error) {
+      console.error('Error checking facilitador:', error)
+    }
+  }
 
   const loadUserONGs = async () => {
     try {
@@ -97,25 +126,53 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      const { data, error } = await supabase
-        .from('usuario_ong')
-        .select(`
-          ong_id,
-          ong:ongs(id, nombre)
-        `)
+      // Verificar si el usuario es facilitador en alguna ONG
+      const { data: usuarioOngData, error: usuarioOngError } = await supabase
+        .from('fcp_miembros')
+        .select('rol')
         .eq('usuario_id', user.id)
+        .eq('rol', 'facilitador')
         .eq('activo', true)
+        .limit(1)
 
-      if (error) throw error
+      if (usuarioOngError) throw usuarioOngError
 
-      const ongs = data?.map((item: any) => ({
-        id: item.ong.id,
-        nombre: item.ong.nombre,
-      })) || []
+      const isFacilitador = usuarioOngData && usuarioOngData.length > 0
 
-      setUserONGs(ongs)
-      if (ongs.length > 0 && !selectedONG) {
-        setSelectedONG(ongs[0].id)
+      let ongs: Array<{ id: string; nombre: string }> = []
+
+      if (isFacilitador) {
+        // Facilitadores pueden ver todas las ONGs del sistema
+        const { data: todasLasONGs, error: ongsError } = await supabase
+          .from('fcps')
+          .select('id, razon_social')
+          .eq('activa', true)
+          .order('razon_social', { ascending: true })
+        
+        if (ongsError) throw ongsError
+        ongs = todasLasONGs || []
+      } else {
+        // Usuarios no facilitadores solo ven sus ONGs
+        const { data, error } = await supabase
+          .from('fcp_miembros')
+          .select(`
+            fcp_id,
+            fcp:fcps(id, razon_social)
+          `)
+          .eq('usuario_id', user.id)
+          .eq('activo', true)
+
+        if (error) throw error
+
+        ongs = data?.map((item: any) => ({
+          id: item.ong.id,
+          nombre: item.ong.razon_social || item.ong.numero_identificacion || 'FCP',
+        })) || []
+      }
+
+      setUserFCPs(ongs)
+      if (ongs.length > 0 && !selectedFCP) {
+        setSelectedFCP(ongs[0].id)
       }
     } catch (error) {
       console.error('Error loading ONGs:', error)
@@ -123,7 +180,7 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
   }
 
   const generarReporte = async () => {
-    if (!selectedONG) {
+    if (!selectedFCP) {
       alert('Por favor, selecciona una ONG')
       return
     }
@@ -137,19 +194,19 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
       if (user) {
         // Obtener rol y datos del usuario en la ONG
         const { data: usuarioOngData, error: usuarioOngError } = await supabase
-          .from('usuario_ong')
+          .from('fcp_miembros')
           .select(`
             rol,
             usuario:usuarios(nombre_completo, email)
           `)
           .eq('usuario_id', user.id)
-          .eq('ong_id', selectedONG)
+          .eq('fcp_id', selectedFCP)
           .eq('activo', true)
           .single()
 
         if (!usuarioOngError && usuarioOngData) {
           const usuario = usuarioOngData.usuario as any
-          const rol = usuarioOngData.rol === 'facilitador' ? 'Facilitador' : usuarioOngData.rol === 'secretario' ? 'Secretario' : ''
+          const rol = usuarioOngData.rol === 'facilitador' ? 'Facilitador' : usuarioOngData.rol === 'director' ? 'Director' : usuarioOngData.rol === 'secretario' ? 'Secretario' : ''
           if (rol && (rol === 'Facilitador' || rol === 'Secretario')) {
             setResponsable({
               nombre: usuario?.nombre_completo || usuario?.email || user.email || '',
@@ -162,9 +219,9 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
 
       // Obtener datos de la ONG
       const { data: ongData, error: ongError } = await supabase
-        .from('ongs')
-        .select('id, nombre')
-        .eq('id', selectedONG)
+        .from('fcps')
+        .select('id, razon_social')
+        .eq('id', selectedFCP)
         .single()
 
       if (ongError) throw ongError
@@ -176,13 +233,13 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
           id,
           nombre,
           tutor_aula!inner(
-            usuario_ong!inner(
+            fcp_miembro:fcp_miembros!inner(
               usuario_id,
               usuario:usuarios(id, email, nombre_completo)
             )
           )
         `)
-        .eq('ong_id', selectedONG)
+        .eq('fcp_id', selectedFCP)
         .eq('activa', true)
         .eq('tutor_aula.activo', true)
 
@@ -195,8 +252,8 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
       if (!aulasData || aulasData.length === 0) {
         const { data: todasLasAulas, error: todasLasAulasError } = await supabase
           .from('aulas')
-          .select('id, nombre')
-          .eq('ong_id', selectedONG)
+          .select('id, razon_social')
+          .eq('fcp_id', selectedFCP)
           .eq('activa', true)
 
         if (todasLasAulasError) throw todasLasAulasError
@@ -204,8 +261,8 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
       } else {
         aulas = (aulasData || []).map((a: any) => {
           const tutorAula = Array.isArray(a.tutor_aula) ? a.tutor_aula[0] : a.tutor_aula
-          const usuarioOng = tutorAula?.usuario_ong
-          const usuario = usuarioOng?.usuario
+          const fcpMiembro = tutorAula?.fcp_miembro
+          const usuario = fcpMiembro?.usuario
           
           return {
             id: a.id,
@@ -224,8 +281,8 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
         const aulasIds = aulas.map(a => a.id)
         const { data: todasLasAulas, error: todasLasAulasError } = await supabase
           .from('aulas')
-          .select('id, nombre')
-          .eq('ong_id', selectedONG)
+          .select('id, razon_social')
+          .eq('fcp_id', selectedFCP)
           .eq('activa', true)
 
         if (!todasLasAulasError && todasLasAulas) {
@@ -258,7 +315,7 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
       const { data: estudiantesData, error: estudiantesError } = await supabase
         .from('estudiantes')
         .select('id, codigo, nombre_completo, aula_id')
-        .eq('ong_id', selectedONG)
+        .eq('fcp_id', selectedFCP)
         .eq('activo', true)
         .in('aula_id', aulas.map(a => a.id))
 
@@ -268,7 +325,7 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
       const estudianteIds = estudiantesData?.map(e => e.id) || []
       
       console.log('🔍 Debug ReporteAsistenciaPorNivel:', {
-        ongId: selectedONG,
+        fcpId: selectedFCP,
         estudiantesCount: estudiantesData?.length || 0,
         estudianteIds: estudianteIds.slice(0, 3), // Primeros 3 IDs
         fechaInicio,
@@ -280,7 +337,7 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
       const { data: asistenciasData, error: asistenciasError } = await supabase
         .from('asistencias')
         .select('estudiante_id, fecha, estado')
-        .eq('ong_id', selectedONG)
+        .eq('fcp_id', selectedFCP)
         .in('estudiante_id', estudianteIds)
         .gte('fecha', fechaInicio)
         .lte('fecha', fechaFin)
@@ -443,7 +500,8 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
       setReporteData({
         ong: {
           id: ongData.id,
-          nombre: ongData.nombre,
+          razon_social: ongData.razon_social || ongData.numero_identificacion || 'FCP',
+          numero_identificacion: ongData.numero_identificacion,
         },
         year: selectedYear,
         month: selectedMonth,
@@ -606,6 +664,48 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
         rows.push(subtotalRow)
       })
 
+      // Calcular totales generales
+      const totalGeneralPresente = reporteData.niveles.reduce((sum, nivel) => sum + nivel.totalPresente, 0)
+      const totalGeneralPermiso = reporteData.niveles.reduce((sum, nivel) => sum + nivel.totalPermiso, 0)
+      const totalGeneralFalto = reporteData.niveles.reduce((sum, nivel) => sum + nivel.totalFalto, 0)
+      const totalGeneralRegistros = reporteData.niveles.reduce((sum, nivel) => sum + nivel.totalRegistros, 0)
+
+      // Fila de Total General
+      const totalGeneralRow: any[] = [
+        'Total General',
+        '',
+      ]
+
+      reporteData.fechasUnicas.forEach(fecha => {
+        const totalFecha = reporteData.niveles.reduce((sum, nivel) => {
+          const totalFechaNivel = nivel.aulas.reduce((sumAula, a) => {
+            const asistenciaFecha = a.asistencias[fecha]
+            return sumAula + (asistenciaFecha?.presente || 0)
+          }, 0)
+          return sum + totalFechaNivel
+        }, 0)
+        totalGeneralRow.push(totalFecha)
+      })
+
+      totalGeneralRow.push(totalGeneralPresente) // Asis.Pro.m
+      totalGeneralRow.push(totalGeneralRegistros) // Reg.Pro.m
+      
+      const porcentajeAsistioGeneral = totalGeneralRegistros > 0
+        ? ((totalGeneralPresente / totalGeneralRegistros) * 100).toFixed(2)
+        : '0.00'
+      const porcentajePermisoGeneral = totalGeneralRegistros > 0
+        ? ((totalGeneralPermiso / totalGeneralRegistros) * 100).toFixed(2)
+        : '0.00'
+      const porcentajeFaltoGeneral = totalGeneralRegistros > 0
+        ? ((totalGeneralFalto / totalGeneralRegistros) * 100).toFixed(2)
+        : '0.00'
+      totalGeneralRow.push(`${porcentajeAsistioGeneral}%`)
+      totalGeneralRow.push(`${porcentajePermisoGeneral}%`)
+      totalGeneralRow.push(`${porcentajeFaltoGeneral}%`)
+
+      const totalGeneralRowIndex = rows.length
+      rows.push(totalGeneralRow)
+
       // Número de filas del encabezado (título, info, fila vacía, header)
       const headerRows = responsable ? 9 : 7
       const headerRowIndex = headerRows - 1 // Índice de la fila de encabezado (0-based)
@@ -614,7 +714,7 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
       const encabezado = [
         [`Reporte de Asistencia por Nivel`],
         [],
-        [`Proyecto: ${reporteData.ong.nombre}`],
+        [`Proyecto: ${reporteData.ong.razon_social}`],
         [`Año: ${reporteData.year}`],
         [`Mes: ${monthNames[reporteData.month]} ${reporteData.year}`],
         ...(responsable ? [[`Responsable: ${responsable.nombre} (${responsable.rol})`], [`Email: ${responsable.email}`]] : []),
@@ -647,6 +747,16 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
         applyStyle(ws, subtotalRange, subtotalStyle)
       })
       
+      // Fila de Total General
+      const totalGeneralRowExcel = headerRowIndex + 1 + totalGeneralRowIndex
+      const totalGeneralRange = XLSX.utils.encode_range({ s: { c: 0, r: totalGeneralRowExcel }, e: { c: header.length - 1, r: totalGeneralRowExcel } })
+      const totalGeneralStyle = {
+        ...cellStyle,
+        font: { bold: true },
+        fill: { fgColor: { rgb: 'B4C6E7' } }, // Azul claro para diferenciarlo del subtotal
+      }
+      applyStyle(ws, totalGeneralRange, totalGeneralStyle)
+      
       // Anchos de columna
       const colWidths = [
         { wch: 15 }, // Nivel
@@ -663,7 +773,7 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
       XLSX.utils.book_append_sheet(wb, ws, 'Reporte por Nivel')
 
       // Descargar
-      const nombreArchivo = `Reporte_Asistencia_por_Nivel_${reporteData.ong.nombre}_${monthNames[reporteData.month]}_${reporteData.year}.xlsx`
+      const nombreArchivo = `Reporte_Asistencia_por_Nivel_${reporteData.ong.razon_social}_${monthNames[reporteData.month]}_${reporteData.year}.xlsx`
       XLSX.writeFile(wb, nombreArchivo)
     } catch (error) {
       console.error('Error exporting to Excel:', error)
@@ -717,7 +827,7 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
       // Información general
       doc.setFontSize(10)
       doc.setFont(undefined, 'normal')
-      doc.text(`Proyecto: ${reporteData.ong.nombre}`, 15, y)
+      doc.text(`Proyecto: ${reporteData.ong.razon_social}`, 15, y)
       y += 5
       doc.text(`Año: ${reporteData.year}`, 15, y)
       y += 5
@@ -835,6 +945,47 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
         body.push(subtotalRow)
       })
 
+      // Calcular totales generales
+      const totalGeneralPresente = reporteData.niveles.reduce((sum, nivel) => sum + nivel.totalPresente, 0)
+      const totalGeneralPermiso = reporteData.niveles.reduce((sum, nivel) => sum + nivel.totalPermiso, 0)
+      const totalGeneralFalto = reporteData.niveles.reduce((sum, nivel) => sum + nivel.totalFalto, 0)
+      const totalGeneralRegistros = reporteData.niveles.reduce((sum, nivel) => sum + nivel.totalRegistros, 0)
+
+      // Fila de Total General
+      const totalGeneralRow: any[] = [
+        'Total General',
+        '',
+      ]
+
+      reporteData.fechasUnicas.forEach(fecha => {
+        const totalFecha = reporteData.niveles.reduce((sum, nivel) => {
+          const totalFechaNivel = nivel.aulas.reduce((sumAula, a) => {
+            const asistenciaFecha = a.asistencias[fecha]
+            return sumAula + (asistenciaFecha?.presente || 0)
+          }, 0)
+          return sum + totalFechaNivel
+        }, 0)
+        totalGeneralRow.push(totalFecha.toString())
+      })
+
+      totalGeneralRow.push(totalGeneralPresente.toString())
+      totalGeneralRow.push(totalGeneralRegistros.toString())
+
+      const porcentajeAsistioGeneral = totalGeneralRegistros > 0
+        ? ((totalGeneralPresente / totalGeneralRegistros) * 100).toFixed(2)
+        : '0.00'
+      const porcentajePermisoGeneral = totalGeneralRegistros > 0
+        ? ((totalGeneralPermiso / totalGeneralRegistros) * 100).toFixed(2)
+        : '0.00'
+      const porcentajeFaltoGeneral = totalGeneralRegistros > 0
+        ? ((totalGeneralFalto / totalGeneralRegistros) * 100).toFixed(2)
+        : '0.00'
+      totalGeneralRow.push(`${porcentajeAsistioGeneral}%`)
+      totalGeneralRow.push(`${porcentajePermisoGeneral}%`)
+      totalGeneralRow.push(`${porcentajeFaltoGeneral}%`)
+
+      body.push(totalGeneralRow)
+
       // Generar tabla con autoTable (función independiente en versión 5.x)
       // Si autoTable está disponible como método del doc, usarlo; si no, como función
       const tableOptions = {
@@ -887,7 +1038,7 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
         },
         tableWidth: 'wrap',
         didParseCell: function (data: any) {
-          // Resaltar filas de subtotal
+          // Resaltar filas de subtotal y total general
           // En versión 5.x, verificar el texto de la celda actual o el contenido de la fila
           try {
             const cellText = (data.cell?.text?.toString() || data.cell?.text || '').toString().trim()
@@ -899,7 +1050,14 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
               return
             }
             
-            // Intentar verificar si alguna celda de la fila contiene "Subtotal"
+            // Si la celda contiene "Total General", aplicar estilos más destacados
+            if (cellText === 'Total General') {
+              data.cell.styles.fillColor = [180, 198, 231] // Azul claro
+              data.cell.styles.fontStyle = 'bold'
+              return
+            }
+            
+            // Intentar verificar si alguna celda de la fila contiene "Subtotal" o "Total General"
             // En versión 5.x, data puede tener diferentes estructuras
             if (data.table && data.table.body) {
               const rowIndex = data.rowIndex
@@ -914,8 +1072,16 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
                       return text === 'Subtotal'
                     })
                     
+                    const hasTotalGeneral = cells.some((cell: any) => {
+                      const text = (cell?.text?.toString() || cell?.text || cell?.toString() || '').toString().trim()
+                      return text === 'Total General'
+                    })
+                    
                     if (hasSubtotal) {
                       data.cell.styles.fillColor = [230, 230, 230]
+                      data.cell.styles.fontStyle = 'bold'
+                    } else if (hasTotalGeneral) {
+                      data.cell.styles.fillColor = [180, 198, 231] // Azul claro
                       data.cell.styles.fontStyle = 'bold'
                     }
                   }
@@ -939,7 +1105,7 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
       }
 
       // Descargar
-      const nombreArchivo = `Reporte_Asistencia_por_Nivel_${reporteData.ong.nombre}_${monthNames[reporteData.month]}_${reporteData.year}.pdf`
+      const nombreArchivo = `Reporte_Asistencia_por_Nivel_${reporteData.ong.razon_social}_${monthNames[reporteData.month]}_${reporteData.year}.pdf`
       doc.save(nombreArchivo)
     } catch (error) {
       console.error('Error exporting to PDF:', error)
@@ -955,12 +1121,12 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
     return `${monthNames[month]} ${year}`
   }
 
-  if (!selectedONG && userONGs.length === 0) {
+  if (!selectedFCP && userFCPs.length === 0) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
           <p className="text-muted-foreground mb-4">
-            Cargando ONGs...
+            Cargando FCPs...
           </p>
         </CardContent>
       </Card>
@@ -972,7 +1138,7 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
           <p className="text-muted-foreground mb-4">
-            No tienes permisos para ver reportes. Solo los facilitadores y secretarios pueden acceder a esta funcionalidad.
+            No tienes permisos para ver reportes. Solo los facilitadores, directores y secretarios pueden acceder a esta funcionalidad.
           </p>
         </CardContent>
       </Card>
@@ -987,15 +1153,15 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {!ongIdProp && (
+            {(!fcpIdProp || isFacilitador) && (
               <div>
-                <label className="text-sm font-medium mb-2 block">ONG:</label>
+                <label className="text-sm font-medium mb-2 block">FCP:</label>
                 <select
-                  value={selectedONG || ''}
-                  onChange={(e) => setSelectedONG(e.target.value || null)}
+                  value={selectedFCP || ''}
+                  onChange={(e) => setSelectedFCP(e.target.value || null)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
                 >
-                  {userONGs.map((ong) => (
+                  {userFCPs.map((ong) => (
                     <option key={ong.id} value={ong.id}>
                       {ong.nombre}
                     </option>
@@ -1018,9 +1184,9 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
             </div>
           </div>
 
-          <RoleGuard ongId={selectedONG} allowedRoles={['facilitador', 'secretario']}>
+          <RoleGuard fcpId={selectedFCP} allowedRoles={['facilitador', 'director', 'secretario']}>
             <div className="mt-4">
-              <Button onClick={generarReporte} disabled={loading || !selectedONG}>
+              <Button onClick={generarReporte} disabled={loading || !selectedFCP}>
                 {loading ? (
                   <>
                     <Calendar className="mr-2 h-4 w-4 animate-pulse" />
@@ -1045,7 +1211,7 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
               <div>
                 <CardTitle>Reporte de Asistencia por Nivel</CardTitle>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Proyecto: {reporteData.ong.nombre} | Año: {reporteData.year} | Mes: {formatMonthYear(reporteData.month, reporteData.year)}
+                  Proyecto: {reporteData.ong.razon_social} | Año: {reporteData.year} | Mes: {formatMonthYear(reporteData.month, reporteData.year)}
                 </p>
                 {responsable && (
                   <p className="text-sm text-muted-foreground mt-1">
@@ -1053,7 +1219,7 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
                   </p>
                 )}
               </div>
-              <RoleGuard ongId={selectedONG} allowedRoles={['facilitador', 'secretario']}>
+              <RoleGuard fcpId={selectedFCP} allowedRoles={['facilitador', 'director', 'secretario']}>
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={exportarExcel}>
                     <FileSpreadsheet className="mr-2 h-4 w-4" />
@@ -1214,6 +1380,55 @@ export function ReporteAsistenciaPorNivel({ ongId: ongIdProp }: ReporteAsistenci
                       </tr>
                     </React.Fragment>
                   ))}
+                  {/* Fila de Total General */}
+                  {(() => {
+                    // Calcular totales generales sumando todos los niveles
+                    const totalGeneralPresente = reporteData.niveles.reduce((sum, nivel) => sum + nivel.totalPresente, 0)
+                    const totalGeneralPermiso = reporteData.niveles.reduce((sum, nivel) => sum + nivel.totalPermiso, 0)
+                    const totalGeneralFalto = reporteData.niveles.reduce((sum, nivel) => sum + nivel.totalFalto, 0)
+                    const totalGeneralRegistros = reporteData.niveles.reduce((sum, nivel) => sum + nivel.totalRegistros, 0)
+                    
+                    return (
+                      <tr className="bg-blue-100 dark:bg-blue-900 font-bold">
+                        <td className="border border-gray-300 p-2">Total General</td>
+                        <td className="border border-gray-300 p-2"></td>
+                        {reporteData.fechasUnicas.map((fecha) => {
+                          const totalFecha = reporteData.niveles.reduce((sum, nivel) => {
+                            const totalFechaNivel = nivel.aulas.reduce((sumAula, a) => {
+                              const asistenciaFecha = a.asistencias[fecha]
+                              return sumAula + (asistenciaFecha?.presente || 0)
+                            }, 0)
+                            return sum + totalFechaNivel
+                          }, 0)
+                          return (
+                            <td
+                              key={fecha}
+                              className="border border-gray-300 p-2 text-center"
+                            >
+                              {totalFecha}
+                            </td>
+                          )
+                        })}
+                        <td className="border border-gray-300 p-2 text-center">{totalGeneralPresente}</td>
+                        <td className="border border-gray-300 p-2 text-center">{totalGeneralRegistros}</td>
+                        <td className="border border-gray-300 p-2 text-center">
+                          {totalGeneralRegistros > 0
+                            ? ((totalGeneralPresente / totalGeneralRegistros) * 100).toFixed(2)
+                            : '0.00'}%
+                        </td>
+                        <td className="border border-gray-300 p-2 text-center">
+                          {totalGeneralRegistros > 0
+                            ? ((totalGeneralPermiso / totalGeneralRegistros) * 100).toFixed(2)
+                            : '0.00'}%
+                        </td>
+                        <td className="border border-gray-300 p-2 text-center">
+                          {totalGeneralRegistros > 0
+                            ? ((totalGeneralFalto / totalGeneralRegistros) * 100).toFixed(2)
+                            : '0.00'}%
+                        </td>
+                      </tr>
+                    )
+                  })()}
                 </tbody>
               </table>
             </div>

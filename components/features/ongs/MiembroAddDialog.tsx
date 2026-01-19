@@ -23,10 +23,11 @@ import {
 import { useForm } from 'react-hook-form'
 import { getRolDisplayName } from '@/lib/utils/roles'
 import { Checkbox } from '@/components/ui/checkbox'
+import { useUserRole } from '@/hooks/useUserRole'
 
 interface MiembroFormData {
   email: string
-  rol: 'secretario' | 'tutor' // Facilitador no puede ser asignado desde la UI, solo desde BD
+  rol: 'secretario' | 'tutor' // Los directores solo pueden crear secretarios o tutores
   aulas?: string[] // IDs de aulas asignadas (solo para tutores)
 }
 
@@ -34,34 +35,45 @@ interface MiembroAddDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  ongId: string
+  fcpId: string
 }
 
 export function MiembroAddDialog({
   open,
   onOpenChange,
   onSuccess,
-  ongId,
+  fcpId,
 }: MiembroAddDialogProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
   const [selectedAulas, setSelectedAulas] = useState<string[]>([])
-  const [ongNombre, setOngNombre] = useState<string>('')
+  const [fcpNombre, setFcpNombre] = useState<string>('')
   const supabase = createClient()
+  const { role: userRole, isDirector, isSecretario } = useUserRole(fcpId)
+  
+  // Roles disponibles según el usuario que está creando el miembro
+  // Los directores pueden crear secretarios o tutores
+  // Los secretarios solo pueden crear tutores
+  // Si el usuario tiene múltiples roles, se prioriza el más alto (director > secretario)
+  const availableRoles: Array<'secretario' | 'tutor'> = 
+    (isSecretario && !isDirector) // Solo secretario (no director)
+      ? ['tutor'] 
+      : ['secretario', 'tutor'] // Director o múltiples roles (se prioriza director)
+
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<MiembroFormData>({
     defaultValues: {
-      rol: 'tutor' as const,
+      rol: availableRoles[0] as 'secretario' | 'tutor', // Usar el primer rol disponible
       aulas: [],
     },
   })
 
   const selectedRol = watch('rol')
 
-  // Cargar nombre de la ONG y aulas cuando el diálogo se abre
+  // Cargar nombre de la FCP y aulas cuando el diálogo se abre
   useEffect(() => {
-    if (open && ongId) {
-      loadONGNombre()
+    if (open && fcpId) {
+      loadFCPNombre()
       if (selectedRol === 'tutor') {
         loadAulas()
       }
@@ -69,30 +81,30 @@ export function MiembroAddDialog({
       // Limpiar cuando se cierra el diálogo
       setAulas([])
       setSelectedAulas([])
-      setOngNombre('')
+      setFcpNombre('')
       reset()
     } else if (selectedRol !== 'tutor') {
       // Limpiar aulas si cambia el rol a algo que no sea tutor
       setSelectedAulas([])
       setValue('aulas', [])
     }
-  }, [open, ongId, selectedRol])
+  }, [open, fcpId, selectedRol])
 
-  const loadONGNombre = async () => {
+  const loadFCPNombre = async () => {
     try {
       const supabase = createClient()
       const { data, error } = await supabase
-        .from('ongs')
-        .select('nombre')
-        .eq('id', ongId)
+        .from('fcps')
+        .select('razon_social')
+        .eq('id', fcpId)
         .single()
 
       if (error) throw error
       if (data) {
-        setOngNombre(data.nombre)
+        setFcpNombre(data.razon_social)
       }
     } catch (error) {
-      console.error('Error loading ONG nombre:', error)
+      console.error('Error loading FCP nombre:', error)
     }
   }
 
@@ -100,11 +112,11 @@ export function MiembroAddDialog({
     try {
       const supabase = createClient()
       
-      // 1. Obtener todas las aulas de la ONG
+      // 1. Obtener todas las aulas de la FCP
       const { data: todasLasAulas, error: aulasError } = await supabase
         .from('aulas')
         .select('id, nombre')
-        .eq('ong_id', ongId)
+        .eq('fcp_id', fcpId)
         .eq('activa', true)
         .order('nombre')
 
@@ -114,7 +126,7 @@ export function MiembroAddDialog({
       const { data: aulasConTutor, error: tutorError } = await supabase
         .from('tutor_aula')
         .select('aula_id')
-        .eq('ong_id', ongId)
+        .eq('fcp_id', fcpId)
         .eq('activo', true)
 
       if (tutorError && tutorError.code !== 'PGRST116') {
@@ -136,6 +148,34 @@ export function MiembroAddDialog({
     try {
       setLoading(true)
       setError(null)
+
+      // Verificar autenticación y obtener usuario actual
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError || !user) {
+        console.error('Error de autenticación:', userError)
+        setError('Error de autenticación. Por favor, inicia sesión nuevamente.')
+        setLoading(false)
+        return
+      }
+
+      // Verificar sesión activa
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError || !session) {
+        console.error('Error de sesión:', sessionError)
+        console.error('No hay sesión activa')
+        setError('No hay sesión activa. Por favor, inicia sesión nuevamente.')
+        setLoading(false)
+        return
+      }
+
+      console.log('Usuario autenticado:', user.id)
+      console.log('Sesión activa:', !!session)
+      console.log('Token de acceso presente:', !!session?.access_token)
+
+      // NOTA: La verificación de permisos se hace en MiembrosList.tsx
+      // Solo directores y secretarios pueden ver el botón "Agregar Miembro"
+      // La política INSERT en la base de datos permite inserción a usuarios autenticados
+      // Confiamos en la verificación del botón para la seguridad
 
       // Validar que si es tutor, tenga al menos una aula asignada
       if (data.rol === 'tutor' && (!data.aulas || data.aulas.length === 0)) {
@@ -159,10 +199,10 @@ export function MiembroAddDialog({
       if (usuarioData) {
         // Usuario existe: verificar membresía existente
         const { data: memberData, error: checkError } = await supabase
-          .from('usuario_ong')
+          .from('fcp_miembros')
           .select('id, activo, usuario_id')
           .eq('usuario_id', usuarioData.id)
-          .eq('ong_id', ongId)
+          .eq('fcp_id', fcpId)
           .single()
 
         if (checkError && checkError.code !== 'PGRST116') {
@@ -172,10 +212,10 @@ export function MiembroAddDialog({
       } else {
         // Usuario no existe: verificar invitación pendiente por email
         const { data: pendingInvitation, error: checkError } = await supabase
-          .from('usuario_ong')
+          .from('fcp_miembros')
           .select('id, activo, email_pendiente')
           .eq('email_pendiente', emailNormalizado)
-          .eq('ong_id', ongId)
+          .eq('fcp_id', fcpId)
           .single()
 
         if (checkError && checkError.code !== 'PGRST116') {
@@ -186,7 +226,7 @@ export function MiembroAddDialog({
 
       // 3. Si ya existe una membresía activa, mostrar error
       if (existingMember && existingMember.activo) {
-        setError('Este usuario ya es miembro activo de esta ONG.')
+        setError('Este usuario ya es miembro activo de esta FCP.')
         setLoading(false)
         return
       }
@@ -194,7 +234,7 @@ export function MiembroAddDialog({
       // 4. Si existe pero está inactivo, reactivar y actualizar rol y aulas
       if (existingMember && !existingMember.activo) {
         const { data: updatedMember, error: updateError } = await supabase
-          .from('usuario_ong')
+          .from('fcp_miembros')
           .update({
             rol: data.rol,
             activo: true,
@@ -228,15 +268,15 @@ export function MiembroAddDialog({
           const { error: deleteOldAssignmentsError } = await supabase
             .from('tutor_aula')
             .delete()
-            .eq('usuario_ong_id', updatedMember.id)
+            .eq('fcp_miembro_id', updatedMember.id)
 
           if (deleteOldAssignmentsError) throw deleteOldAssignmentsError
 
           // Insertar nuevas asignaciones (ahora las aulas están libres)
           const assignments = data.aulas.map(aulaId => ({
-            usuario_ong_id: updatedMember.id,
+            fcp_miembro_id: updatedMember.id,
             aula_id: aulaId,
-            ong_id: ongId,
+            fcp_id: fcpId,
             activo: true,
           }))
 
@@ -255,7 +295,7 @@ export function MiembroAddDialog({
 
       // 5. Crear nueva membresía o invitación pendiente
       const insertData: any = {
-        ong_id: ongId,
+        fcp_id: fcpId,
         rol: data.rol,
         activo: true,
       }
@@ -269,24 +309,60 @@ export function MiembroAddDialog({
         insertData.email_pendiente = emailNormalizado
       }
 
-      const { data: newUsuarioOng, error: insertError } = await supabase
-        .from('usuario_ong')
-        .insert(insertData)
-        .select()
-        .single()
+      console.log('Intentando insertar miembro con datos:', insertData)
+      console.log('Usuario autenticado:', user.id)
+      console.log('Sesión activa:', !!session)
+
+      // Usar función SECURITY DEFINER para insertar (evita problemas de RLS)
+      const { data: functionResult, error: insertError } = await supabase.rpc('insertar_miembro_fcp', {
+        p_fcp_id: insertData.fcp_id,
+        p_rol: insertData.rol,
+        p_usuario_id: insertData.usuario_id || null,
+        p_email_pendiente: insertData.email_pendiente || null,
+        p_activo: insertData.activo
+      })
+
+      // La función retorna el objeto completo del miembro como JSONB
+      let newFcpMiembro = null
+      if (!insertError && functionResult) {
+        // Convertir el JSONB a objeto JavaScript
+        newFcpMiembro = functionResult as any
+        console.log('Miembro creado exitosamente:', newFcpMiembro)
+      }
 
       if (insertError) {
+        console.error('Error al insertar miembro usando función RPC:', insertError)
+        console.error('Código de error:', insertError.code)
+        console.error('Mensaje de error:', insertError.message)
+        console.error('Detalles:', insertError.details)
+        console.error('Hint:', insertError.hint)
+        console.error('Datos que se intentaron insertar:', insertData)
+        console.error('Usuario autenticado:', user?.id)
+        console.error('Sesión activa:', !!session)
+        
+        // Mostrar mensaje de error más informativo
         if (insertError.code === '42501') {
-          setError('No tienes permisos para agregar miembros. Solo los facilitadores pueden hacerlo.')
+          setError(`Error de permisos (42501). Usuario: ${user?.id || 'no autenticado'}. Sesión: ${session ? 'activa' : 'inactiva'}. Verifica que la función insertar_miembro_fcp exista y que tengas permisos para ejecutarla.`)
+        } else if (insertError.code === '42883') {
+          setError(`La función insertar_miembro_fcp no existe. Verifica que la migración 20240101000063 se haya ejecutado correctamente.`)
+        } else if (insertError.message && insertError.message.includes('duplicate key') || insertError.message.includes('unique constraint')) {
+          setError('Este usuario ya tiene una invitación o membresía pendiente en esta FCP. Por favor, verifica la lista de miembros.')
         } else {
-          throw insertError
+          setError(insertError.message || 'Error al agregar el miembro. Por favor, intenta nuevamente.')
         }
         setLoading(false)
         return
       }
 
+      if (!newFcpMiembro) {
+        console.error('La función retornó un ID pero no se pudo obtener el miembro creado')
+        setError('Error al obtener el miembro creado. Por favor, intenta nuevamente.')
+        setLoading(false)
+        return
+      }
+
       // 6. Si es tutor y se seleccionaron aulas, asignar las aulas
-      if (data.rol === 'tutor' && data.aulas && data.aulas.length > 0 && newUsuarioOng) {
+      if (data.rol === 'tutor' && data.aulas && data.aulas.length > 0 && newFcpMiembro) {
         // Primero, eliminar cualquier tutor previo de las aulas seleccionadas
         // (cada aula solo puede tener un tutor)
         for (const aulaId of data.aulas) {
@@ -304,9 +380,9 @@ export function MiembroAddDialog({
 
         // Insertar nuevas asignaciones (ahora las aulas están libres)
         const assignments = data.aulas.map(aulaId => ({
-          usuario_ong_id: newUsuarioOng.id,
+          fcp_miembro_id: newFcpMiembro.id,
           aula_id: aulaId,
-          ong_id: ongId,
+          fcp_id: fcpId,
           activo: true,
         }))
 
@@ -338,12 +414,12 @@ export function MiembroAddDialog({
         <DialogHeader>
           <DialogTitle>Agregar Nuevo Miembro</DialogTitle>
           <DialogDescription>
-            {ongNombre && (
+            {fcpNombre && (
               <span className="block mb-2">
-                <strong>ONG:</strong> {ongNombre}
+                <strong>FCP:</strong> {fcpNombre}
               </span>
             )}
-            Agrega un usuario a esta ONG por su email. Si el usuario aún no se ha registrado, se creará una invitación pendiente que se activará automáticamente cuando se registre con Google OAuth.
+            Agrega un usuario a esta FCP por su email. Si el usuario aún no se ha registrado, se creará una invitación pendiente que se activará automáticamente cuando se registre con Google OAuth.
           </DialogDescription>
         </DialogHeader>
         {error && (
@@ -381,12 +457,17 @@ export function MiembroAddDialog({
                   <SelectValue placeholder="Selecciona un rol" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="secretario">{getRolDisplayName('secretario')}</SelectItem>
-                  <SelectItem value="tutor">{getRolDisplayName('tutor')}</SelectItem>
+                  {availableRoles.map((rol) => (
+                    <SelectItem key={rol} value={rol}>
+                      {getRolDisplayName(rol)}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground mt-1">
-                Nota: Los facilitadores solo se asignan desde la base de datos.
+                {userRole === 'secretario' 
+                  ? 'Los secretarios solo pueden crear tutores.'
+                  : 'Los directores pueden crear secretarios o tutores.'}
               </p>
               {errors.rol && (
                 <p className="text-sm text-red-500">{errors.rol.message}</p>
@@ -399,7 +480,7 @@ export function MiembroAddDialog({
                 <Label htmlFor="aulas">Aulas Asignadas *</Label>
                 {aulas.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    No hay aulas disponibles en esta ONG. Crea aulas primero antes de asignar un tutor.
+                    No hay aulas disponibles en esta FCP. Crea aulas primero antes de asignar un tutor.
                   </p>
                 ) : (
                   <div className="max-h-48 overflow-y-auto border rounded-md p-3 space-y-2">
