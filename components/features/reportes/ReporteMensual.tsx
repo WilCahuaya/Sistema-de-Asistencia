@@ -32,7 +32,7 @@ interface DiaIncompleto {
 }
 
 interface ReporteData {
-  ong: { id: string; razon_social: string; numero_identificacion?: string }
+  fcp: { id: string; razon_social: string; numero_identificacion?: string }
   year: number
   month: number
   niveles: NivelData[]
@@ -56,7 +56,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
     monthParam ? parseInt(monthParam) - 1 : new Date().getMonth()
   )
   const [selectedFCP, setSelectedFCP] = useState<string | null>(fcpIdProp || null)
-  const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string }>>([])
+  const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
   const [reporteData, setReporteData] = useState<ReporteData | null>(null)
   const [facilitadorNombre, setFacilitadorNombre] = useState<string>('')
   const [responsable, setResponsable] = useState<{ nombre: string; email: string; rol: string } | null>(null)
@@ -71,7 +71,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       if (fcpIdProp) {
         setSelectedFCP(fcpIdProp)
       }
-      await loadUserONGs()
+      await loadUserFCPs()
     }
     initialize()
   }, [fcpIdProp])
@@ -95,7 +95,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      const { data: usuarioOngData, error: usuarioOngError } = await supabase
+      const { data: usuarioFcpData, error: usuarioFcpError } = await supabase
         .from('fcp_miembros')
         .select('rol')
         .eq('usuario_id', user.id)
@@ -103,25 +103,25 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         .eq('activo', true)
         .limit(1)
 
-      if (usuarioOngError) {
-        console.error('Error checking facilitador:', usuarioOngError)
+      if (usuarioFcpError) {
+        console.error('Error checking facilitador:', usuarioFcpError)
         return
       }
 
-      setIsFacilitador(usuarioOngData && usuarioOngData.length > 0)
+      setIsFacilitador(usuarioFcpData && usuarioFcpData.length > 0)
     } catch (error) {
       console.error('Error checking facilitador:', error)
     }
   }
 
-  const loadUserONGs = async () => {
+  const loadUserFCPs = async () => {
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Verificar si el usuario es facilitador en alguna ONG
-      const { data: usuarioOngData, error: usuarioOngError } = await supabase
+      // Verificar si el usuario es facilitador en alguna FCP
+      const { data: usuarioFcpData, error: usuarioFcpError } = await supabase
         .from('fcp_miembros')
         .select('rol')
         .eq('usuario_id', user.id)
@@ -129,24 +129,26 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         .eq('activo', true)
         .limit(1)
 
-      if (usuarioOngError) throw usuarioOngError
+      if (usuarioFcpError) throw usuarioFcpError
 
-      const isFacilitador = usuarioOngData && usuarioOngData.length > 0
+      const isFacilitador = usuarioFcpData && usuarioFcpData.length > 0
 
-      let ongs: Array<{ id: string; nombre: string }> = []
+      let fcps: Array<{ id: string; nombre: string }> = []
 
       if (isFacilitador) {
         // Facilitadores pueden ver todas las FCPs del sistema
         const { data: todasLasFCPs, error: fcpsError } = await supabase
           .from('fcps')
-          .select('id, razon_social')
+          .select('id, razon_social, numero_identificacion')
           .eq('activa', true)
           .order('razon_social', { ascending: true })
         
         if (fcpsError) throw fcpsError
-        ongs = todasLasFCPs?.map((fcp: any) => ({
+        fcps = todasLasFCPs?.map((fcp: any) => ({
           id: fcp.id,
           nombre: fcp.razon_social || fcp.numero_identificacion || 'FCP',
+          numero_identificacion: fcp.numero_identificacion,
+          razon_social: fcp.razon_social,
         })) || []
       } else {
         // Usuarios no facilitadores solo ven sus FCPs
@@ -161,18 +163,20 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
 
         if (error) throw error
 
-        ongs = data?.map((item: any) => ({
+        fcps = data?.map((item: any) => ({
           id: item.fcp.id,
           nombre: item.fcp.razon_social || item.fcp.numero_identificacion || 'FCP',
+          numero_identificacion: item.fcp.numero_identificacion,
+          razon_social: item.fcp.razon_social,
         })) || []
       }
 
-      setUserFCPs(ongs)
-      if (ongs.length > 0 && !selectedFCP) {
-        setSelectedFCP(ongs[0].id)
+      setUserFCPs(fcps)
+      if (fcps.length > 0 && !selectedFCP) {
+        setSelectedFCP(fcps[0].id)
       }
     } catch (error) {
-      console.error('Error loading ONGs:', error)
+      console.error('Error loading FCPs:', error)
     }
   }
 
@@ -182,7 +186,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Obtener el primer facilitador de la ONG
+      // Obtener el primer facilitador de la FCP
       const { data, error } = await supabase
         .from('fcp_miembros')
         .select(`
@@ -214,7 +218,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
 
   const generarReporte = async () => {
     if (!selectedFCP) {
-      alert('Por favor, selecciona una ONG')
+      alert('Por favor, selecciona una FCP')
       return
     }
 
@@ -225,8 +229,8 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       // Obtener datos del usuario actual (responsable)
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
-        // Obtener rol y datos del usuario en la ONG
-        const { data: usuarioOngData, error: usuarioOngError } = await supabase
+        // Obtener rol y datos del usuario en la FCP
+        const { data: usuarioFcpData, error: usuarioFcpError } = await supabase
           .from('fcp_miembros')
           .select(`
             rol,
@@ -237,10 +241,10 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
           .eq('activo', true)
           .single()
 
-        if (!usuarioOngError && usuarioOngData) {
-          const usuario = usuarioOngData.usuario as any
-          const rol = usuarioOngData.rol === 'facilitador' ? 'Facilitador' : usuarioOngData.rol === 'director' ? 'Director' : usuarioOngData.rol === 'secretario' ? 'Secretario' : ''
-          if (rol && (rol === 'Facilitador' || rol === 'Secretario')) {
+        if (!usuarioFcpError && usuarioFcpData) {
+          const usuario = usuarioFcpData.usuario as any
+          const rol = usuarioFcpData.rol === 'facilitador' ? 'Facilitador' : usuarioFcpData.rol === 'director' ? 'Director' : usuarioFcpData.rol === 'secretario' ? 'Secretario' : usuarioFcpData.rol === 'tutor' ? 'Tutor' : ''
+          if (rol) {
             setResponsable({
               nombre: usuario?.nombre_completo || usuario?.email || user.email || '',
               email: usuario?.email || user.email || '',
@@ -250,14 +254,14 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         }
       }
 
-      // Obtener datos de la ONG
-      const { data: ongData, error: ongError } = await supabase
+      // Obtener datos de la FCP
+      const { data: fcpData, error: fcpError } = await supabase
         .from('fcps')
-        .select('id, razon_social')
+        .select('id, razon_social, numero_identificacion')
         .eq('id', selectedFCP)
         .single()
 
-      if (ongError) throw ongError
+      if (fcpError) throw fcpError
 
       // Calcular fechas del mes
       const fechaInicio = new Date(selectedYear, selectedMonth, 1)
@@ -312,12 +316,6 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         const estudiantesAula = estudiantesData?.filter(e => e.aula_id === aula.id) || []
         const registrados = estudiantesAula.length
 
-        // Contar asistencias "presente" para estudiantes de este aula
-        const asistenciasAula = asistenciasPresente?.filter(a => 
-          estudiantesAula.some(e => e.id === a.estudiante_id)
-        ) || []
-        const asistenPromed = asistenciasAula.length
-
         // Detectar días incompletos para esta aula
         const estudiantesAulaIds = new Set(estudiantesAula.map(e => e.id))
         const asistenciasPorFecha = new Map<string, Set<string>>() // fecha -> Set<estudiante_id>
@@ -334,6 +332,15 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
 
         // Validar días completos y contar días de clases
         let diasDeClases = 0
+        let totalAsistenciasPresente = 0
+        const todasAsistenciasPorEstudianteFecha: { [key: string]: string } = {}
+        todasAsistenciasData?.forEach(asistencia => {
+          if (estudiantesAulaIds.has(asistencia.estudiante_id)) {
+            const key = `${asistencia.estudiante_id}-${asistencia.fecha}`
+            todasAsistenciasPorEstudianteFecha[key] = asistencia.estado
+          }
+        })
+
         asistenciasPorFecha.forEach((estudiantesMarcados, fecha) => {
           const marcados = estudiantesMarcados.size
           // Parsear fecha como fecha local para evitar problemas de zona horaria
@@ -356,38 +363,66 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
           } else if (marcados === registrados && esDelMesSeleccionado) {
             // Día completo: todos los estudiantes están marcados, contar como día de clases
             diasDeClases++
+            
+            // Contar asistencias "presente" solo de este día completo
+            estudiantesAula.forEach(estudiante => {
+              const key = `${estudiante.id}-${fecha}`
+              const estado = todasAsistenciasPorEstudianteFecha[key]
+              if (estado === 'presente') {
+                totalAsistenciasPresente++
+              }
+            })
           }
         })
 
+        // Asisten. Promed = total de asistió / días de atención
+        // Ejemplo: 24 = 48 / 2
+        const asistenPromed = diasDeClases > 0
+          ? totalAsistenciasPresente / diasDeClases
+          : 0
+
         // Calcular porcentaje: (total de asistencias) / (días de clases × número de estudiantes) × 100
         const oportunidadesAsistencia = diasDeClases * registrados
-        const porcentaje = oportunidadesAsistencia > 0 ? (asistenPromed / oportunidadesAsistencia) * 100 : 0
+        const porcentaje = oportunidadesAsistencia > 0 ? (totalAsistenciasPresente / oportunidadesAsistencia) * 100 : 0
 
         niveles.push({
           nivel: aula.nombre,
           asistenPromed,
           registrados,
           porcentaje,
+          diasDeClases, // Guardar temporalmente para calcular el total
+          totalAsistenciasPresente, // Guardar temporalmente para calcular el total
         })
 
-        totalAsistenPromed += asistenPromed
+        // Para el total, sumar las asistencias totales, no los promedios
+        totalAsistenPromed += totalAsistenciasPresente
         totalRegistrados += registrados
         totalOportunidadesAsistencia += oportunidadesAsistencia
       })
+
+      // Calcular promedio total: total de asistió / días de atención
+      // Ejemplo: 2 = 20 / 10
+      const totalDiasAtencion = niveles.reduce((sum, nivel) => sum + (nivel as any).diasDeClases, 0)
+      const promedioTotal = totalDiasAtencion > 0
+        ? totalAsistenPromed / totalDiasAtencion
+        : 0
+
+      // Limpiar los datos temporales antes de guardar
+      const nivelesActualizados = niveles.map(({ diasDeClases, totalAsistenciasPresente, ...rest }) => rest)
 
       // Calcular porcentaje total: (total de asistencias) / (total de oportunidades de asistencia) × 100
       const totalPorcentaje = totalOportunidadesAsistencia > 0 ? (totalAsistenPromed / totalOportunidadesAsistencia) * 100 : 0
 
       setReporteData({
-        ong: {
-          id: ongData.id,
-          razon_social: (ongData as any).razon_social || (ongData as any).numero_identificacion || 'FCP',
-          numero_identificacion: (ongData as any).numero_identificacion,
+        fcp: {
+          id: fcpData.id,
+          razon_social: (fcpData as any).razon_social || (fcpData as any).numero_identificacion || 'FCP',
+          numero_identificacion: (fcpData as any).numero_identificacion,
         },
         year: selectedYear,
         month: selectedMonth,
-        niveles,
-        totalAsistenPromed,
+        niveles: nivelesActualizados,
+        totalAsistenPromed: promedioTotal, // Usar el promedio total, no la suma
         totalRegistrados,
         totalPorcentaje,
         diasIncompletos: diasIncompletosGlobales.sort((a, b) => a.fecha.localeCompare(b.fecha)),
@@ -434,23 +469,22 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       doc.text('RESUMEN MENSUAL DE PROYECTO', pageWidth / 2, y, { align: 'center' })
       y += 10
 
-      // Información del proyecto
+      // Información del proyecto (tres columnas)
       doc.setFontSize(10)
       doc.setFont('helvetica', 'normal')
-      doc.text(`Proyecto: ${reporteData.ong.razon_social}`, 20, y)
+      const col1 = 20
+      const col2 = pageWidth / 3 + 10
+      const col3 = (pageWidth / 3) * 2 + 10
+      
+      doc.text(`PROYECTO: ${reporteData.fcp.numero_identificacion || ''} ${reporteData.fcp.razon_social}`, col1, y)
+      doc.text(`AÑO: ${reporteData.year}`, col2, y)
+      doc.text(`MES: ${monthNames[reporteData.month].toUpperCase()}`, col3, y)
       y += 6
-      doc.text(`N° Proyecto: ${reporteData.ong.id.substring(0, 8).toUpperCase()}`, 20, y)
-      y += 6
-      doc.text(`Mes: ${monthNames[reporteData.month]} ${reporteData.year}`, 20, y)
-      y += 6
-      doc.text(`Facilitador: ${facilitadorNombre || ''}`, 20, y)
       if (responsable) {
+        doc.text(`RESPONSABLE: ${responsable.nombre.toUpperCase()}`, col1, y)
+        doc.text(`EMAIL: ${responsable.email.toUpperCase()}`, col2, y)
+        doc.text(`ROL: ${responsable.rol.toUpperCase()}`, col3, y)
         y += 6
-        doc.text(`Responsable: ${responsable.nombre} (${responsable.rol})`, 20, y)
-        y += 3
-        doc.setFontSize(9)
-        doc.text(`Email: ${responsable.email}`, 20, y)
-        doc.setFontSize(10)
       }
       y += 10
 
@@ -467,7 +501,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       reporteData.niveles.forEach((nivel) => {
         body.push([
           nivel.nivel,
-          nivel.asistenPromed.toString(),
+          nivel.asistenPromed.toFixed(2),
           nivel.registrados.toString(),
           `${nivel.porcentaje.toFixed(2)}%`,
         ])
@@ -476,7 +510,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       // Fila de totales
       body.push([
         'Total',
-        reporteData.totalAsistenPromed.toString(),
+        reporteData.totalAsistenPromed.toFixed(2),
         reporteData.totalRegistrados.toString(),
         `${reporteData.totalPorcentaje.toFixed(2)}%`,
       ])
@@ -558,7 +592,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       }
 
       // Descargar
-      const nombreArchivo = `Resumen_Mensual_${reporteData.ong.razon_social}_${monthNames[reporteData.month]}_${reporteData.year}.pdf`
+      const nombreArchivo = `Resumen_Mensual_${reporteData.fcp.razon_social}_${monthNames[reporteData.month]}_${reporteData.year}.pdf`
       doc.save(nombreArchivo)
     } catch (error) {
       console.error('Error exporting to PDF:', error)
@@ -619,28 +653,25 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         }
       }
 
-      // Datos del reporte
+      // Datos del reporte (tres columnas)
       const datos = [
         ['RESUMEN MENSUAL DE PROYECTO'],
         [],
-        [`Proyecto: ${reporteData.ong.razon_social}`],
-        [`N° Proyecto: ${reporteData.ong.id.substring(0, 8).toUpperCase()}`],
-        [`Mes: ${monthNames[reporteData.month]} ${reporteData.year}`],
-        [`Facilitador: ${facilitadorNombre || ''}`],
-        ...(responsable ? [[`Responsable: ${responsable.nombre} (${responsable.rol})`], [`Email: ${responsable.email}`]] : []),
+        [`PROYECTO: ${reporteData.fcp.numero_identificacion || ''} ${reporteData.fcp.razon_social}`, `AÑO: ${reporteData.year}`, `MES: ${monthNames[reporteData.month].toUpperCase()}`],
+        ...(responsable ? [[`RESPONSABLE: ${responsable.nombre.toUpperCase()}`, `EMAIL: ${responsable.email.toUpperCase()}`, `ROL: ${responsable.rol.toUpperCase()}`]] : []),
         [],
         ['I. ASISTENCIA CONTACTO ESENCIAL'],
         [],
         ['Niveles', 'Asisten. Promed', 'Registrados', 'Porcentaje'],
         ...reporteData.niveles.map(nivel => [
           nivel.nivel,
-          nivel.asistenPromed,
+          nivel.asistenPromed.toFixed(2),
           nivel.registrados,
           `${nivel.porcentaje.toFixed(2)}%`,
         ]),
         [
           'Total',
-          reporteData.totalAsistenPromed,
+          reporteData.totalAsistenPromed.toFixed(2),
           reporteData.totalRegistrados,
           `${reporteData.totalPorcentaje.toFixed(2)}%`,
         ],
@@ -685,7 +716,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       
       XLSX.utils.book_append_sheet(wb, ws, 'Resumen Mensual')
 
-      const nombreArchivo = `Resumen_Mensual_${reporteData.ong.razon_social}_${monthNames[reporteData.month]}_${reporteData.year}.xlsx`
+      const nombreArchivo = `Resumen_Mensual_${reporteData.fcp.razon_social}_${monthNames[reporteData.month]}_${reporteData.year}.xlsx`
       XLSX.writeFile(wb, nombreArchivo)
     } catch (error) {
       console.error('Error exporting to Excel:', error)
@@ -698,7 +729,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
           <p className="text-muted-foreground mb-4">
-            Cargando ONGs...
+            Cargando FCPs...
           </p>
         </CardContent>
       </Card>
@@ -731,7 +762,8 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {(!fcpIdProp || isFacilitador) && (
+            {/* El selector de FCP para facilitadores se muestra en la página principal, no aquí */}
+            {!fcpIdProp && !isFacilitador && (
               <div>
                 <label className="text-sm font-medium mb-2 block">FCP:</label>
                 <select
@@ -739,9 +771,9 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
                   onChange={(e) => setSelectedFCP(e.target.value || null)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
                 >
-                  {userFCPs.map((ong) => (
-                    <option key={ong.id} value={ong.id}>
-                      {ong.nombre}
+                  {userFCPs.map((fcp) => (
+                    <option key={fcp.id} value={fcp.id}>
+                      {fcp.nombre}
                     </option>
                   ))}
                 </select>
@@ -804,15 +836,15 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
           </CardHeader>
           <CardContent>
             <div className="space-y-6">
-              <div className="text-sm text-muted-foreground mb-4">
-                <p><strong>Proyecto:</strong> {reporteData.ong.razon_social}</p>
-                <p><strong>N° Proyecto:</strong> {reporteData.ong.id.substring(0, 8).toUpperCase()}</p>
-                <p><strong>Mes:</strong> {monthNames[reporteData.month]} {reporteData.year}</p>
-                <p><strong>Facilitador:</strong> {facilitadorNombre || ''}</p>
+              <div className="text-sm text-muted-foreground mb-4 grid grid-cols-3 gap-x-8 gap-y-2">
+                <p><strong>PROYECTO:</strong> {reporteData.fcp.numero_identificacion || ''} {reporteData.fcp.razon_social}</p>
+                <p><strong>AÑO:</strong> {reporteData.year}</p>
+                <p><strong>MES:</strong> {monthNames[reporteData.month].toUpperCase()}</p>
                 {responsable && (
                   <>
-                    <p><strong>Responsable:</strong> {responsable.nombre} ({responsable.rol})</p>
-                    <p><strong>Email:</strong> {responsable.email}</p>
+                    <p><strong>RESPONSABLE:</strong> {responsable.nombre.toUpperCase()}</p>
+                    <p><strong>EMAIL:</strong> {responsable.email.toUpperCase()}</p>
+                    <p><strong>ROL:</strong> {responsable.rol.toUpperCase()}</p>
                   </>
                 )}
               </div>
@@ -872,14 +904,14 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
                       {reporteData.niveles.map((nivel, index) => (
                         <tr key={index} className={index % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800'}>
                           <td className="border border-gray-300 p-2">{nivel.nivel}</td>
-                          <td className="border border-gray-300 p-2 text-right">{nivel.asistenPromed}</td>
+                          <td className="border border-gray-300 p-2 text-right">{nivel.asistenPromed.toFixed(2)}</td>
                           <td className="border border-gray-300 p-2 text-right">{nivel.registrados}</td>
                           <td className="border border-gray-300 p-2 text-right">{nivel.porcentaje.toFixed(2)}%</td>
                         </tr>
                       ))}
                       <tr className="bg-gray-200 dark:bg-gray-700 font-bold">
                         <td className="border border-gray-300 p-2">Total</td>
-                        <td className="border border-gray-300 p-2 text-right">{reporteData.totalAsistenPromed}</td>
+                        <td className="border border-gray-300 p-2 text-right">{reporteData.totalAsistenPromed.toFixed(2)}</td>
                         <td className="border border-gray-300 p-2 text-right">{reporteData.totalRegistrados}</td>
                         <td className="border border-gray-300 p-2 text-right">{reporteData.totalPorcentaje.toFixed(2)}%</td>
                       </tr>

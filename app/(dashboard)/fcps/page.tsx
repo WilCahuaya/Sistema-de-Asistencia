@@ -1,8 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { ONGList } from '@/components/features/ongs/ONGList'
+import { FCPList } from '@/components/features/fcps/FCPList'
 
-export default async function ONGsPage() {
+export default async function FCPsPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -14,14 +14,14 @@ export default async function ONGsPage() {
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-          Gestión de ONGs
+          Gestión de FCPs
         </h1>
         <p className="mt-2 text-gray-600 dark:text-gray-400">
-          Administra las Organizaciones No Gubernamentales
+          Administra las FCPs
         </p>
       </div>
 
-      <ONGList />
+      <FCPList />
     </div>
   )
 }

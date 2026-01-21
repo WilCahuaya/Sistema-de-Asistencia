@@ -17,7 +17,7 @@ export default async function EstudiantesPage() {
           Gestión de Estudiantes
         </h1>
         <p className="mt-2 text-gray-600 dark:text-gray-400">
-          Administra los estudiantes de tus ONGs
+          Administra los estudiantes de tus FCPs
         </p>
       </div>
 

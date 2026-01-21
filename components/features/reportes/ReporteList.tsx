@@ -12,7 +12,7 @@ import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 
 interface ReporteData {
-  ong: {
+  fcp: {
     id: string
     razon_social: string
     numero_identificacion?: string
@@ -77,9 +77,10 @@ export function ReporteList() {
   const [fechaFin, setFechaFin] = useState<string>('')
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth())
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear())
-  const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string }>>([])
+  const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
   const [reporteData, setReporteData] = useState<ReporteData | null>(null)
   const [responsable, setResponsable] = useState<{ nombre: string; email: string; rol: string } | null>(null)
+  const [isDirector, setIsDirector] = useState(false)
   const router = useRouter()
   const { canViewReports, loading: roleLoading } = useUserRole(selectedFCP)
 
@@ -111,8 +112,8 @@ export function ReporteList() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Verificar si el usuario es facilitador en alguna ONG
-      const { data: usuarioOngData, error: usuarioOngError } = await supabase
+      // Verificar si el usuario es facilitador en alguna FCP
+      const { data: usuarioFcpData, error: usuarioFcpError } = await supabase
         .from('fcp_miembros')
         .select('rol')
         .eq('usuario_id', user.id)
@@ -120,56 +121,71 @@ export function ReporteList() {
         .eq('activo', true)
         .limit(1)
 
-      if (usuarioOngError) throw usuarioOngError
+      if (usuarioFcpError) throw usuarioFcpError
 
-      const isFacilitador = usuarioOngData && usuarioOngData.length > 0
+      const isFacilitador = usuarioFcpData && usuarioFcpData.length > 0
 
-      let ongs: Array<{ id: string; nombre: string }> = []
+      // Verificar si el usuario es director
+      const { data: directorData, error: directorError } = await supabase
+        .from('fcp_miembros')
+        .select('rol')
+        .eq('usuario_id', user.id)
+        .eq('rol', 'director')
+        .eq('activo', true)
+        .limit(1)
+
+      if (!directorError && directorData && directorData.length > 0) {
+        setIsDirector(true)
+      }
+
+      let fcps: Array<{ id: string; nombre: string }> = []
 
       if (isFacilitador) {
-        // Facilitadores pueden ver todas las ONGs del sistema
-        const { data: todasLasONGs, error: ongsError } = await supabase
+        // Facilitadores pueden ver todas las FCPs del sistema
+        const { data: todasLasFCPs, error: fcpsError } = await supabase
           .from('fcps')
           .select('id, razon_social')
           .eq('activa', true)
           .order('razon_social', { ascending: true })
         
-        if (ongsError) throw ongsError
-        ongs = (todasLasONGs || []).map((fcp: any) => ({
+        if (fcpsError) throw fcpsError
+        fcps = (todasLasFCPs || []).map((fcp: any) => ({
           id: fcp.id,
           nombre: fcp.razon_social || 'FCP',
         }))
       } else {
-        // Usuarios no facilitadores solo ven sus ONGs
+        // Usuarios no facilitadores solo ven sus FCPs
         const { data, error } = await supabase
           .from('fcp_miembros')
           .select(`
             fcp_id,
-            fcp:fcps(id, razon_social)
+            fcp:fcps(id, razon_social, numero_identificacion)
           `)
           .eq('usuario_id', user.id)
           .eq('activo', true)
 
         if (error) throw error
 
-        ongs = data?.map((item: any) => ({
+        fcps = data?.map((item: any) => ({
           id: item.fcp.id,
           nombre: item.fcp.razon_social || 'FCP',
+          numero_identificacion: item.fcp.numero_identificacion,
+          razon_social: item.fcp.razon_social,
         })) || []
       }
 
-      setUserFCPs(ongs)
-      if (ongs.length > 0 && !selectedFCP) {
-        setSelectedFCP(ongs[0].id)
+      setUserFCPs(fcps)
+      if (fcps.length > 0 && !selectedFCP) {
+        setSelectedFCP(fcps[0].id)
       }
     } catch (error) {
-      console.error('Error loading ONGs:', error)
+      console.error('Error loading FCPs:', error)
     }
   }
 
   const generarReporte = async () => {
     if (!selectedFCP) {
-      alert('Por favor, selecciona una ONG')
+      alert('Por favor, selecciona una FCP')
       return
     }
 
@@ -187,8 +203,8 @@ export function ReporteList() {
       // Obtener datos del usuario actual (responsable)
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
-        // Obtener rol y datos del usuario en la ONG
-        const { data: usuarioOngData, error: usuarioOngError } = await supabase
+        // Obtener rol y datos del usuario en la FCP
+        const { data: usuarioFcpData, error: usuarioFcpError } = await supabase
           .from('fcp_miembros')
           .select(`
             rol,
@@ -199,10 +215,10 @@ export function ReporteList() {
           .eq('activo', true)
           .single()
 
-        if (!usuarioOngError && usuarioOngData) {
-          const usuario = usuarioOngData.usuario as any
-          const rol = usuarioOngData.rol === 'facilitador' ? 'Facilitador' : usuarioOngData.rol === 'director' ? 'Director' : usuarioOngData.rol === 'secretario' ? 'Secretario' : ''
-          if (rol && (rol === 'Facilitador' || rol === 'Secretario')) {
+        if (!usuarioFcpError && usuarioFcpData) {
+          const usuario = usuarioFcpData.usuario as any
+          const rol = usuarioFcpData.rol === 'facilitador' ? 'Facilitador' : usuarioFcpData.rol === 'director' ? 'Director' : usuarioFcpData.rol === 'secretario' ? 'Secretario' : usuarioFcpData.rol === 'tutor' ? 'Tutor' : ''
+          if (rol) {
             setResponsable({
               nombre: usuario?.nombre_completo || usuario?.email || user.email || '',
               email: usuario?.email || user.email || '',
@@ -212,16 +228,16 @@ export function ReporteList() {
         }
       }
 
-      // Obtener datos de la ONG
-      const { data: ongData, error: ongError } = await supabase
+      // Obtener datos de la FCP
+      const { data: fcpData, error: fcpError } = await supabase
         .from('fcps')
-        .select('id, razon_social')
+        .select('id, razon_social, numero_identificacion')
         .eq('id', selectedFCP)
         .single()
 
-      if (ongError) throw ongError
+      if (fcpError) throw fcpError
 
-      // Obtener estudiantes activos de la ONG
+      // Obtener estudiantes activos de la FCP
       const { data: estudiantesData, error: estudiantesError } = await supabase
         .from('estudiantes')
         .select(`
@@ -304,8 +320,88 @@ export function ReporteList() {
         })
       })
 
-      // Procesar asistencias
+      // Crear un mapa para rastrear días completos únicos por estudiante
+      const diasCompletosPorEstudiante = new Map<string, Set<string>>() // estudiante_id -> Set<fecha>
+
+      // Primero, identificar días completos por aula
+      const diasCompletosPorAula = new Map<string, Set<string>>() // aula_id -> Set<fecha>
+      const aulasMap = new Map<string, { aulaId: string; aulaNombre: string; estudiantesIds: string[] }>()
+      
+      estudiantesData?.forEach(est => {
+        const aulaId = est.aula_id
+        const aulaNombre = (est.aula as any)?.nombre || 'Sin aula'
+        if (!aulasMap.has(aulaId)) {
+          aulasMap.set(aulaId, {
+            aulaId,
+            aulaNombre,
+            estudiantesIds: [],
+          })
+        }
+        aulasMap.get(aulaId)!.estudiantesIds.push(est.id)
+      })
+
+      // Identificar días completos (días donde todos los estudiantes del aula están marcados)
+      aulasMap.forEach((aula, aulaId) => {
+        const totalEstudiantes = aula.estudiantesIds.length
+        const asistenciasPorFecha = new Map<string, Set<string>>() // fecha -> Set<estudiante_id>
+
+        // Agrupar asistencias por fecha para esta aula
+        asistenciasData?.forEach(asist => {
+          if (aula.estudiantesIds.includes(asist.estudiante_id)) {
+            const fecha = asist.fecha
+            if (!asistenciasPorFecha.has(fecha)) {
+              asistenciasPorFecha.set(fecha, new Set())
+            }
+            asistenciasPorFecha.get(fecha)!.add(asist.estudiante_id)
+          }
+        })
+
+        // Identificar días completos (solo dentro del rango de fechas)
+        asistenciasPorFecha.forEach((estudiantesMarcados, fecha) => {
+          const marcados = estudiantesMarcados.size
+          
+          // Verificar que la fecha esté en el rango seleccionado
+          const [year, month, day] = fecha.split('-').map(Number)
+          const fechaDate = new Date(year, month - 1, day)
+          const [yearInicio, monthInicio, dayInicio] = fechaInicio.split('-').map(Number)
+          const fechaInicioDate = new Date(yearInicio, monthInicio - 1, dayInicio)
+          const [yearFin, monthFin, dayFin] = fechaFin.split('-').map(Number)
+          const fechaFinDate = new Date(yearFin, monthFin - 1, dayFin)
+          const esDelRango = fechaDate >= fechaInicioDate && fechaDate <= fechaFinDate
+          
+          // Si todos los estudiantes están marcados y está en el rango, es un día completo
+          if (marcados === totalEstudiantes && esDelRango) {
+            if (!diasCompletosPorAula.has(aulaId)) {
+              diasCompletosPorAula.set(aulaId, new Set())
+            }
+            diasCompletosPorAula.get(aulaId)!.add(fecha)
+          }
+        })
+      })
+
+      // Procesar asistencias solo de días completos y dentro del rango
       asistenciasData?.forEach((asist) => {
+        const estudiante = estudiantesData?.find(e => e.id === asist.estudiante_id)
+        if (!estudiante) return
+
+        const aulaId = estudiante.aula_id
+        const fecha = asist.fecha
+        
+        // Verificar que la fecha esté en el rango seleccionado
+        const [year, month, day] = fecha.split('-').map(Number)
+        const fechaDate = new Date(year, month - 1, day)
+        const [yearInicio, monthInicio, dayInicio] = fechaInicio.split('-').map(Number)
+        const fechaInicioDate = new Date(yearInicio, monthInicio - 1, dayInicio)
+        const [yearFin, monthFin, dayFin] = fechaFin.split('-').map(Number)
+        const fechaFinDate = new Date(yearFin, monthFin - 1, dayFin)
+        const esDelRango = fechaDate >= fechaInicioDate && fechaDate <= fechaFinDate
+        
+        // Solo procesar si es un día completo para esta aula y está en el rango
+        const diasCompletosAula = diasCompletosPorAula.get(aulaId)
+        if (!esDelRango || !diasCompletosAula || !diasCompletosAula.has(fecha)) {
+          return // Saltar días incompletos o fuera del rango
+        }
+
         const estado = asist.estado
         if (estado === 'presente') {
           totalPresentes++
@@ -318,7 +414,16 @@ export function ReporteList() {
         // Actualizar resumen por estudiante
         const estudianteResumen = resumenPorEstudianteMap.get(asist.estudiante_id)
         if (estudianteResumen) {
-          estudianteResumen.total_dias++
+          // Contar días completos únicos por estudiante
+          if (!diasCompletosPorEstudiante.has(asist.estudiante_id)) {
+            diasCompletosPorEstudiante.set(asist.estudiante_id, new Set())
+          }
+          const estudianteDiasCompletos = diasCompletosPorEstudiante.get(asist.estudiante_id)!
+          if (!estudianteDiasCompletos.has(fecha)) {
+            estudianteResumen.total_dias++
+            estudianteDiasCompletos.add(fecha)
+          }
+          
           if (estado === 'presente') {
             estudianteResumen.presentes++
           } else if (estado === 'falto') {
@@ -329,17 +434,14 @@ export function ReporteList() {
         }
 
         // Actualizar resumen por aula
-        const estudiante = estudiantesData?.find(e => e.id === asist.estudiante_id)
-        if (estudiante) {
-          const aulaResumen = resumenPorAulaMap.get(estudiante.aula_id)
-          if (aulaResumen) {
-            if (estado === 'presente') {
-              aulaResumen.presentes++
-            } else if (estado === 'falto') {
-              aulaResumen.faltas++
-            } else if (estado === 'permiso') {
-              aulaResumen.permisos++
-            }
+        const aulaResumen = resumenPorAulaMap.get(aulaId)
+        if (aulaResumen) {
+          if (estado === 'presente') {
+            aulaResumen.presentes++
+          } else if (estado === 'falto') {
+            aulaResumen.faltas++
+          } else if (estado === 'permiso') {
+            aulaResumen.permisos++
           }
         }
       })
@@ -349,28 +451,22 @@ export function ReporteList() {
       let fechasUnicas: string[] | undefined = undefined
       const diasIncompletosGlobales: DiaIncompleto[] = []
 
-      // Obtener fechas únicas ordenadas
+      // Obtener fechas únicas ordenadas (solo días completos)
         const fechasSet = new Set<string>()
-        asistenciasData?.forEach((asist) => {
-          fechasSet.add(asist.fecha)
+        // Solo incluir fechas que son días completos para alguna aula
+        diasCompletosPorAula.forEach((fechasCompletas) => {
+          fechasCompletas.forEach((fecha) => {
+            fechasSet.add(fecha)
+          })
         })
-        fechasUnicas = Array.from(fechasSet).sort()
-
-        // Detectar días incompletos por aula
-        const aulasMap = new Map<string, { aulaId: string; aulaNombre: string; estudiantesIds: string[] }>()
-        estudiantesData?.forEach(est => {
-          const aulaId = est.aula_id
-          const aulaNombre = (est.aula as any)?.nombre || 'Sin aula'
-          if (!aulasMap.has(aulaId)) {
-            aulasMap.set(aulaId, {
-              aulaId,
-              aulaNombre,
-              estudiantesIds: [],
-            })
-          }
-          aulasMap.get(aulaId)!.estudiantesIds.push(est.id)
+        // Ordenar fechas cronológicamente (no alfabéticamente)
+        fechasUnicas = Array.from(fechasSet).sort((a, b) => {
+          const dateA = new Date(a)
+          const dateB = new Date(b)
+          return dateA.getTime() - dateB.getTime()
         })
 
+        // Detectar días incompletos por aula (reutilizar aulasMap ya creado arriba)
         // Por cada aula, verificar días incompletos
         aulasMap.forEach((aula, aulaId) => {
           const totalEstudiantes = aula.estudiantesIds.length
@@ -448,11 +544,19 @@ export function ReporteList() {
           }
         })
 
-        // Crear mapa de asistencias por estudiante y fecha
+        // Crear mapa de asistencias por estudiante y fecha (solo días completos)
         const asistenciasMap = new Map<string, Map<string, boolean>>() // estudiante_id -> fecha -> presente
 
         asistenciasData?.forEach((asist) => {
-          if (asist.estado === 'presente') {
+          const estudiante = estudiantesData?.find(e => e.id === asist.estudiante_id)
+          if (!estudiante) return
+          
+          const aulaId = estudiante.aula_id
+          const fecha = asist.fecha
+          
+          // Solo incluir si es un día completo para esta aula
+          const diasCompletosAula = diasCompletosPorAula.get(aulaId)
+          if (diasCompletosAula && diasCompletosAula.has(fecha) && asist.estado === 'presente') {
             if (!asistenciasMap.has(asist.estudiante_id)) {
               asistenciasMap.set(asist.estudiante_id, new Map())
             }
@@ -487,10 +591,10 @@ export function ReporteList() {
         })
 
       const reporte: ReporteData = {
-        ong: {
-          id: ongData.id,
-          razon_social: (ongData as any).razon_social || (ongData as any).numero_identificacion || 'FCP',
-          numero_identificacion: (ongData as any).numero_identificacion,
+        fcp: {
+          id: fcpData.id,
+          razon_social: (fcpData as any).razon_social || (fcpData as any).numero_identificacion || 'FCP',
+          numero_identificacion: (fcpData as any).numero_identificacion,
         },
         fechaInicio,
         fechaFin,
@@ -573,15 +677,13 @@ export function ReporteList() {
         // Preparar datos de la tabla
         const fechasUnicasArray = reporteData.fechasUnicas || []
 
-        // Preparar encabezado (igual que PDF)
-        const headerRowIndex = responsable ? 8 : 6 // Fila del encabezado de la tabla
+        // Preparar encabezado (tres columnas)
+        const headerRowIndex = 4 // Fila del encabezado de la tabla
         const encabezado = [
           ['Reporte General de Asistencia'],
           [],
-          [`Proyecto: ${reporteData.ong.razon_social}`],
-          [`Año: ${year}`],
-          [`Mes: ${monthNames[month]} ${year}`],
-          ...(responsable ? [[`Responsable: ${responsable.nombre} (${responsable.rol})`], [`Email: ${responsable.email}`]] : []),
+          [`PROYECTO: ${reporteData.fcp.numero_identificacion || ''} ${reporteData.fcp.razon_social}`, `AÑO: ${selectedYear}`, `MES: ${monthNames[selectedMonth].toUpperCase()}`],
+          ...(responsable ? [[`RESPONSABLE: ${responsable.nombre.toUpperCase()}`, `EMAIL: ${responsable.email.toUpperCase()}`, `ROL: ${responsable.rol.toUpperCase()}`]] : []),
           [],
           // Encabezados de la tabla
           [
@@ -591,10 +693,9 @@ export function ReporteList() {
             'Niv',
             'TUTOR',
             ...fechasUnicasArray.map(f => {
-              // Parsear fecha como fecha local para evitar problemas de zona horaria
-              const [y, m, d] = f.split('-').map(Number)
-              const date = new Date(y, m - 1, d)
-              return date.getDate().toString()
+              // Parsear fecha manualmente para evitar problemas de zona horaria
+              const [year, month, day] = f.split('-').map(Number)
+              return day.toString()
             }),
           ],
         ]
@@ -676,17 +777,24 @@ export function ReporteList() {
         XLSX.utils.book_append_sheet(wb, ws, 'Reporte General')
 
         // Descargar
-        const nombreArchivo = `Reporte_General_${reporteData.ong.razon_social}_${monthNames[month]}_${year}.xlsx`
+        const nombreArchivo = `Reporte_General_${reporteData.fcp.razon_social}_${monthNames[month]}_${year}.xlsx`
         XLSX.writeFile(wb, nombreArchivo)
       } else {
         // Fallback: formato antiguo si no hay reporte detallado
         const XLSX = await import('xlsx-js-style')
         const wb = XLSX.utils.book_new()
 
+        const year = new Date(reporteData.fechaInicio).getFullYear()
+        const month = new Date(reporteData.fechaInicio).getMonth()
+        const monthNames = [
+          'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
+          'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'
+        ]
         const resumenGeneral = [
-          ['FCP:', reporteData.ong.razon_social],
-          ['Fecha Inicio:', reporteData.fechaInicio],
-          ['Fecha Fin:', reporteData.fechaFin],
+          [`PROYECTO: ${reporteData.fcp.numero_identificacion || ''} ${reporteData.fcp.razon_social}`],
+          [`AÑO: ${year}`],
+          [`MES: ${monthNames[month]}`],
+          ...(responsable ? [[`RESPONSABLE: ${responsable.nombre.toUpperCase()} (${responsable.rol.toUpperCase()})`], [`EMAIL: ${responsable.email.toUpperCase()}`]] : []),
           [''],
           ['Total Estudiantes:', reporteData.totalEstudiantes],
           ['Total Presentes:', reporteData.totalPresentes],
@@ -696,7 +804,7 @@ export function ReporteList() {
         const ws1 = XLSX.utils.aoa_to_sheet(resumenGeneral)
         XLSX.utils.book_append_sheet(wb, ws1, 'Resumen General')
 
-        const nombreArchivo = `Reporte_General_${reporteData.ong.razon_social}_${reporteData.fechaInicio}_${reporteData.fechaFin}.xlsx`
+        const nombreArchivo = `Reporte_General_${reporteData.fcp.razon_social}_${reporteData.fechaInicio}_${reporteData.fechaFin}.xlsx`
         XLSX.writeFile(wb, nombreArchivo)
       }
     } catch (error) {
@@ -741,23 +849,22 @@ export function ReporteList() {
         doc.text('Reporte General de Asistencia', pageWidth / 2, y, { align: 'center' })
         y += 8
 
-      // Información general
+      // Información general (tres columnas)
       doc.setFontSize(10)
       doc.setFont('helvetica', 'normal')
-      doc.text(`Proyecto: ${reporteData.ong.razon_social}`, 15, y)
-      y += 5
-      const year = selectedYear || new Date().getFullYear()
-      const month = selectedMonth !== undefined ? selectedMonth : new Date().getMonth()
-      doc.text(`Año: ${year}`, 15, y)
-      y += 5
-      doc.text(`Mes: ${monthNames[month]} ${year}`, 15, y)
+      const col1 = 15
+      const col2 = pageWidth / 3 + 10
+      const col3 = (pageWidth / 3) * 2 + 10
+      
+      doc.text(`PROYECTO: ${reporteData.fcp.numero_identificacion || ''} ${reporteData.fcp.razon_social}`, col1, y)
+      doc.text(`AÑO: ${selectedYear}`, col2, y)
+      doc.text(`MES: ${monthNames[selectedMonth].toUpperCase()}`, col3, y)
+      y += 6
       if (responsable) {
-        y += 5
-        doc.text(`Responsable: ${responsable.nombre} (${responsable.rol})`, 15, y)
-        y += 3
-        doc.setFontSize(9)
-        doc.text(`Email: ${responsable.email}`, 15, y)
-        doc.setFontSize(10)
+        doc.text(`RESPONSABLE: ${responsable.nombre.toUpperCase()}`, col1, y)
+        doc.text(`EMAIL: ${responsable.email.toUpperCase()}`, col2, y)
+        doc.text(`ROL: ${responsable.rol.toUpperCase()}`, col3, y)
+        y += 6
       }
       y += 8
 
@@ -769,8 +876,9 @@ export function ReporteList() {
           'Niv',
           'TUTOR',
           ...reporteData.fechasUnicas.map(f => {
-            const date = new Date(f)
-            return date.getDate().toString()
+            // Parsear fecha manualmente para evitar problemas de zona horaria
+            const [year, month, day] = f.split('-').map(Number)
+            return day.toString()
           }),
         ]
 
@@ -845,7 +953,7 @@ export function ReporteList() {
         }
 
         // Descargar
-        const nombreArchivo = `Reporte_General_${reporteData.ong.razon_social}_${monthNames[month]}_${year}.pdf`
+        const nombreArchivo = `Reporte_General_PE0530_RESCATANDO_VALORES_ENERO_2026.pdf`
         doc.save(nombreArchivo)
       } else {
         // Formato anterior para reportes sin detalle (no debería llegar aquí)
@@ -857,14 +965,27 @@ export function ReporteList() {
         doc.text('Reporte de Asistencias', 105, y, { align: 'center' })
         y += 10
 
+        // Información del proyecto (tres columnas)
         doc.setFontSize(12)
-        doc.text(`FCP: ${reporteData.ong.razon_social}`, 20, y)
+        const pageWidth = doc.internal.pageSize.getWidth()
+        const col1 = 20
+        const col2 = pageWidth / 3 + 10
+        const col3 = (pageWidth / 3) * 2 + 10
+        
+        const year = new Date(reporteData.fechaInicio).getFullYear()
+        const month = new Date(reporteData.fechaInicio).getMonth()
+        doc.text(`PROYECTO: ${reporteData.fcp.numero_identificacion || ''} ${reporteData.fcp.razon_social}`, col1, y)
+        doc.text(`AÑO: ${year}`, col2, y)
+        doc.text(`MES: ${monthNames[month].toUpperCase()}`, col3, y)
         y += 6
-        doc.text(`Fecha Inicio: ${reporteData.fechaInicio}`, 20, y)
-        y += 6
-        doc.text(`Fecha Fin: ${reporteData.fechaFin}`, 20, y)
+        if (responsable) {
+          doc.text(`RESPONSABLE: ${responsable.nombre.toUpperCase()}`, col1, y)
+          doc.text(`EMAIL: ${responsable.email.toUpperCase()}`, col2, y)
+          doc.text(`ROL: ${responsable.rol.toUpperCase()}`, col3, y)
+          y += 6
+        }
 
-        const nombreArchivo = `Reporte_General_${reporteData.ong.razon_social}_${reporteData.fechaInicio}_${reporteData.fechaFin}.pdf`
+        const nombreArchivo = `Reporte_General_${reporteData.fcp.razon_social}_${reporteData.fechaInicio}_${reporteData.fechaFin}.pdf`
         doc.save(nombreArchivo)
       }
     } catch (error) {
@@ -881,7 +1002,7 @@ export function ReporteList() {
           <p className="text-muted-foreground mb-4">
             No tienes FCPs asociadas. Primero crea o únete a una FCP.
           </p>
-          <Button onClick={() => router.push('/ongs')}>
+          <Button onClick={() => router.push('/fcps')}>
             Ir a FCPs
           </Button>
         </CardContent>
@@ -910,21 +1031,8 @@ export function ReporteList() {
           <CardTitle>Configurar Reporte</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium mb-2 block">FCP:</label>
-              <select
-                value={selectedFCP || ''}
-                onChange={(e) => setSelectedFCP(e.target.value || null)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
-              >
-                {userFCPs.map((ong) => (
-                  <option key={ong.id} value={ong.id}>
-                    {ong.nombre}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div className="grid gap-4 grid-cols-1">
+            {/* El selector de FCP está oculto en el reporte general para todos los roles */}
 
             <div>
               <label className="text-sm font-medium mb-2 block">Mes:</label>
@@ -984,14 +1092,15 @@ export function ReporteList() {
             {reporteData.reporteDetallado && reporteData.fechasUnicas ? (
               // Reporte General Detallado
               <div className="space-y-4">
-                <div className="text-sm text-muted-foreground mb-4">
-                  <p><strong>Proyecto:</strong> {reporteData.ong.razon_social}</p>
-                  <p><strong>Año:</strong> {selectedYear}</p>
-                  <p><strong>Mes:</strong> {new Date(selectedYear, selectedMonth).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}</p>
+                <div className="text-sm text-muted-foreground mb-4 grid grid-cols-3 gap-x-8 gap-y-2">
+                  <p><strong>PROYECTO:</strong> {reporteData.fcp.numero_identificacion || ''} {reporteData.fcp.razon_social}</p>
+                  <p><strong>AÑO:</strong> {selectedYear}</p>
+                  <p><strong>MES:</strong> {new Date(selectedYear, selectedMonth).toLocaleDateString('es-ES', { month: 'long' }).toUpperCase()}</p>
                   {responsable && (
                     <>
-                      <p><strong>Responsable:</strong> {responsable.nombre} ({responsable.rol})</p>
-                      <p><strong>Email:</strong> {responsable.email}</p>
+                      <p><strong>RESPONSABLE:</strong> {responsable.nombre.toUpperCase()}</p>
+                      <p><strong>EMAIL:</strong> {responsable.email.toUpperCase()}</p>
+                      <p><strong>ROL:</strong> {responsable.rol.toUpperCase()}</p>
                     </>
                   )}
                 </div>
@@ -1040,19 +1149,20 @@ export function ReporteList() {
                     <table className="w-full border-collapse border border-gray-300 text-sm">
                       <thead>
                         <tr>
-                          <th className="border border-gray-300 p-2 bg-blue-600 text-white text-center w-12">No</th>
-                          <th className="border border-gray-300 p-2 bg-blue-600 text-white text-left max-w-[150px]">ESTUDIANTE</th>
-                          <th className="border border-gray-300 p-2 bg-blue-600 text-white text-center w-16">Cod</th>
-                          <th className="border border-gray-300 p-2 bg-blue-600 text-white text-center w-16">Niv</th>
-                          <th className="border border-gray-300 p-2 bg-blue-600 text-white text-left">TUTOR</th>
+                          <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-center w-12">No</th>
+                          <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-left max-w-[150px]">ESTUDIANTE</th>
+                          <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-center w-16">Cod</th>
+                          <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-center w-16">Niv</th>
+                          <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-left">TUTOR</th>
                           {reporteData.fechasUnicas?.map((fecha) => {
-                            const date = new Date(fecha)
+                            // Parsear fecha manualmente para evitar problemas de zona horaria
+                            const [year, month, day] = fecha.split('-').map(Number)
                             return (
                               <th
                                 key={fecha}
-                                className="border border-gray-300 p-2 bg-blue-600 text-white text-center min-w-[30px]"
+                                className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-center min-w-[30px]"
                               >
-                                {date.getDate()}
+                                {day}
                               </th>
                             )
                           })}

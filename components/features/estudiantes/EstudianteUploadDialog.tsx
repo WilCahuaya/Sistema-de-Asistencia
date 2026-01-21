@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Download } from 'lucide-react'
 
 interface EstudianteUploadDialogProps {
   open: boolean
@@ -222,6 +222,31 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
     }
   }
 
+  const downloadTemplate = () => {
+    // Crear solo los encabezados (formato vacío)
+    const headerData = [
+      ['Código', 'Nombre Completo', 'Aula'],
+    ]
+
+    // Crear workbook
+    const workbook = XLSX.utils.book_new()
+    const worksheet = XLSX.utils.aoa_to_sheet(headerData)
+
+    // Ajustar ancho de columnas
+    worksheet['!cols'] = [
+      { wch: 15 }, // Código
+      { wch: 30 }, // Nombre Completo
+      { wch: 20 }, // Aula
+    ]
+
+    // Agregar hoja al workbook
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Estudiantes')
+
+    // Generar archivo y descargar
+    const fileName = `formato_carga_estudiantes_${new Date().toISOString().split('T')[0]}.xlsx`
+    XLSX.writeFile(workbook, fileName)
+  }
+
   const handleClose = () => {
     handleReset()
     onOpenChange(false)
@@ -236,6 +261,25 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
             Sube un archivo Excel con las columnas: <strong>Código</strong>, <strong>Nombre Completo</strong> (o <strong>Nombre</strong>), y <strong>Aula</strong>
           </DialogDescription>
         </DialogHeader>
+
+        <div className="mb-4 flex items-center justify-between rounded-md bg-blue-50 p-3 dark:bg-blue-900/20">
+          <div className="flex-1">
+            <p className="text-sm text-blue-900 dark:text-blue-200">
+              ¿No tienes el formato? Descarga la plantilla de ejemplo
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={downloadTemplate}
+            disabled={aulas.length === 0}
+            className="ml-2"
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Descargar Formato
+          </Button>
+        </div>
 
         <div className="grid gap-4 py-4">
           <div className="grid gap-2">
@@ -255,7 +299,12 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              El archivo debe tener un encabezado con: Código, Nombre Completo (o Nombre), Aula
+              El archivo debe tener un encabezado con: Código, Nombre Completo (o Nombre), Aula.
+              {aulas.length === 0 && (
+                <span className="block mt-1 text-amber-600 dark:text-amber-400">
+                  ⚠️ Primero debes crear aulas para poder descargar el formato.
+                </span>
+              )}
             </p>
           </div>
 

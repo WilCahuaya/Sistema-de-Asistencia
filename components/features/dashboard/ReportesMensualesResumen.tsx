@@ -7,7 +7,7 @@ import { FileSpreadsheet, FileText } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 
-interface ONGResumen {
+interface FCPResumen {
   id: string
   nombre: string
   porcentaje: number
@@ -18,7 +18,7 @@ interface ONGResumen {
 
 export function ReportesMensualesResumen() {
   const [loading, setLoading] = useState(true)
-  const [resumenes, setResumenes] = useState<ONGResumen[]>([])
+  const [resumenes, setResumenes] = useState<FCPResumen[]>([])
   const [mesActual, setMesActual] = useState({ year: new Date().getFullYear(), month: new Date().getMonth() })
 
   useEffect(() => {
@@ -41,18 +41,18 @@ export function ReportesMensualesResumen() {
         .eq('activo', true)
         .limit(1)
 
-      let todasLasONGs: any[] = []
+      let todasLasFCPs: any[] = []
 
       if (facilitadorData && facilitadorData.length > 0) {
         // Facilitadores pueden ver todas las FCPs del sistema
-        const { data: todasLasFCPs, error: fcpsError } = await supabase
+        const { data: todasLasFCPsData, error: fcpsError } = await supabase
           .from('fcps')
           .select('id, razon_social')
           .eq('activa', true)
           .order('razon_social', { ascending: true })
         
         if (fcpsError) throw fcpsError
-        todasLasONGs = (todasLasFCPs || []).map((fcp: any) => ({
+        todasLasFCPs = (todasLasFCPsData || []).map((fcp: any) => ({
           id: fcp.id,
           nombre: fcp.razon_social || 'FCP'
         }))
@@ -68,13 +68,13 @@ export function ReportesMensualesResumen() {
           .eq('activo', true)
 
         if (userFCPsError) throw userFCPsError
-        todasLasONGs = (userFCPs || []).map((item: any) => ({
+        todasLasFCPs = (userFCPs || []).map((item: any) => ({
           id: item.fcp?.id,
           nombre: item.fcp?.razon_social || 'FCP'
         })).filter((fcp: any) => fcp.id) || []
       }
 
-      const resumenesData: ONGResumen[] = []
+      const resumenesData: FCPResumen[] = []
 
       // Calcular fechas del mes actual
       const fechaInicio = new Date(mesActual.year, mesActual.month, 1)
@@ -83,20 +83,20 @@ export function ReportesMensualesResumen() {
       const fechaInicioStr = fechaInicio.toISOString().split('T')[0]
       const fechaFinStr = fechaFin.toISOString().split('T')[0]
 
-      // Para cada ONG, calcular el porcentaje de asistencia del mes
-      for (const ong of todasLasONGs || []) {
-        // Obtener todas las aulas de la ONG
+      // Para cada FCP, calcular el porcentaje de asistencia del mes
+      for (const fcp of todasLasFCPs || []) {
+        // Obtener todas las aulas de la FCP
         const { data: aulasData, error: aulasError } = await supabase
           .from('aulas')
           .select('id, nombre')
-          .eq('fcp_id', ong.id)
+          .eq('fcp_id', fcp.id)
           .eq('activa', true)
 
         if (aulasError) {
-          // Si hay error, agregar la ONG sin datos
+          // Si hay error, agregar la FCP sin datos
           resumenesData.push({
-            id: ong.id,
-            nombre: ong.nombre,
+            id: fcp.id,
+            nombre: fcp.nombre,
             porcentaje: 0,
             totalAsistenPromed: 0,
             totalOportunidades: 0,
@@ -109,13 +109,13 @@ export function ReportesMensualesResumen() {
         const { data: estudiantesData, error: estudiantesError } = await supabase
           .from('estudiantes')
           .select('id, aula_id')
-          .eq('fcp_id', ong.id)
+          .eq('fcp_id', fcp.id)
           .eq('activo', true)
 
         if (estudiantesError) {
           resumenesData.push({
-            id: ong.id,
-            nombre: ong.nombre,
+            id: fcp.id,
+            nombre: fcp.nombre,
             porcentaje: 0,
             totalAsistenPromed: 0,
             totalOportunidades: 0,
@@ -127,11 +127,11 @@ export function ReportesMensualesResumen() {
         // Obtener todas las asistencias del mes
         const estudianteIds = estudiantesData?.map((e) => e.id) || []
         
-        // Si no hay estudiantes, agregar la ONG sin datos
+        // Si no hay estudiantes, agregar la FCP sin datos
         if (estudianteIds.length === 0) {
           resumenesData.push({
-            id: ong.id,
-            nombre: ong.nombre,
+            id: fcp.id,
+            nombre: fcp.nombre,
             porcentaje: 0,
             totalAsistenPromed: 0,
             totalOportunidades: 0,
@@ -143,15 +143,15 @@ export function ReportesMensualesResumen() {
         const { data: todasAsistenciasData, error: todasAsistenciasError } = await supabase
           .from('asistencias')
           .select('estudiante_id, fecha, estado')
-          .eq('fcp_id', ong.id)
+          .eq('fcp_id', fcp.id)
           .in('estudiante_id', estudianteIds)
           .gte('fecha', fechaInicioStr)
           .lte('fecha', fechaFinStr)
 
         if (todasAsistenciasError) {
           resumenesData.push({
-            id: ong.id,
-            nombre: ong.nombre,
+            id: fcp.id,
+            nombre: fcp.nombre,
             porcentaje: 0,
             totalAsistenPromed: 0,
             totalOportunidades: 0,
@@ -160,11 +160,11 @@ export function ReportesMensualesResumen() {
           continue
         }
 
-        // Si no hay asistencias, agregar la ONG con el flag sinAsistencias
+        // Si no hay asistencias, agregar la FCP con el flag sinAsistencias
         if (!todasAsistenciasData || todasAsistenciasData.length === 0) {
           resumenesData.push({
-            id: ong.id,
-            nombre: ong.nombre,
+            id: fcp.id,
+            nombre: fcp.nombre,
             porcentaje: 0,
             totalAsistenPromed: 0,
             totalOportunidades: 0,
@@ -244,8 +244,8 @@ export function ReportesMensualesResumen() {
           : 0
 
         resumenesData.push({
-          id: ong.id,
-          nombre: ong.nombre,
+          id: fcp.id,
+          nombre: fcp.nombre,
           porcentaje: Number(porcentaje.toFixed(2)),
           totalAsistenPromed,
           totalOportunidades: totalOportunidadesAsistencia,
@@ -332,7 +332,7 @@ export function ReportesMensualesResumen() {
                   }`}>
                     {resumen.porcentaje.toFixed(2)}%
                   </p>
-                  <Link href={`/reportes?view=mensual&ong=${resumen.id}&auto=true&year=${mesActual.year}&month=${mesActual.month + 1}`}>
+                  <Link href={`/reportes?view=mensual&fcp=${resumen.id}&auto=true&year=${mesActual.year}&month=${mesActual.month + 1}`}>
                     <Button variant="ghost" size="sm" className="mt-1">
                       Ver Reporte
                     </Button>

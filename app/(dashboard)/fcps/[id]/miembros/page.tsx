@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { MiembrosList } from '@/components/features/ongs/MiembrosList'
+import { MiembrosList } from '@/components/features/fcps/MiembrosList'
 
 interface MiembrosPageProps {
   params: Promise<{

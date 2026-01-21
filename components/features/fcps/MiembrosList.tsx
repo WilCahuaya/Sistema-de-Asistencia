@@ -368,6 +368,22 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                         )}
                       </TableCell>
                       <TableCell>
+                        {/* Mostrar botón de editar según el rol del usuario */}
+                        {isSecretario ? (
+                          // Secretarios solo pueden editar tutores
+                          miembro.rol === 'tutor' ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleEditMiembro(miembro)}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )
+                        ) : (
+                          // Directores y facilitadores pueden editar todos
                         <RoleGuard fcpId={fcpId} allowedRoles={['director', 'secretario']}>
                           <Button
                             variant="ghost"
@@ -377,6 +393,7 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                             <Edit className="h-4 w-4" />
                           </Button>
                         </RoleGuard>
+                        )}
                       </TableCell>
                     </TableRow>
                   )})}

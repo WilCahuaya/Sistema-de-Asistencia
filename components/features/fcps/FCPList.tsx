@@ -4,14 +4,14 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Building2, Users, Edit, Plus } from 'lucide-react'
+import { Building2, Edit, Plus, Users } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { ONGEditDialog } from './ONGEditDialog'
-import { ONGDialog } from './ONGDialog'
+import { FCPEditDialog } from './FCPEditDialog'
+import { FCPDialog } from './FCPDialog'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 
-interface ONG {
+interface FCP {
   id: string
   numero_identificacion: string
   razon_social: string
@@ -23,17 +23,17 @@ interface ONG {
   activa: boolean
 }
 
-export function ONGList() {
-  const [ongs, setONGs] = useState<ONG[]>([])
+export function FCPList() {
+  const [fcps, setFCPs] = useState<FCP[]>([])
   const [loading, setLoading] = useState(true)
-  const [editingONG, setEditingONG] = useState<ONG | null>(null)
+  const [editingFCP, setEditingFCP] = useState<FCP | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isFacilitador, setIsFacilitador] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
-    loadONGs()
+    loadFCPs()
     checkIfFacilitador()
   }, [])
 
@@ -63,7 +63,7 @@ export function ONGList() {
     }
   }
 
-  const loadONGs = async () => {
+  const loadFCPs = async () => {
     try {
       setLoading(true)
       const supabase = createClient()
@@ -72,7 +72,7 @@ export function ONGList() {
       const { data: { user }, error: userError } = await supabase.auth.getUser()
       if (userError || !user) {
         console.error('Error obteniendo usuario:', userError)
-        setONGs([])
+        setFCPs([])
         return
       }
 
@@ -87,7 +87,7 @@ export function ONGList() {
 
       const isFacilitadorUser = fcpMiembrosData && fcpMiembrosData.length > 0
 
-      let fcpsList: ONG[] = []
+      let fcpsList: FCP[] = []
 
       if (isFacilitadorUser) {
         // Facilitadores pueden ver todas las FCPs del sistema
@@ -113,7 +113,7 @@ export function ONGList() {
         if (error) throw error
 
         // Filtrar y mapear FCPs, eliminando duplicados por ID
-        const fcpsMap = new Map<string, ONG>()
+        const fcpsMap = new Map<string, FCP>()
         data?.forEach((item: any) => {
           if (item.fcp && item.fcp.id) {
             fcpsMap.set(item.fcp.id, item.fcp)
@@ -123,9 +123,9 @@ export function ONGList() {
         fcpsList = Array.from(fcpsMap.values())
       }
       
-      setONGs(fcpsList)
+      setFCPs(fcpsList)
     } catch (error) {
-      console.error('Error loading ONGs:', error)
+      console.error('Error loading FCPs:', error)
     } finally {
       setLoading(false)
     }
@@ -156,7 +156,7 @@ export function ONGList() {
         )}
       </div>
 
-      {ongs.length === 0 ? (
+      {fcps.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Building2 className="h-12 w-12 text-muted-foreground mb-4" />
@@ -167,62 +167,64 @@ export function ONGList() {
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {ongs.map((ong) => (
-            <Card key={ong.id}>
+          {fcps.map((fcp) => (
+            <Card key={fcp.id}>
               <CardHeader>
-                <CardTitle>{ong.razon_social}</CardTitle>
-                <CardDescription>ID: {ong.numero_identificacion}</CardDescription>
+                <CardTitle>{fcp.razon_social}</CardTitle>
+                <CardDescription>ID: {fcp.numero_identificacion}</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2 text-sm">
                   <p className="text-muted-foreground">
-                    <span className="font-medium">Número de Identificación:</span> {ong.numero_identificacion}
+                    <span className="font-medium">Número de Identificación:</span> {fcp.numero_identificacion}
                   </p>
                   <p className="text-muted-foreground">
-                    <span className="font-medium">Razón Social:</span> {ong.razon_social}
+                    <span className="font-medium">Razón Social:</span> {fcp.razon_social}
                   </p>
                   <p className="text-muted-foreground">
-                    <span className="font-medium">Nombre Completo:</span> {ong.nombre_completo_contacto}
+                    <span className="font-medium">Nombre Completo:</span> {fcp.nombre_completo_contacto}
                   </p>
                   <p className="text-muted-foreground">
-                    <span className="font-medium">Teléfono:</span> {ong.telefono}
+                    <span className="font-medium">Teléfono:</span> {fcp.telefono}
                   </p>
                   <p className="text-muted-foreground">
-                    <span className="font-medium">Correo Electrónico:</span> {ong.email}
+                    <span className="font-medium">Correo Electrónico:</span> {fcp.email}
                   </p>
                   <p className="text-muted-foreground">
-                    <span className="font-medium">Ubicación:</span> {ong.ubicacion}
+                    <span className="font-medium">Ubicación:</span> {fcp.ubicacion}
                   </p>
                   <p className="text-muted-foreground">
-                    <span className="font-medium">Rol:</span> {ong.rol_contacto}
+                    <span className="font-medium">Rol:</span> {fcp.rol_contacto}
                   </p>
                   <div className="pt-2 flex flex-col gap-2">
                     <div className="flex items-center justify-between">
                       <span
                         className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
-                          ong.activa
+                          fcp.activa
                             ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                             : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
                         }`}
                       >
-                        {ong.activa ? 'Activa' : 'Inactiva'}
+                        {fcp.activa ? 'Activa' : 'Inactiva'}
                       </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => router.push(`/ongs/${ong.id}/miembros`)}
-                        className="text-xs"
-                      >
-                        <Users className="mr-1 h-3 w-3" />
-                        Miembros
-                      </Button>
+                      <RoleGuard fcpId={fcp.id} allowedRoles={['facilitador', 'director', 'secretario']}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => router.push(`/fcps/${fcp.id}/miembros`)}
+                          className="text-xs"
+                        >
+                          <Users className="mr-1 h-3 w-3" />
+                          Miembros
+                        </Button>
+                      </RoleGuard>
                     </div>
-                    <RoleGuard fcpId={ong.id} allowedRoles={['facilitador']}>
+                    <RoleGuard fcpId={fcp.id} allowedRoles={['facilitador']}>
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          setEditingONG(ong)
+                          setEditingFCP(fcp)
                           setIsEditDialogOpen(true)
                         }}
                         className="w-full text-xs"
@@ -239,31 +241,31 @@ export function ONGList() {
         </div>
       )}
 
-      {editingONG && (
-        <ONGEditDialog
+      {editingFCP && (
+        <FCPEditDialog
           open={isEditDialogOpen}
           onOpenChange={(open) => {
             setIsEditDialogOpen(open)
-            if (!open) setEditingONG(null)
+            if (!open) setEditingFCP(null)
           }}
           onSuccess={() => {
             setIsEditDialogOpen(false)
-            setEditingONG(null)
-            loadONGs()
+            setEditingFCP(null)
+            loadFCPs()
           }}
-          ongId={editingONG.id}
-          initialData={editingONG}
+          fcpId={editingFCP.id}
+          initialData={editingFCP}
         />
       )}
 
-      <ONGDialog
+      <FCPDialog
         open={isCreateDialogOpen}
         onOpenChange={(open) => {
           setIsCreateDialogOpen(open)
         }}
         onSuccess={() => {
           setIsCreateDialogOpen(false)
-          loadONGs()
+          loadFCPs()
           checkIfFacilitador()
         }}
       />

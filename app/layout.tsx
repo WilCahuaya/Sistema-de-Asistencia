@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { FCPProvider } from "@/contexts/FCPContext";
+import { Suspense } from "react";
 
 export const metadata: Metadata = {
   title: "Sistema de Gestión de Asistencias - FCP",
@@ -16,7 +18,11 @@ export default function RootLayout({
     <html lang="es">
       <body>
         <AuthProvider>
-          {children}
+          <Suspense fallback={<div>Cargando...</div>}>
+            <FCPProvider>
+              {children}
+            </FCPProvider>
+          </Suspense>
         </AuthProvider>
       </body>
     </html>

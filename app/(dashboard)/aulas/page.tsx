@@ -17,7 +17,7 @@ export default async function AulasPage() {
           Gestión de Aulas
         </h1>
         <p className="mt-2 text-gray-600 dark:text-gray-400">
-          Administra las aulas de tus ONGs
+          Administra las aulas de tus FCPs
         </p>
       </div>
 

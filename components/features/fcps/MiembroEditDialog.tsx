@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select'
 import { getRolDisplayName } from '@/lib/utils/roles'
 import { Checkbox } from '@/components/ui/checkbox'
+import { useUserRole } from '@/hooks/useUserRole'
 
 interface Miembro {
   id: string
@@ -55,13 +56,24 @@ export function MiembroEditDialog({
   const [selectedAulas, setSelectedAulas] = useState<string[]>([])
   const [loadingAulas, setLoadingAulas] = useState(false)
   const supabase = createClient()
+  const { isSecretario, isDirector, isFacilitador } = useUserRole(miembro.fcp_id)
+  
+  // Verificar si el usuario actual puede editar este miembro
+  const canEditThisMember = isFacilitador || isDirector || (isSecretario && miembro.rol === 'tutor')
 
   useEffect(() => {
     if (miembro) {
       setRol(miembro.rol)
       setActivo(miembro.activo)
+      
+      // Si el usuario es secretario y el miembro no es tutor, mostrar error
+      if (isSecretario && miembro.rol !== 'tutor') {
+        setError('Como secretario, solo puedes editar miembros con rol tutor.')
+      } else {
+        setError(null)
+      }
     }
-  }, [miembro])
+  }, [miembro, isSecretario])
 
   useEffect(() => {
     if (open && miembro && rol === 'tutor') {
@@ -148,6 +160,13 @@ export function MiembroEditDialog({
       setLoading(true)
       setError(null)
 
+      // Validar permisos: secretarios solo pueden editar tutores
+      if (isSecretario && miembro.rol !== 'tutor') {
+        setError('Como secretario, solo puedes editar miembros con rol tutor.')
+        setLoading(false)
+        return
+      }
+
       // Validar que si es tutor, tenga al menos una aula asignada
       if (rol === 'tutor' && selectedAulas.length === 0) {
         setError('Debes asignar al menos una aula al tutor.')
@@ -165,7 +184,11 @@ export function MiembroEditDialog({
 
       if (updateError) {
         if (updateError.code === '42501') {
+          if (isSecretario && miembro.rol !== 'tutor') {
+            setError('Como secretario, solo puedes editar miembros con rol tutor.')
+          } else {
           setError('No tienes permisos para actualizar miembros. Solo los facilitadores, directores y secretarios pueden hacerlo.')
+          }
         } else {
           throw updateError
         }
@@ -247,6 +270,11 @@ export function MiembroEditDialog({
             <p className="text-sm">{error}</p>
           </div>
         )}
+        {!canEditThisMember && (
+          <div className="mb-4 rounded-md bg-amber-50 p-4 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+            <p className="text-sm">No tienes permisos para editar este miembro. Como secretario, solo puedes editar miembros con rol tutor.</p>
+          </div>
+        )}
         <div className="grid gap-4 py-4">
           <div className="grid gap-2">
             <Label htmlFor="email">Email</Label>
@@ -256,23 +284,44 @@ export function MiembroEditDialog({
           </div>
           <div className="grid gap-2">
             <Label htmlFor="rol">Rol *</Label>
-            <Select value={rol} onValueChange={(value) => setRol(value as 'facilitador' | 'director' | 'secretario' | 'tutor')}>
+            <Select 
+              value={rol} 
+              onValueChange={(value) => {
+                // Si el usuario es secretario, solo permitir mantener el rol como tutor
+                if (isSecretario && value !== 'tutor') {
+                  setError('Como secretario, solo puedes editar miembros con rol tutor.')
+                  return
+                }
+                setRol(value as 'facilitador' | 'director' | 'secretario' | 'tutor')
+              }}
+              disabled={!canEditThisMember || (isSecretario && miembro.rol === 'tutor')}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Selecciona un rol" />
               </SelectTrigger>
               <SelectContent>
+                {!isSecretario && (
+                  <>
                 <SelectItem value="facilitador">{getRolDisplayName('facilitador')}</SelectItem>
                 <SelectItem value="director">{getRolDisplayName('director')}</SelectItem>
                 <SelectItem value="secretario">{getRolDisplayName('secretario')}</SelectItem>
+                  </>
+                )}
                 <SelectItem value="tutor">{getRolDisplayName('tutor')}</SelectItem>
               </SelectContent>
             </Select>
+            {isSecretario && (
+              <p className="text-xs text-muted-foreground">
+                Como secretario, solo puedes editar miembros con rol tutor.
+              </p>
+            )}
           </div>
           <div className="grid gap-2">
             <Label htmlFor="activo">Estado</Label>
             <Select
               value={activo ? 'activo' : 'inactivo'}
               onValueChange={(value) => setActivo(value === 'activo')}
+              disabled={!canEditThisMember}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -343,7 +392,7 @@ export function MiembroEditDialog({
           <Button 
             type="button" 
             onClick={onSubmit} 
-            disabled={loading || (rol === 'tutor' && selectedAulas.length === 0)}
+            disabled={loading || !canEditThisMember || (rol === 'tutor' && selectedAulas.length === 0)}
           >
             {loading ? 'Actualizando...' : 'Guardar Cambios'}
           </Button>

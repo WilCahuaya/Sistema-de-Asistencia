@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useForm } from 'react-hook-form'
 
-interface ONGFormData {
+interface FCPFormData {
   numero_identificacion: string
   razon_social: string
   nombre_completo_contacto: string
@@ -26,17 +26,17 @@ interface ONGFormData {
   rol_contacto: string
 }
 
-interface ONGDialogProps {
+interface FCPDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
 }
 
-export function ONGDialog({ open, onOpenChange, onSuccess }: ONGDialogProps) {
+export function FCPDialog({ open, onOpenChange, onSuccess }: FCPDialogProps) {
   const [loading, setLoading] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
   const router = useRouter()
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<ONGFormData>({
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<FCPFormData>({
     defaultValues: {
       rol_contacto: 'Director',
     },
@@ -56,7 +56,7 @@ export function ONGDialog({ open, onOpenChange, onSuccess }: ONGDialogProps) {
 
   const checkAuth = async () => {
     try {
-      console.log('Checking authentication in ONGDialog...')
+      console.log('Checking authentication in FCPDialog...')
       const authResult = await ensureAuthenticated()
       
       if (!authResult || !authResult.user) {
@@ -76,13 +76,13 @@ export function ONGDialog({ open, onOpenChange, onSuccess }: ONGDialogProps) {
     }
   }
 
-  const onSubmit = async (data: ONGFormData) => {
+  const onSubmit = async (data: FCPFormData) => {
     try {
       setLoading(true)
       setAuthError(null)
 
       // Asegurar que el usuario esté autenticado (refresca la sesión si es necesario)
-      console.log('Submitting ONG form, checking authentication...')
+      console.log('Submitting FCP form, checking authentication...')
       const authResult = await ensureAuthenticated()
       
       if (!authResult || !authResult.user) {
@@ -96,7 +96,7 @@ export function ONGDialog({ open, onOpenChange, onSuccess }: ONGDialogProps) {
       }
 
       const { user, supabase } = authResult
-      console.log('Creating ONG with user:', user.id, 'email:', user.email)
+      console.log('Creating FCP with user:', user.id, 'email:', user.email)
 
       // Asegurar que la sesión esté actualizada en el cliente antes de hacer la petición
       // Esto garantiza que el token JWT se incluya en los headers
@@ -243,7 +243,7 @@ export function ONGDialog({ open, onOpenChange, onSuccess }: ONGDialogProps) {
       setAuthError(null)
       onSuccess()
     } catch (error: any) {
-      console.error('Error inesperado creating ONG:', error)
+      console.error('Error inesperado creating FCP:', error)
       setAuthError(`Error inesperado: ${error.message || 'Error desconocido'}`)
       setLoading(false)
     }

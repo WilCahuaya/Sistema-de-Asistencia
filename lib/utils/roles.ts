@@ -81,3 +81,35 @@ export function canManageMembers(rol: RolType | null): boolean {
   return rol === 'director' || rol === 'secretario'
 }
 
+/**
+ * Obtiene la prioridad de un rol (mayor número = mayor jerarquía)
+ * Jerarquía: facilitador (4) > director (3) > secretario (2) > tutor (1)
+ */
+export function getRolPriority(rol: RolType | null): number {
+  switch (rol) {
+    case 'facilitador':
+      return 4
+    case 'director':
+      return 3
+    case 'secretario':
+      return 2
+    case 'tutor':
+      return 1
+    default:
+      return 0
+  }
+}
+
+/**
+ * Obtiene el rol de mayor jerarquía de un array de roles
+ */
+export function getHighestPriorityRole(roles: RolType[]): RolType | null {
+  if (roles.length === 0) return null
+  
+  return roles.reduce((highest, current) => {
+    const currentPriority = getRolPriority(current)
+    const highestPriority = getRolPriority(highest)
+    return currentPriority > highestPriority ? current : highest
+  })
+}
+

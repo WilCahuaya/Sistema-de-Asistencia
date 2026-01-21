@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useForm } from 'react-hook-form'
 
-interface ONGFormData {
+interface FCPFormData {
   numero_identificacion: string
   razon_social: string
   nombre_completo_contacto: string
@@ -25,18 +25,18 @@ interface ONGFormData {
   rol_contacto: string
 }
 
-interface ONGEditDialogProps {
+interface FCPEditDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  ongId: string
-  initialData: ONGFormData
+  fcpId: string
+  initialData: FCPFormData
 }
 
-export function ONGEditDialog({ open, onOpenChange, onSuccess, ongId, initialData }: ONGEditDialogProps) {
+export function FCPEditDialog({ open, onOpenChange, onSuccess, fcpId, initialData }: FCPEditDialogProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<ONGFormData>({
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<FCPFormData>({
     defaultValues: initialData,
   })
 
@@ -50,7 +50,7 @@ export function ONGEditDialog({ open, onOpenChange, onSuccess, ongId, initialDat
     }
   }, [open, initialData, reset])
 
-  const onSubmit = async (data: ONGFormData) => {
+  const onSubmit = async (data: FCPFormData) => {
     try {
       setLoading(true)
       setError(null)
@@ -69,7 +69,7 @@ export function ONGEditDialog({ open, onOpenChange, onSuccess, ongId, initialDat
       const { data: currentFCP, error: fetchError } = await supabase
         .from('fcps')
         .select('email')
-        .eq('id', ongId)
+        .eq('id', fcpId)
         .single()
 
       if (fetchError) {
@@ -92,10 +92,10 @@ export function ONGEditDialog({ open, onOpenChange, onSuccess, ongId, initialDat
           ubicacion: data.ubicacion,
           rol_contacto: 'Director', // Siempre mantener como Director
         })
-        .eq('id', ongId)
+        .eq('id', fcpId)
 
       if (updateError) {
-        console.error('Error updating ONG:', updateError)
+        console.error('Error updating FCP:', updateError)
         setError(`Error al actualizar la FCP: ${updateError.message}`)
         setLoading(false)
         return
@@ -106,7 +106,7 @@ export function ONGEditDialog({ open, onOpenChange, onSuccess, ongId, initialDat
       try {
         const { data: rpcResult, error: rpcError } = await supabase
           .rpc('asociar_director_por_email', {
-            p_fcp_id: ongId,
+            p_fcp_id: fcpId,
             p_email: data.email.toLowerCase()
           })
 
@@ -131,7 +131,7 @@ export function ONGEditDialog({ open, onOpenChange, onSuccess, ongId, initialDat
         const { data: existingDirector } = await supabase
           .from('fcp_miembros')
           .select('id, usuario_id, email_pendiente')
-          .eq('fcp_id', ongId)
+          .eq('fcp_id', fcpId)
           .eq('rol', 'director')
           .maybeSingle()
 
@@ -148,7 +148,7 @@ export function ONGEditDialog({ open, onOpenChange, onSuccess, ongId, initialDat
             .from('fcp_miembros')
             .insert({
               usuario_id: null, // NULL indica invitación pendiente
-              fcp_id: ongId,
+              fcp_id: fcpId,
               rol: 'director',
               activo: true,
               email_pendiente: data.email.toLowerCase(),
@@ -166,7 +166,7 @@ export function ONGEditDialog({ open, onOpenChange, onSuccess, ongId, initialDat
 
       onSuccess()
     } catch (err: any) {
-      console.error('Error inesperado updating ONG:', err)
+      console.error('Error inesperado updating FCP:', err)
       setError(`Error inesperado: ${err.message || 'Error desconocido'}`)
       setLoading(false)
     }

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getHighestPriorityRole, type RolType as RolTypeUtil } from '@/lib/utils/roles'
 
 export type RolType = 'facilitador' | 'director' | 'secretario' | 'tutor' | null
 
@@ -36,12 +37,6 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
   const [error, setError] = useState<Error | null>(null)
 
   useEffect(() => {
-    if (!fcpId) {
-      setRole(null)
-      setLoading(false)
-      return
-    }
-
     let cancelled = false
 
     const fetchRole = async () => {
@@ -64,7 +59,7 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
 
         // Primero verificar si el usuario es facilitador del sistema (fcp_id = NULL)
         // Los facilitadores pueden gestionar todas las FCPs
-        const { data: facilitadorData, error: facilitadorError } = await supabase
+        const { data: facilitadorSistemaData, error: facilitadorSistemaError } = await supabase
           .from('fcp_miembros')
           .select('rol')
           .eq('usuario_id', user.id)
@@ -76,9 +71,41 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
         if (cancelled) return
 
         // Si es facilitador del sistema, retornar ese rol
-        if (facilitadorData && !facilitadorError) {
+        if (facilitadorSistemaData && !facilitadorSistemaError) {
           if (!cancelled) {
             setRole('facilitador')
+            setLoading(false)
+          }
+          return
+        }
+
+        // También verificar si el usuario es facilitador en CUALQUIER FCP
+        // Esto es necesario porque los facilitadores pueden estar asociados a FCPs específicas
+        const { data: facilitadorCualquierFCPData, error: facilitadorCualquierFCPError } = await supabase
+          .from('fcp_miembros')
+          .select('rol')
+          .eq('usuario_id', user.id)
+          .eq('rol', 'facilitador')
+          .eq('activo', true)
+          .limit(1)
+          .maybeSingle()
+
+        if (cancelled) return
+
+        // Si es facilitador en alguna FCP, retornar ese rol
+        if (facilitadorCualquierFCPData && !facilitadorCualquierFCPError) {
+          if (!cancelled) {
+            setRole('facilitador')
+            setLoading(false)
+          }
+          return
+        }
+
+        // Si no hay fcpId, no podemos obtener el rol específico
+        if (!fcpId) {
+          if (!cancelled) {
+            setRole(null)
+            setLoading(false)
           }
           return
         }
@@ -101,15 +128,14 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
             return
           }
 
-          // Si falla la RPC, intentar consulta directa
-          const { data: fcpMiembroData, error: queryError } = await supabase
+          // Si falla la RPC, intentar consulta directa con prioridad de roles
+          const { data: fcpMiembrosData, error: queryError } = await supabase
             .from('fcp_miembros')
             .select('rol')
             .eq('usuario_id', user.id)
             .eq('fcp_id', fcpId)
             .eq('activo', true)
-            .maybeSingle()
-
+          
           if (cancelled) return
 
           if (queryError) {
@@ -125,9 +151,28 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
             return
           }
 
-          if (!cancelled) {
-            setRole(fcpMiembroData?.rol || null)
+          // Si hay múltiples roles, seleccionar el de mayor jerarquía
+          if (fcpMiembrosData && fcpMiembrosData.length > 0) {
+            const roles = fcpMiembrosData.map((m: { rol: RolType }) => m.rol) as RolTypeUtil[]
+            const highestRole = getHighestPriorityRole(roles)
+            
+            if (fcpMiembrosData.length > 1) {
+              console.log('⚠️ Usuario tiene múltiples roles, seleccionando el de mayor jerarquía:', {
+                roles: roles,
+                rolSeleccionado: highestRole
+              })
+            }
+
+            if (!cancelled) {
+              setRole(highestRole)
+            }
+          } else {
+            if (!cancelled) {
+              setRole(null)
+            }
           }
+
+          if (cancelled) return
         } else {
           if (!cancelled) {
             setRole(rolData || null)

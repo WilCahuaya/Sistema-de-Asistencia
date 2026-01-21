@@ -44,12 +44,21 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const [toast, setToast] = useState<{ message: string; date: string } | null>(null)
   
   const longPressTimerRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
+  const prevAulaRef = useRef<string | null>(null) // Para detectar cambios de aula
   const { canEdit, role } = useUserRole(fcpId)
+
+  // Función helper para convertir Date a string YYYY-MM-DD en zona horaria local
+  const formatDateToLocalString = (date: Date): string => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
 
   // Generar días del mes seleccionado
   const getDaysInMonth = (month: number, year: number) => {
     const daysCount = new Date(year, month + 1, 0).getDate()
-    const days: Array<{ day: number; date: Date; dayName: string }> = []
+    const days: Array<{ day: number; date: Date; dayName: string; fechaStr: string }> = []
     const dayNames = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb']
     
     for (let day = 1; day <= daysCount; day++) {
@@ -58,6 +67,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         day,
         date,
         dayName: dayNames[date.getDay()],
+        fechaStr: formatDateToLocalString(date),
       })
     }
     return days
@@ -90,29 +100,71 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
 
   useEffect(() => {
     if (selectedAula) {
-      // No limpiar estudiantes inmediatamente - esperar a que se carguen los nuevos
-      // Esto evita mostrar "No hay estudiantes" durante el cambio de aula
+      // Si cambió el aula, limpiar asistencias y estudiantes ANTES de cargar nuevos
+      if (prevAulaRef.current !== null && prevAulaRef.current !== selectedAula) {
+        console.log('🔄 Aula cambió de', prevAulaRef.current.substring(0, 8), 'a', selectedAula.substring(0, 8), '- limpiando asistencias y estudiantes')
+        setAsistencias(new Map())
+        setEstudiantes([]) // Limpiar estudiantes también para forzar recarga
+      }
+      prevAulaRef.current = selectedAula
+      
+      // Cargar estudiantes para la nueva aula
       loadEstudiantes()
     } else {
       // Solo limpiar si no hay aula seleccionada
+      prevAulaRef.current = null
       setEstudiantes([])
       setAsistencias(new Map())
     }
-  }, [selectedAula, selectedMonth, selectedYear, fcpId])
+  }, [selectedAula, fcpId]) // Remover selectedMonth y selectedYear de aquí - no deberían limpiar estudiantes
 
+  // Efecto separado para recargar asistencias cuando cambia el mes/año (sin limpiar estudiantes)
   useEffect(() => {
     if (selectedAula && estudiantes.length > 0) {
-      // Usar un pequeño delay para evitar múltiples llamadas cuando cambian dependencias
+      console.log('🔄 Mes/año cambió, recargando asistencias sin limpiar estudiantes')
+      loadAsistenciasMes()
+    }
+  }, [selectedMonth, selectedYear]) // Solo cuando cambia mes/año, no limpiar nada
+
+  // Efecto principal para cargar asistencias cuando hay estudiantes y aula
+  // Este efecto se ejecuta cuando cambian los estudiantes (después de cargarse)
+  useEffect(() => {
+    if (selectedAula && estudiantes.length > 0) {
+      // Verificar que los estudiantes correspondan al aula actual
+      // Esto evita cargar asistencias con estudiantes de otra aula
+      console.log('🔄 Efecto de carga de asistencias activado:', {
+        aula: selectedAula,
+        estudiantesCount: estudiantes.length,
+        muestraEstudianteIds: estudiantes.slice(0, 3).map(e => e.id.substring(0, 8))
+      })
+      
+      // Usar un pequeño delay para asegurar que los estudiantes se hayan actualizado completamente
       const timer = setTimeout(() => {
         loadAsistenciasMes()
-      }, 100)
+      }, 150) // Aumentar delay para asegurar que los estudiantes se actualizaron
       
       return () => clearTimeout(timer)
     } else {
-      // Limpiar asistencias si no hay aula o estudiantes
-      setAsistencias(new Map())
+      // Solo limpiar asistencias si realmente no hay aula
+      // NO limpiar si solo está cambiando el mes/año o si aún no se han cargado estudiantes
+      if (!selectedAula) {
+        setAsistencias(new Map())
+      }
+      // Si hay aula pero no estudiantes todavía, no limpiar - esperar a que se carguen
     }
-  }, [selectedAula, selectedMonth, selectedYear, fcpId, estudiantes.length])
+  }, [selectedAula, fcpId, estudiantes]) // Usar estudiantes como dependencia completa, no solo length
+
+  // Efecto para verificar que las asistencias se mantengan después de cargar
+  useEffect(() => {
+    if (asistencias.size > 0 && estudiantes.length > 0) {
+      console.log('✅ Estado de asistencias verificado:', {
+        totalAsistencias: asistencias.size,
+        totalEstudiantes: estudiantes.length,
+        muestraKeys: Array.from(asistencias.keys()).slice(0, 5),
+        fechasUnicas: [...new Set(Array.from(asistencias.keys()).map(k => k.split('_')[1]))].sort()
+      })
+    }
+  }, [asistencias, estudiantes.length])
 
   const loadAulas = async () => {
     try {
@@ -156,7 +208,30 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         .order('nombre_completo', { ascending: true })
 
       if (error) throw error
-      setEstudiantes(data || [])
+      
+      const nuevosEstudiantes = data || []
+      const nuevosIds = new Set(nuevosEstudiantes.map(e => e.id))
+      
+      console.log('✅ Estudiantes cargados:', {
+        count: nuevosEstudiantes.length,
+        aula: selectedAula,
+        muestraIds: nuevosEstudiantes.slice(0, 3).map(e => e.id.substring(0, 8))
+      })
+      
+      // Actualizar estudiantes
+      setEstudiantes(prev => {
+        const prevIds = new Set(prev.map(e => e.id))
+        const idsCambiaron = nuevosIds.size !== prevIds.size || 
+                             !Array.from(nuevosIds).every(id => prevIds.has(id))
+        
+        // Si los IDs cambiaron (cambio de aula), limpiar asistencias
+        if (idsCambiaron && prev.length > 0) {
+          console.log('🔄 IDs de estudiantes cambiaron (cambio de aula), limpiando asistencias')
+          setAsistencias(new Map())
+        }
+        
+        return nuevosEstudiantes
+      })
     } catch (error) {
       console.error('Error loading estudiantes:', error)
       setEstudiantes([]) // Limpiar estudiantes en caso de error
@@ -166,21 +241,43 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   }
 
   const loadAsistenciasMes = async () => {
-    if (!selectedAula || estudiantes.length === 0) return
+    if (!selectedAula || estudiantes.length === 0) {
+      console.log('⚠️ loadAsistenciasMes: No hay aula seleccionada o estudiantes', {
+        selectedAula,
+        estudiantesCount: estudiantes.length
+      })
+      return
+    }
 
     try {
       const supabase = createClient()
-      const firstDay = new Date(selectedYear, selectedMonth, 1)
-        .toISOString()
-        .split('T')[0]
-      const lastDay = new Date(selectedYear, selectedMonth + 1, 0)
-        .toISOString()
-        .split('T')[0]
+      // Usar formato local para evitar problemas de zona horaria
+      const firstDay = formatDateToLocalString(new Date(selectedYear, selectedMonth, 1))
+      const lastDay = formatDateToLocalString(new Date(selectedYear, selectedMonth + 1, 0))
 
       const estudianteIds = estudiantes.map((e) => e.id)
 
+      if (estudianteIds.length === 0) {
+        console.log('⚠️ No hay IDs de estudiantes para consultar asistencias')
+        setAsistencias(new Map())
+        return
+      }
+
+      console.log('🔍 Cargando asistencias:', {
+        fcpId,
+        selectedAula,
+        estudianteIds: estudianteIds.slice(0, 5), // Primeros 5 IDs
+        estudianteIdsCount: estudianteIds.length,
+        fechaInicio: firstDay,
+        fechaFin: lastDay,
+        month: selectedMonth,
+        year: selectedYear
+      })
+
       // Optimizar: solo seleccionar campos necesarios, no usar select('*')
-      const { data, error } = await supabase
+      // Nota: Si estudianteIds tiene más de 100 elementos, Supabase puede tener límites
+      // En ese caso, dividir en lotes
+      let query = supabase
         .from('asistencias')
         .select('id, estudiante_id, fecha, estado, fcp_id')
         .eq('fcp_id', fcpId)
@@ -188,13 +285,26 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         .gte('fecha', firstDay)
         .lte('fecha', lastDay)
 
+      const { data, error } = await query
+
       if (error) {
         // Ignorar errores de aborto (son esperados cuando cambian las dependencias rápidamente)
         if (error.message?.includes('AbortError') || error.message?.includes('aborted')) {
           return
         }
+        console.error('❌ Error en consulta de asistencias:', error)
         throw error
       }
+
+      console.log('✅ Asistencias cargadas:', {
+        count: data?.length || 0,
+        asistencias: data?.slice(0, 5).map(a => ({
+          estudiante_id: a.estudiante_id,
+          fecha: a.fecha,
+          estado: a.estado
+        })),
+        fechasUnicas: [...new Set(data?.map(a => a.fecha) || [])].sort()
+      })
 
       const asistenciasMap = new Map<string, Asistencia>()
       data?.forEach((asistencia) => {
@@ -205,19 +315,68 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
           observaciones: asistencia.observaciones || undefined,
         } as Asistencia)
       })
+      
+      // Verificar que los IDs de estudiantes en el mapa coincidan con los estudiantes actuales
+      const estudiantesIdsEnMapa = new Set(Array.from(asistenciasMap.keys()).map(k => k.split('_')[0]))
+      const estudiantesIdsActuales = new Set(estudianteIds)
+      const idsCoinciden = Array.from(estudiantesIdsEnMapa).every(id => estudiantesIdsActuales.has(id))
+      
+      console.log('📊 Mapa de asistencias creado:', {
+        totalKeys: asistenciasMap.size,
+        sampleKeys: Array.from(asistenciasMap.keys()).slice(0, 5),
+        estudiantesEnConsulta: estudianteIds.length,
+        estudiantesEnMapa: estudiantesIdsEnMapa.size,
+        idsCoinciden,
+        fechasEnMapa: [...new Set(Array.from(asistenciasMap.keys()).map(k => k.split('_')[1]))].sort(),
+        muestraEstudiantesEnMapa: Array.from(estudiantesIdsEnMapa).slice(0, 3),
+        muestraEstudiantesActuales: Array.from(estudiantesIdsActuales).slice(0, 3)
+      })
+      
       setAsistencias(asistenciasMap)
+      
+      // Verificar que las fechas coincidan con las del mes
+      const fechasDelMes = daysInMonth.map(d => d.fechaStr)
+      const fechasConAsistencias = [...new Set(Array.from(asistenciasMap.keys()).map(k => k.split('_')[1]))]
+      const fechasQueCoinciden = fechasDelMes.filter(f => fechasConAsistencias.includes(f))
+      console.log('📅 Verificación de fechas:', {
+        fechasDelMes: fechasDelMes.slice(0, 5),
+        fechasConAsistencias: fechasConAsistencias,
+        fechasQueCoinciden: fechasQueCoinciden,
+        todasCoinciden: fechasConAsistencias.every(f => fechasDelMes.includes(f))
+      })
+      
+      // Advertencia si los IDs no coinciden
+      if (!idsCoinciden) {
+        console.warn('⚠️ ADVERTENCIA: Los IDs de estudiantes en el mapa no coinciden completamente con los estudiantes actuales')
+      }
     } catch (error: any) {
       // Ignorar errores de aborto
       if (error?.message?.includes('AbortError') || error?.message?.includes('aborted')) {
         return
       }
-      console.error('Error loading asistencias:', error)
+      console.error('❌ Error loading asistencias:', error)
     }
   }
 
   const getAsistenciaEstado = (estudianteId: string, fechaStr: string): AsistenciaEstado => {
     const key = `${estudianteId}_${fechaStr}`
     const asistencia = asistencias.get(key)
+    
+    // Log de depuración para fechas específicas que sabemos que tienen asistencias
+    const fechasConAsistencias = ['2026-01-04', '2026-01-11', '2026-01-18', '2026-01-25']
+    if (asistencias.size > 0 && estudiantes.length > 0 && estudianteId === estudiantes[0]?.id && fechasConAsistencias.includes(fechaStr)) {
+      console.log('🔍 getAsistenciaEstado para fecha con asistencia:', {
+        estudianteId: estudianteId.substring(0, 8),
+        fechaStr,
+        key,
+        existeEnMapa: asistencias.has(key),
+        estado: asistencia?.estado || null,
+        totalKeysEnMapa: asistencias.size,
+        keysParaEstaFecha: Array.from(asistencias.keys()).filter(k => k.includes(fechaStr)).slice(0, 3),
+        keysParaEsteEstudiante: Array.from(asistencias.keys()).filter(k => k.startsWith(estudianteId)).slice(0, 3)
+      })
+    }
+    
     return asistencia?.estado || null
   }
 
@@ -773,8 +932,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                   <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 sticky left-[120px] z-10 min-w-[180px] text-left">
                     Participante
                   </th>
-                  {daysInMonth.map(({ day, date, dayName }) => {
-                    const fechaStr = date.toISOString().split('T')[0]
+                  {daysInMonth.map(({ day, date, dayName, fechaStr }) => {
                     const { marcados, total, faltantes } = getEstudiantesMarcadosPorFecha(fechaStr)
                     const todosMarcados = marcados === total && total > 0
                     const hayFaltantes = faltantes > 0 && total > 0 && marcados > 0 // Solo validar si hay al menos uno marcado
@@ -869,11 +1027,26 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                     <td className="border border-gray-300 p-2 bg-gray-50 dark:bg-gray-900 sticky left-[120px] text-xs min-w-[180px]">
                       {estudiante.nombre_completo}
                     </td>
-                    {daysInMonth.map(({ day, date }) => {
-                      const fechaStr = date.toISOString().split('T')[0]
+                    {daysInMonth.map(({ day, date, fechaStr }) => {
                       const estado = getAsistenciaEstado(estudiante.id, fechaStr)
                       const key = `${estudiante.id}_${fechaStr}`
                       const isSaving = saving.has(key)
+                      
+                      // Log de depuración para las primeras celdas (solo una vez)
+                      if (estudiante.id === estudiantes[0]?.id && day <= 5 && asistencias.size > 0) {
+                        const existeEnMapa = asistencias.has(key)
+                        if (day === 1) {
+                          console.log('🔍 Renderizando celda:', {
+                            estudianteId: estudiante.id.substring(0, 8),
+                            fechaStr,
+                            key,
+                            existeEnMapa,
+                            estado,
+                            totalAsistencias: asistencias.size,
+                            muestraKeys: Array.from(asistencias.keys()).filter(k => k.includes(fechaStr)).slice(0, 3)
+                          })
+                        }
+                      }
 
                       return (
                         <td

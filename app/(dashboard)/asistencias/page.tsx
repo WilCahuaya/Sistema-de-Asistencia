@@ -11,7 +11,9 @@ export default function AsistenciasPage() {
   const searchParams = useSearchParams()
   const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
   const [selectedAula, setSelectedAula] = useState<string | null>(null)
-  const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string }>>([])
+  const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
+  const [isDirector, setIsDirector] = useState(false)
+  const [isSecretario, setIsSecretario] = useState(false)
 
   useEffect(() => {
     loadUserFCPs()
@@ -56,13 +58,39 @@ export default function AsistenciasPage() {
 
       const esFacilitador = facilitadorData && facilitadorData.length > 0
 
-      let fcps: Array<{ id: string; nombre: string }> = []
+      // Verificar si el usuario es director
+      const { data: directorData, error: directorError } = await supabase
+        .from('fcp_miembros')
+        .select('rol')
+        .eq('usuario_id', user.id)
+        .eq('rol', 'director')
+        .eq('activo', true)
+        .limit(1)
+
+      if (!directorError && directorData && directorData.length > 0) {
+        setIsDirector(true)
+      }
+
+      // Verificar si el usuario es secretario
+      const { data: secretarioData, error: secretarioError } = await supabase
+        .from('fcp_miembros')
+        .select('rol')
+        .eq('usuario_id', user.id)
+        .eq('rol', 'secretario')
+        .eq('activo', true)
+        .limit(1)
+
+      if (!secretarioError && secretarioData && secretarioData.length > 0) {
+        setIsSecretario(true)
+      }
+
+      let fcps: Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }> = []
 
       if (esFacilitador) {
         // Facilitadores pueden ver todas las FCPs del sistema
         const { data: todasLasFCPs, error: fcpsError } = await supabase
           .from('fcps')
-          .select('id, razon_social')
+          .select('id, razon_social, numero_identificacion')
           .eq('activa', true)
           .order('razon_social', { ascending: true })
         
@@ -70,6 +98,8 @@ export default function AsistenciasPage() {
         fcps = (todasLasFCPs || []).map((fcp: any) => ({
           id: fcp.id,
           nombre: fcp.razon_social || 'FCP',
+          numero_identificacion: fcp.numero_identificacion,
+          razon_social: fcp.razon_social,
         }))
       } else {
         // Usuarios no facilitadores solo ven sus FCPs
@@ -77,7 +107,7 @@ export default function AsistenciasPage() {
           .from('fcp_miembros')
           .select(`
             fcp_id,
-            fcp:fcps(id, razon_social)
+            fcp:fcps(id, razon_social, numero_identificacion)
           `)
           .eq('usuario_id', user.id)
           .eq('activo', true)
@@ -87,6 +117,8 @@ export default function AsistenciasPage() {
         fcps = data?.map((item: any) => ({
           id: item.fcp?.id,
           nombre: item.fcp?.razon_social || 'FCP',
+          numero_identificacion: item.fcp?.numero_identificacion,
+          razon_social: item.fcp?.razon_social,
         })).filter((fcp: any) => fcp.id) || []
       }
 
@@ -116,7 +148,20 @@ export default function AsistenciasPage() {
     <div className="container mx-auto py-6">
       <h1 className="text-3xl font-bold mb-6">Asistencias</h1>
 
-      {userFCPs.length > 1 && (
+      {/* Mostrar información de FCP para directores y secretarios */}
+      {(isDirector || isSecretario) && selectedFCP && userFCPs.length > 0 && (() => {
+        const fcp = userFCPs.find(fcp => fcp.id === selectedFCP)
+        return (
+          <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
+            <p className="text-sm font-medium text-blue-900 dark:text-blue-200">
+              <strong>PROYECTO:</strong> {fcp?.numero_identificacion || ''} {fcp?.razon_social || 'FCP'}
+            </p>
+          </div>
+        )
+      })()}
+
+      {/* El selector de FCP no se muestra para directores ni secretarios, solo ven su FCP asignada */}
+      {!isDirector && !isSecretario && userFCPs.length > 1 && (
         <div className="mb-4">
           <label className="text-sm font-medium mb-2 block">FCP:</label>
           <select

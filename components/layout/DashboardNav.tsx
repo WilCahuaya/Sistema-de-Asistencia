@@ -1,10 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
+import { useFCP } from '@/contexts/FCPContext'
+import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
+import { FCPSelector } from '@/components/features/fcps/FCPSelector'
 import {
   Home,
   Building2,
@@ -15,9 +18,9 @@ import {
   LogOut,
 } from 'lucide-react'
 
-const navigation = [
+const allNavigation = [
   { name: 'Dashboard', href: '/dashboard', icon: Home },
-  { name: 'FCPs', href: '/ongs', icon: Building2 },
+  { name: 'FCPs', href: '/fcps', icon: Building2 },
   { name: 'Aulas', href: '/aulas', icon: Users },
   { name: 'Estudiantes', href: '/estudiantes', icon: GraduationCap },
   { name: 'Asistencias', href: '/asistencias', icon: ClipboardList },
@@ -27,7 +30,40 @@ const navigation = [
 export function DashboardNav() {
   const pathname = usePathname()
   const { signOut } = useAuth()
+  const { userFCPs } = useFCP()
   const [signingOut, setSigningOut] = useState(false)
+  const [isTutor, setIsTutor] = useState(false)
+
+  useEffect(() => {
+    checkIfTutor()
+  }, [])
+
+  const checkIfTutor = async () => {
+    try {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: tutorData, error: tutorError } = await supabase
+        .from('fcp_miembros')
+        .select('rol')
+        .eq('usuario_id', user.id)
+        .eq('rol', 'tutor')
+        .eq('activo', true)
+        .limit(1)
+
+      if (!tutorError && tutorData && tutorData.length > 0) {
+        setIsTutor(true)
+      }
+    } catch (error) {
+      console.error('Error checking tutor role:', error)
+    }
+  }
+
+  // Filtrar navegación: ocultar "Reportes" para tutores
+  const navigation = isTutor
+    ? allNavigation.filter(item => item.name !== 'Reportes')
+    : allNavigation
 
   const handleSignOut = async () => {
     try {
@@ -69,15 +105,18 @@ export function DashboardNav() {
               })}
             </div>
           </div>
-          <Button 
-            variant="ghost" 
-            onClick={handleSignOut} 
-            disabled={signingOut}
-            className="flex items-center space-x-2"
-          >
-            <LogOut className="h-4 w-4" />
-            <span>{signingOut ? 'Cerrando...' : 'Cerrar Sesión'}</span>
-          </Button>
+          <div className="flex items-center gap-4">
+            {userFCPs.length > 1 && <FCPSelector />}
+            <Button 
+              variant="ghost" 
+              onClick={handleSignOut} 
+              disabled={signingOut}
+              className="flex items-center space-x-2"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>{signingOut ? 'Cerrando...' : 'Cerrar Sesión'}</span>
+            </Button>
+          </div>
         </div>
       </div>
     </nav>
