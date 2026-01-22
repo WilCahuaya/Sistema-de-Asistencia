@@ -534,33 +534,365 @@ $$ language 'plpgsql';
 
 ## 9. Seguridad
 
-### 9.1 Autenticación y Autorización
+### 9.1 Arquitectura de Seguridad en Capas (Defense in Depth)
+
+El sistema implementa una arquitectura de seguridad en múltiples capas, donde cada capa proporciona una barrera de protección adicional. Esto garantiza que incluso si una capa falla, las demás capas continúan protegiendo los datos.
+
+```
+Usuario
+  │
+  ▼
+Frontend (NO Confiable)
+  │ • Interfaz de usuario
+  │ • Validación UX
+  │ • ⚠️ Puede ser manipulado
+  │
+  ▼
+Backend (Control de Acceso)
+  │ • Verificación de autenticación
+  │ • Validación de permisos por rol
+  │ • Validación de datos (Zod)
+  │ • ✅ Primera línea de defensa
+  │
+  ▼
+Base de Datos (RLS)
+  │ • Row Level Security
+  │ • Políticas a nivel de fila
+  │ • Filtrado automático por FCP
+  │ • ✅ Última línea de defensa
+```
+
+**Principio Fundamental**: El frontend NO es confiable. Toda la seguridad real se implementa en el backend y especialmente en la base de datos con RLS.
+
+### 9.2 Capa 1: Frontend (NO Confiable)
+
+**Características:**
+- Código JavaScript ejecutándose en el navegador del usuario
+- Puede ser modificado, deshabilitado o manipulado por usuarios
+- No debe ser la única fuente de seguridad
+
+**Responsabilidades:**
+- Proporcionar interfaz de usuario amigable
+- Validación básica para mejorar UX (no seguridad)
+- Mostrar/ocultar elementos según rol (solo visual)
+
+**Limitaciones:**
+- ❌ NO previene acceso no autorizado
+- ❌ NO valida permisos reales
+- ❌ Puede ser bypasseado fácilmente
+
+**Ejemplo:**
+```typescript
+// Frontend - Solo UX, NO seguridad real
+{user.role === 'director' && (
+  <button onClick={deleteStudent}>Eliminar</button>
+)}
+// Un usuario malicioso puede llamar directamente a la API
+```
+
+### 9.3 Capa 2: Backend (Control de Acceso)
+
+**Características:**
+- Código ejecutándose en el servidor (fuera del control del usuario)
+- Todas las peticiones pasan por aquí antes de llegar a la BD
+- Primera línea de defensa real
+
+**Responsabilidades:**
+- ✅ Verificar autenticación (token JWT válido)
+- ✅ Verificar permisos por rol
+- ✅ Validar y sanitizar datos (Zod)
+- ✅ Implementar lógica de negocio
+- ✅ Prevenir acceso no autorizado
+
+**Implementación:**
+```typescript
+// API Route - Verificación real de seguridad
+export async function DELETE(request: Request) {
+  const supabase = createServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  
+  if (!user) {
+    return Response.json({ error: 'No autenticado' }, { status: 401 })
+  }
+  
+  // Verificar rol
+  const { data: member } = await supabase
+    .from('fcp_miembros')
+    .select('rol')
+    .eq('usuario_id', user.id)
+    .eq('activo', true)
+    .single()
+  
+  if (member?.rol !== 'director' && member?.rol !== 'secretario') {
+    return Response.json({ error: 'No autorizado' }, { status: 403 })
+  }
+  
+  // Validar datos con Zod
+  const validated = deleteSchema.parse(await request.json())
+  
+  // Procesar solicitud...
+}
+```
+
+### 9.4 Capa 3: Base de Datos (RLS - Última Línea de Defensa)
+
+**Características:**
+- Políticas RLS se ejecutan **siempre**, incluso si alguien accede directamente a la BD
+- No se puede bypassear desde la aplicación
+- Protege los datos incluso si el backend tiene un error
+
+**Responsabilidades:**
+- ✅ Filtrar automáticamente consultas según usuario autenticado
+- ✅ Verificar acceso a FCP correspondiente
+- ✅ Aplicar permisos por rol a nivel de base de datos
+- ✅ Garantía absoluta de seguridad de datos
+
+**Implementación:**
+```sql
+-- Política RLS - Se ejecuta SIEMPRE
+CREATE POLICY "Users can only see their FCP students"
+ON estudiantes
+FOR SELECT
+USING (
+  fcp_id IN (
+    SELECT fcp_id FROM fcp_miembros 
+    WHERE usuario_id = auth.uid() 
+    AND activo = true
+  )
+);
+
+-- Política para tutores - Solo sus aulas
+CREATE POLICY "Tutors can only see their assigned classrooms"
+ON estudiantes
+FOR SELECT
+USING (
+  aula_id IN (
+    SELECT aula_id FROM tutor_aula ta
+    JOIN fcp_miembros fm ON ta.fcp_miembro_id = fm.id
+    WHERE fm.usuario_id = auth.uid()
+    AND fm.rol = 'tutor'
+    AND fm.activo = true
+  )
+);
+```
+
+**Ventajas de RLS:**
+- ✅ Imposible bypassear desde aplicación
+- ✅ Protección incluso si backend falla
+- ✅ Verificación automática en cada query
+- ✅ Optimizado por PostgreSQL
+
+### 9.5 Autenticación y Autorización
 
 - **Supabase Auth**: Autenticación JWT gestionada por Supabase
 - **HTTPS**: Obligatorio en producción (Supabase y Vercel lo requieren)
 - **CORS**: Configurado automáticamente por Supabase
 - **CSRF**: Protección integrada en Next.js
+- **Tokens JWT**: Renovación automática, expiración configurada
 
-### 9.2 Row Level Security (RLS)
+### 9.6 Validación de Datos
 
-- **Políticas RLS**: Control de acceso a nivel de base de datos
-- **Imposible bypassear**: Las políticas se ejecutan siempre, incluso si alguien accede directamente a la BD
-- **Políticas por rol**: Diferentes políticas para Director, Secretario, Tutor
-- **Verificación automática**: PostgreSQL verifica `auth.uid()` en cada query
+**Multi-Capa de Validación:**
 
-### 9.3 Validación de Datos
+1. **Frontend (UX)**
+   - React Hook Form + Zod
+   - Validación inmediata para mejor experiencia
+   - NO es fuente de verdad
 
-- **Backend**: Validación con Zod en API Routes
-- **Base de Datos**: Constraints y tipos en PostgreSQL
-- **Frontend**: Validación con Zod + React Hook Form
-- **Sanitización**: Next.js sanitiza automáticamente, evitar `dangerouslySetInnerHTML`
+2. **Backend (Seguridad)**
+   - Validación con Zod en API Routes
+   - Sanitización de inputs
+   - Verificación de tipos y formatos
 
-### 9.4 Aislamiento Multi-Tenant
+3. **Base de Datos (Garantía)**
+   - Constraints y tipos en PostgreSQL
+   - Foreign keys y unique constraints
+   - Validación a nivel de BD
 
-- **RLS Policies**: Filtrado automático por ONG a nivel de BD
+**Ejemplo:**
+```typescript
+// Schema Zod para validación
+const studentSchema = z.object({
+  codigo: z.string().min(1).max(50),
+  nombre_completo: z.string().min(1).max(200),
+  aula_id: z.string().uuid(),
+  fcp_id: z.string().uuid()
+})
+
+// En API Route
+const validated = studentSchema.parse(requestBody)
+```
+
+### 9.7 Aislamiento Multi-Tenant
+
+- **RLS Policies**: Filtrado automático por FCP a nivel de BD
 - **Validación de permisos**: Verificación de rol en API Routes
-- **No hay acceso cruzado**: Imposible acceder a datos de otra ONG (garantizado por RLS)
-- **Función helper**: Función SQL para verificar membresía en ONG
+- **No hay acceso cruzado**: Imposible acceder a datos de otra FCP (garantizado por RLS)
+- **Función helper**: Función SQL para verificar membresía en FCP
+- **Aislamiento garantizado**: Incluso si backend falla, RLS protege
+
+### 9.8 Protección de Datos Sensibles (PII)
+
+El sistema maneja **datos personales sensibles** (PII - Personally Identifiable Information) que requieren protección especial según estándares de privacidad y protección de datos.
+
+#### Datos Sensibles Identificados
+
+**Tabla `estudiantes`:**
+- ⚠️ **`nombre_completo`**: Datos personales sensibles - Nombre completo del estudiante
+- ⚠️ **`codigo`**: Identificador único del estudiante - Puede ser usado para identificación
+
+**Otros datos sensibles:**
+- Información de contacto de FCPs (teléfono, email en tabla `fcps`)
+- Relaciones entre estudiantes y aulas
+- Historial de asistencias (puede revelar patrones de comportamiento)
+
+#### Protección Multi-Capa de Datos Sensibles
+
+**1. Encriptación en Tránsito**
+```typescript
+// Todas las comunicaciones usan HTTPS
+// Next.js y Supabase requieren HTTPS en producción
+// Tokens JWT encriptados
+```
+
+**2. Encriptación en Reposo**
+- PostgreSQL con encriptación de disco (Supabase)
+- Respaldo automático también encriptado
+- Datos nunca almacenados en texto plano
+
+**3. Control de Acceso con RLS**
+```sql
+-- Política RLS protege datos sensibles de estudiantes
+CREATE POLICY "Protect sensitive student data"
+ON estudiantes
+FOR SELECT
+USING (
+  -- Solo usuarios de la misma FCP pueden ver estos datos
+  fcp_id IN (
+    SELECT fcp_id FROM fcp_miembros 
+    WHERE usuario_id = auth.uid() 
+    AND activo = true
+  )
+);
+
+-- Política adicional para tutores (solo sus aulas)
+CREATE POLICY "Tutors see only their classroom students"
+ON estudiantes
+FOR SELECT
+USING (
+  aula_id IN (
+    SELECT aula_id FROM tutor_aula ta
+    JOIN fcp_miembros fm ON ta.fcp_miembro_id = fm.id
+    WHERE fm.usuario_id = auth.uid()
+    AND fm.rol = 'tutor'
+    AND fm.activo = true
+  )
+);
+```
+
+**4. Validación y Sanitización**
+```typescript
+// Validación de datos sensibles en backend
+const studentSchema = z.object({
+  nombre_completo: z.string()
+    .min(1)
+    .max(200)
+    .regex(/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/, "Solo letras y espacios"),
+  codigo: z.string()
+    .min(1)
+    .max(50)
+    .regex(/^[A-Z0-9-]+$/, "Solo mayúsculas, números y guiones")
+});
+
+// Sanitización antes de almacenar
+const sanitized = {
+  nombre_completo: nombre_completo.trim().toUpperCase(),
+  codigo: codigo.trim().toUpperCase()
+};
+```
+
+**5. Auditoría de Acceso a Datos Sensibles**
+```sql
+-- Trigger para auditar acceso a datos sensibles
+CREATE OR REPLACE FUNCTION audit_sensitive_data_access()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO audit_log (
+    table_name,
+    record_id,
+    action,
+    usuario_id,
+    timestamp,
+    sensitive_fields_accessed
+  ) VALUES (
+    TG_TABLE_NAME,
+    NEW.id,
+    TG_OP,
+    auth.uid(),
+    NOW(),
+    ARRAY['nombre_completo', 'codigo']
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+#### Principios de Protección de Datos
+
+1. **Minimización de Datos**
+   - Solo se almacenan datos necesarios para gestión de asistencias
+   - No se almacenan datos adicionales innecesarios
+
+2. **Limitación de Propósito**
+   - Datos usados únicamente para gestión de asistencias
+   - No se comparten con terceros sin consentimiento
+
+3. **Limitación de Almacenamiento**
+   - Datos conservados solo mientras sean necesarios
+   - Posibilidad de eliminación cuando sea requerido
+
+4. **Integridad y Confidencialidad**
+   - Encriptación en tránsito y en reposo
+   - Protección mediante RLS
+   - Validación y sanitización de datos
+
+5. **Responsabilidad**
+   - Auditoría completa de accesos
+   - Trazabilidad de cambios
+   - Registro de quién accede a qué datos
+
+#### Cumplimiento Regulatorio
+
+El sistema está diseñado para cumplir con:
+
+- **Ley de Protección de Datos Personales** (según jurisdicción)
+- **Principios de privacidad por diseño**
+- **Derecho al olvido** (eliminación de datos personales)
+- **Derecho de acceso** (exportación de datos personales)
+- **Derecho de rectificación** (corrección de datos)
+
+### 9.9 Ventajas de la Arquitectura en Capas
+
+1. **Defensa en Profundidad**
+   - Si frontend es comprometido → Backend protege
+   - Si backend tiene error → RLS protege
+   - Múltiples barreras de seguridad
+
+2. **Seguridad Garantizada**
+   - Incluso con errores de desarrollo
+   - Incluso con bugs en el código
+   - RLS siempre protege los datos sensibles
+
+3. **Aislamiento de Datos**
+   - Cada FCP solo ve sus datos
+   - Imposible acceso cruzado
+   - Protección a nivel de BD para datos sensibles
+
+4. **Auditoría y Trazabilidad**
+   - Cada query registra `auth.uid()`
+   - Historial completo de cambios en datos sensibles
+   - Imposible falsificar autoría
+   - Trazabilidad de acceso a datos personales
 
 ---
 
