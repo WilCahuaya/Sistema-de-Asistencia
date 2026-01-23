@@ -158,8 +158,8 @@ export function EstudianteMovimientoDialog({
 
           <div>
             <Label className="mb-2 block">Aula Actual:</Label>
-            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md">
-              <p className="font-medium">{aulaActual?.nombre || 'Sin aula'}</p>
+            <div className="p-3 bg-muted border border-border rounded-md">
+              <p className="font-medium text-foreground">{aulaActual?.nombre || 'Sin aula'}</p>
             </div>
           </div>
 

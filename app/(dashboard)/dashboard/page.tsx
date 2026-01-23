@@ -282,10 +282,10 @@ export default async function DashboardPage() {
     return (
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+          <h1 className="text-3xl font-bold text-foreground">
             Dashboard
           </h1>
-          <p className="mt-2 text-gray-600 dark:text-gray-400">
+          <p className="mt-2 text-foreground/80">
             Bienvenido, {usuario?.nombre_completo || user.user_metadata?.full_name || user.user_metadata?.name || user.email}
           </p>
         </div>
@@ -398,7 +398,7 @@ export default async function DashboardPage() {
                       {tutorAulas.map((aula: any) => (
                         <div
                           key={aula.id}
-                          className="rounded border p-3 dark:border-gray-700"
+                          className="rounded border border-border p-3"
                         >
                           <p className="font-medium text-sm">{aula.nombre}</p>
                           {aula.fcp && (
@@ -424,10 +424,10 @@ export default async function DashboardPage() {
     return (
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+          <h1 className="text-3xl font-bold text-foreground">
             Dashboard
           </h1>
-          <p className="mt-2 text-gray-600 dark:text-gray-400">
+          <p className="mt-2 text-foreground/80">
             Bienvenido, {usuario?.nombre_completo || user.user_metadata?.full_name || user.user_metadata?.name || user.email}
           </p>
         </div>
@@ -472,7 +472,7 @@ export default async function DashboardPage() {
                         {fcps.map((fcpMiembro: any) => (
                           <div
                             key={fcpMiembro.id || fcpMiembro.fcp_id}
-                            className="rounded border p-3 dark:border-gray-700"
+                            className="rounded border border-border p-3"
                           >
                             <p className="font-medium text-sm">{fcpMiembro.fcp?.razon_social}</p>
                             <p className="text-xs text-muted-foreground mt-1">
@@ -499,10 +499,10 @@ export default async function DashboardPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+        <h1 className="text-3xl font-bold text-foreground">
           Dashboard
         </h1>
-        <p className="mt-2 text-gray-600 dark:text-gray-400">
+        <p className="mt-2 text-muted-foreground">
           Bienvenido, {usuario?.nombre_completo || user.user_metadata?.full_name || user.user_metadata?.name || user.email}
         </p>
       </div>

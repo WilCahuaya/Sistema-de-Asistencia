@@ -4,7 +4,14 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Plus, GraduationCap, Users, Edit } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Plus, GraduationCap, Users, Edit, Building2 } from 'lucide-react'
 import { AulaDialog } from './AulaDialog'
 import { AulaTutorDialog } from './AulaTutorDialog'
 import { AulaEditDialog } from './AulaEditDialog'
@@ -409,8 +416,8 @@ export function AulaList() {
         const fcpIdToUse = selectedFCP || (isTutorState && userFCPs.length > 0 ? userFCPs[0].id : null)
         const fcp = userFCPs.find(fcp => fcp.id === fcpIdToUse) || (isTutorState && userFCPs.length > 0 ? userFCPs[0] : null)
         return (
-          <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
-            <p className="text-sm font-medium text-blue-900 dark:text-blue-200">
+          <div className="mb-4 p-3 bg-muted border border-border rounded-md">
+            <p className="text-sm font-medium text-foreground">
               <strong>PROYECTO:</strong> {fcp?.numero_identificacion || ''} {fcp?.razon_social || 'FCP'}
             </p>
           </div>
@@ -421,17 +428,36 @@ export function AulaList() {
         {!isDirector && !isSecretario && !isTutorState && (
           <div className="flex-1">
             <label className="text-sm font-medium mb-2 block">Seleccionar FCP:</label>
-            <select
+            <Select
               value={selectedFCP || ''}
-              onChange={(e) => setSelectedFCP(e.target.value)}
-              className="w-full sm:w-auto px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+              onValueChange={(value) => setSelectedFCP(value)}
             >
-              {userFCPs.map((fcp) => (
-                <option key={fcp.id} value={fcp.id}>
-                  {fcp.nombre}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="w-full sm:w-auto">
+                <SelectValue placeholder="Seleccionar FCP">
+                  {selectedFCP ? (
+                    <div className="flex items-center gap-2">
+                      <Building2 className="h-4 w-4" />
+                      <span className="truncate">{userFCPs.find(fcp => fcp.id === selectedFCP)?.nombre || 'Seleccionar FCP'}</span>
+                    </div>
+                  ) : (
+                    'Seleccionar FCP'
+                  )}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {userFCPs.map((fcp) => (
+                  <SelectItem key={fcp.id} value={fcp.id}>
+                    <div className="flex items-center gap-2">
+                      <Building2 className="h-4 w-4 flex-shrink-0" />
+                      <span className="truncate">{fcp.nombre}</span>
+                      {fcp.numero_identificacion && (
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">({fcp.numero_identificacion})</span>
+                      )}
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
         <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>

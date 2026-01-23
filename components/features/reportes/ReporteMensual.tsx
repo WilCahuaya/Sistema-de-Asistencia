@@ -4,12 +4,31 @@ import React, { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { MonthPicker } from '@/components/ui/month-picker'
 import { FileSpreadsheet, FileText, Calendar } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useRouter } from 'next/navigation'
 import { useSearchParams } from 'next/navigation'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Building2 } from 'lucide-react'
+import {
+  getExcelHeaderStyle,
+  getExcelCellStyle,
+  getExcelAlternateRowStyle,
+  getExcelTotalStyle,
+  getPDFHeaderStyles,
+  getPDFBodyStyles,
+  getPDFAlternateRowStyles,
+  getPDFTotalRowColor,
+  getPDFCellTextColor,
+} from '@/lib/utils/exportStyles'
 
 interface ReporteMensualProps {
   fcpId: string | null
@@ -131,11 +150,12 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
 
       if (usuarioFcpError) throw usuarioFcpError
 
-      const isFacilitador = usuarioFcpData && usuarioFcpData.length > 0
+      const isFacilitadorCheck = usuarioFcpData && usuarioFcpData.length > 0
+      setIsFacilitador(isFacilitadorCheck)
 
-      let fcps: Array<{ id: string; nombre: string }> = []
+      let fcps: Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }> = []
 
-      if (isFacilitador) {
+      if (isFacilitadorCheck) {
         // Facilitadores pueden ver todas las FCPs del sistema
         const { data: todasLasFCPs, error: fcpsError } = await supabase
           .from('fcps')
@@ -144,12 +164,12 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
           .order('razon_social', { ascending: true })
         
         if (fcpsError) throw fcpsError
-        fcps = todasLasFCPs?.map((fcp: any) => ({
+        fcps = (todasLasFCPs || []).map((fcp: any) => ({
           id: fcp.id,
-          nombre: fcp.razon_social || fcp.numero_identificacion || 'FCP',
+          nombre: fcp.razon_social || 'FCP',
           numero_identificacion: fcp.numero_identificacion,
           razon_social: fcp.razon_social,
-        })) || []
+        }))
       } else {
         // Usuarios no facilitadores solo ven sus FCPs
         const { data, error } = await supabase
@@ -172,7 +192,8 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       }
 
       setUserFCPs(fcps)
-      if (fcps.length > 0 && !selectedFCP) {
+      // Solo auto-seleccionar FCP si NO es facilitador (facilitadores deben elegir manualmente)
+      if (fcps.length > 0 && !selectedFCP && !isFacilitadorCheck && !fcpIdProp) {
         setSelectedFCP(fcps[0].id)
       }
     } catch (error) {
@@ -515,27 +536,15 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         `${reporteData.totalPorcentaje.toFixed(2)}%`,
       ])
 
-      // Generar tabla con autoTable
+      // Generar tabla con autoTable usando colores del tema
       const tableOptions = {
         startY: y,
         head: [headers],
         body: body,
         theme: 'grid',
-        headStyles: {
-          fillColor: [220, 220, 220],
-          textColor: [0, 0, 0],
-          fontStyle: 'bold',
-          fontSize: 9,
-          cellPadding: 3,
-        },
-        bodyStyles: {
-          fontSize: 9,
-          textColor: [0, 0, 0],
-          cellPadding: 3,
-        },
-        alternateRowStyles: {
-          fillColor: [250, 250, 250],
-        },
+        headStyles: getPDFHeaderStyles(),
+        bodyStyles: getPDFBodyStyles(),
+        alternateRowStyles: getPDFAlternateRowStyles(),
         styles: {
           cellPadding: 3,
           overflow: 'linebreak',
@@ -551,8 +560,9 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
           try {
             const cellText = (data.cell?.text?.toString() || data.cell?.text || '').toString().trim()
             if (cellText === 'Total') {
-              data.cell.styles.fillColor = [230, 230, 230]
+              data.cell.styles.fillColor = getPDFTotalRowColor()
               data.cell.styles.fontStyle = 'bold'
+              data.cell.styles.textColor = getPDFCellTextColor()
               return
             }
 
@@ -569,8 +579,9 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
                     })
 
                     if (hasTotal) {
-                      data.cell.styles.fillColor = [230, 230, 230]
+                      data.cell.styles.fillColor = getPDFTotalRowColor()
                       data.cell.styles.fontStyle = 'bold'
+                      data.cell.styles.textColor = getPDFCellTextColor()
                     }
                   }
                 }
@@ -612,34 +623,11 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
       ]
 
-      // Estilos comunes
-      const headerStyle = {
-        font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
-        fill: { fgColor: { rgb: '4472C4' } }, // Azul
-        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
-        border: {
-          top: { style: 'thin', color: { rgb: '000000' } },
-          bottom: { style: 'thin', color: { rgb: '000000' } },
-          left: { style: 'thin', color: { rgb: '000000' } },
-          right: { style: 'thin', color: { rgb: '000000' } },
-        },
-      }
-
-      const cellStyle = {
-        border: {
-          top: { style: 'thin', color: { rgb: '000000' } },
-          bottom: { style: 'thin', color: { rgb: '000000' } },
-          left: { style: 'thin', color: { rgb: '000000' } },
-          right: { style: 'thin', color: { rgb: '000000' } },
-        },
-        alignment: { vertical: 'center' },
-      }
-
-      const totalStyle = {
-        ...cellStyle,
-        font: { bold: true },
-        fill: { fgColor: { rgb: 'E7E6E6' } }, // Gris claro
-      }
+      // Estilos con colores del tema
+      const headerStyle = getExcelHeaderStyle()
+      const cellStyle = getExcelCellStyle()
+      const alternateRowStyle = getExcelAlternateRowStyle()
+      const totalStyle = getExcelTotalStyle()
 
       // Helper para aplicar estilos a un rango
       const applyStyle = (ws: any, range: string, style: any) => {
@@ -698,12 +686,15 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       const headerRange = XLSX.utils.encode_range({ s: { c: 0, r: headerRowIndex }, e: { c: 3, r: headerRowIndex } })
       applyStyle(ws, headerRange, headerStyle)
       
-      // Celdas de datos
+      // Celdas de datos con filas alternadas
       const dataStartRow = headerRowIndex + 1
       const dataEndRow = headerRowIndex + reporteData.niveles.length
       if (reporteData.niveles.length > 0) {
-        const dataRange = XLSX.utils.encode_range({ s: { c: 0, r: dataStartRow }, e: { c: 3, r: dataEndRow } })
-        applyStyle(ws, dataRange, cellStyle)
+        for (let R = dataStartRow; R <= dataEndRow; ++R) {
+          const rowRange = XLSX.utils.encode_range({ s: { c: 0, r: R }, e: { c: 3, r: R } })
+          const isEvenRow = (R - dataStartRow) % 2 === 0
+          applyStyle(ws, rowRange, isEvenRow ? cellStyle : alternateRowStyle)
+        }
       }
       
       // Fila de totales
@@ -762,31 +753,54 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* El selector de FCP para facilitadores se muestra en la página principal, no aquí */}
-            {!fcpIdProp && !isFacilitador && (
+            {/* Selector de FCP para facilitadores y otros roles (si no viene desde prop) */}
+            {!fcpIdProp && userFCPs.length > 0 && (
               <div>
-                <label className="text-sm font-medium mb-2 block">FCP:</label>
-                <select
+                <label className="text-sm font-medium mb-2 block">Proyecto (FCP):</label>
+                <Select
                   value={selectedFCP || ''}
-                  onChange={(e) => setSelectedFCP(e.target.value || null)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                  onValueChange={(value) => {
+                    setSelectedFCP(value)
+                    if (isFacilitador) {
+                      setReporteData(null) // Limpiar reporte anterior al cambiar FCP
+                    }
+                  }}
                 >
-                  {userFCPs.map((fcp) => (
-                    <option key={fcp.id} value={fcp.id}>
-                      {fcp.nombre}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Seleccionar proyecto">
+                      {selectedFCP ? (
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4" />
+                          <span className="truncate">{userFCPs.find(fcp => fcp.id === selectedFCP)?.nombre || 'Seleccionar proyecto'}</span>
+                        </div>
+                      ) : (
+                        'Seleccionar proyecto'
+                      )}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {userFCPs.map((fcp) => (
+                      <SelectItem key={fcp.id} value={fcp.id}>
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4 flex-shrink-0" />
+                          <span className="truncate">{fcp.nombre}</span>
+                          {fcp.numero_identificacion && (
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">({fcp.numero_identificacion})</span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
 
             <div>
               <label className="text-sm font-medium mb-2 block">Mes:</label>
-              <Input
-                type="month"
+              <MonthPicker
                 value={`${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`}
-                onChange={(e) => {
-                  const [year, month] = e.target.value.split('-')
+                onChange={(value) => {
+                  const [year, month] = value.split('-')
                   setSelectedYear(parseInt(year))
                   setSelectedMonth(parseInt(month) - 1)
                 }}
@@ -810,6 +824,11 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
                   </>
                 )}
               </Button>
+              {isFacilitador && !selectedFCP && (
+                <p className="text-sm text-muted-foreground mt-2">
+                  Por favor, selecciona un proyecto para generar el reporte.
+                </p>
+              )}
             </div>
           </RoleGuard>
         </CardContent>
@@ -850,14 +869,14 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
               </div>
 
               {reporteData.diasIncompletos.length > 0 && (
-                <div className="mb-4 rounded-md bg-yellow-50 border border-yellow-200 p-4 dark:bg-yellow-900/20 dark:border-yellow-800">
-                  <h4 className="font-semibold text-yellow-800 dark:text-yellow-200 mb-2">
+                <div className="mb-4 rounded-md bg-warning/20 border border-warning/50 p-4">
+                  <h4 className="font-semibold text-warning-foreground mb-2">
                     ⚠️ Días con asistencia incompleta
                   </h4>
-                  <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-2">
+                  <p className="text-sm text-warning-foreground mb-2">
                     Los siguientes días no se completó la asistencia de todos los estudiantes. Estos días <strong>no se incluyen</strong> en los totales del reporte:
                   </p>
-                  <ul className="text-sm text-yellow-700 dark:text-yellow-300 space-y-2">
+                  <ul className="text-sm text-warning-foreground space-y-2">
                       {reporteData.diasIncompletos.map((dia, index) => {
                         // Parsear fecha como fecha local para evitar problemas de zona horaria
                         const [year, month, day] = dia.fecha.split('-').map(Number)
@@ -865,9 +884,9 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
                         const yearForUrl = fechaDate.getFullYear()
                         const monthForUrl = fechaDate.getMonth()
                         const asistenciasUrl = `/asistencias?aulaId=${dia.aulaId}&month=${monthForUrl}&year=${yearForUrl}`
-                      
-                      return (
-                        <li key={`${dia.fecha}-${dia.nivel}-${index}`} className="flex items-center justify-between gap-3 p-2 rounded-md bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800">
+                        
+                        return (
+                        <li key={`${dia.fecha}-${dia.nivel}-${index}`} className="flex items-center justify-between gap-3 p-2 rounded-md bg-warning/30 border border-warning/60">
                           <span className="flex-1">
                             • <strong>{dia.fechaFormateada}</strong> - Nivel: <strong>{dia.nivel}</strong> - Marcados: {dia.marcados}/{dia.total} estudiantes
                           </span>
@@ -890,30 +909,30 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
 
               <div>
                 <h3 className="text-lg font-semibold mb-4">I. ASISTENCIA CONTACTO ESENCIAL</h3>
-                <div className="border rounded-lg overflow-hidden">
-                  <table className="w-full border-collapse border border-gray-300 text-sm">
+                <div className="border border-border rounded-lg overflow-hidden">
+                  <table className="w-full border-collapse border border-border text-sm">
                     <thead>
-                      <tr>
-                        <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-left">Niveles</th>
-                        <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-right">Asisten. Promed</th>
-                        <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-right">Registrados</th>
-                        <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-right">Porcentaje</th>
+                      <tr className="bg-muted/50">
+                        <th className="border border-border p-2 bg-muted/50 text-left text-foreground">Niveles</th>
+                        <th className="border border-border p-2 bg-muted/50 text-right text-foreground">Asisten. Promed</th>
+                        <th className="border border-border p-2 bg-muted/50 text-right text-foreground">Registrados</th>
+                        <th className="border border-border p-2 bg-muted/50 text-right text-foreground">Porcentaje</th>
                       </tr>
                     </thead>
                     <tbody>
                       {reporteData.niveles.map((nivel, index) => (
-                        <tr key={index} className={index % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800'}>
-                          <td className="border border-gray-300 p-2">{nivel.nivel}</td>
-                          <td className="border border-gray-300 p-2 text-right">{nivel.asistenPromed.toFixed(2)}</td>
-                          <td className="border border-gray-300 p-2 text-right">{nivel.registrados}</td>
-                          <td className="border border-gray-300 p-2 text-right">{nivel.porcentaje.toFixed(2)}%</td>
+                        <tr key={index} className={`border-b border-border ${index % 2 === 0 ? 'bg-background' : 'bg-muted/30'} hover:bg-accent/50`}>
+                          <td className="border border-border p-2 text-foreground">{nivel.nivel}</td>
+                          <td className="border border-border p-2 text-right text-foreground">{nivel.asistenPromed.toFixed(2)}</td>
+                          <td className="border border-border p-2 text-right text-foreground">{nivel.registrados}</td>
+                          <td className="border border-border p-2 text-right text-foreground">{nivel.porcentaje.toFixed(2)}%</td>
                         </tr>
                       ))}
-                      <tr className="bg-gray-200 dark:bg-gray-700 font-bold">
-                        <td className="border border-gray-300 p-2">Total</td>
-                        <td className="border border-gray-300 p-2 text-right">{reporteData.totalAsistenPromed.toFixed(2)}</td>
-                        <td className="border border-gray-300 p-2 text-right">{reporteData.totalRegistrados}</td>
-                        <td className="border border-gray-300 p-2 text-right">{reporteData.totalPorcentaje.toFixed(2)}%</td>
+                      <tr className="bg-accent font-bold">
+                        <td className="border border-border p-2 text-foreground">Total</td>
+                        <td className="border border-border p-2 text-right text-foreground">{reporteData.totalAsistenPromed.toFixed(2)}</td>
+                        <td className="border border-border p-2 text-right text-foreground">{reporteData.totalRegistrados}</td>
+                        <td className="border border-border p-2 text-right text-foreground">{reporteData.totalPorcentaje.toFixed(2)}%</td>
                       </tr>
                     </tbody>
                   </table>

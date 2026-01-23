@@ -51,7 +51,7 @@ export default async function DashboardLayout({
   // Incluso si hay errores de RLS, siempre renderizamos el layout
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-background">
       {/* Solo mostrar navegación si el usuario tiene rol Y no hay error */}
       {/* Si hay error, no mostramos navegación para evitar problemas */}
       {!hasError && rolesData && rolesData.length > 0 && <DashboardNav />}

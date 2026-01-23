@@ -13,6 +13,13 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useForm } from 'react-hook-form'
 
 interface EstudianteFormData {
@@ -130,20 +137,23 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId,
             </div>
             <div className="grid gap-2">
               <Label htmlFor="aula_id">Aula *</Label>
-              <select
-                id="aula_id"
-                value={selectedAulaId}
-                onChange={(e) => setSelectedAulaId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
-                required
+              <Select
+                value={selectedAulaId || ''}
+                onValueChange={(value) => setSelectedAulaId(value)}
               >
-                <option value="">Selecciona un aula</option>
-                {aulas.map((aula) => (
-                  <option key={aula.id} value={aula.id}>
-                    {aula.nombre}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="aula_id" className="w-full">
+                  <SelectValue placeholder="Selecciona un aula">
+                    {selectedAulaId ? aulas.find(a => a.id === selectedAulaId)?.nombre : 'Selecciona un aula'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {aulas.map((aula) => (
+                    <SelectItem key={aula.id} value={aula.id}>
+                      {aula.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               {!selectedAulaId && (
                 <p className="text-sm text-red-500">Debes seleccionar un aula</p>
               )}

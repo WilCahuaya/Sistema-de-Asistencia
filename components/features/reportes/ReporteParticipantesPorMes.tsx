@@ -5,10 +5,28 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { FileSpreadsheet, FileText, Calendar } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { FileSpreadsheet, FileText, Calendar, Building2 } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useSearchParams } from 'next/navigation'
+import {
+  getExcelHeaderStyle,
+  getExcelCellStyle,
+  getExcelAlternateRowStyle,
+  getExcelTotalStyle,
+  getPDFHeaderStyles,
+  getPDFBodyStyles,
+  getPDFAlternateRowStyles,
+  getPDFTotalRowColor,
+  getPDFCellTextColor,
+} from '@/lib/utils/exportStyles'
 
 interface ReporteParticipantesPorMesProps {
   fcpId: string | null
@@ -389,33 +407,10 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
       ]
 
       // Estilos
-      const headerStyle = {
-        font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
-        fill: { fgColor: { rgb: '4472C4' } },
-        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
-        border: {
-          top: { style: 'thin', color: { rgb: '000000' } },
-          bottom: { style: 'thin', color: { rgb: '000000' } },
-          left: { style: 'thin', color: { rgb: '000000' } },
-          right: { style: 'thin', color: { rgb: '000000' } },
-        },
-      }
-
-      const cellStyle = {
-        border: {
-          top: { style: 'thin', color: { rgb: '000000' } },
-          bottom: { style: 'thin', color: { rgb: '000000' } },
-          left: { style: 'thin', color: { rgb: '000000' } },
-          right: { style: 'thin', color: { rgb: '000000' } },
-        },
-        alignment: { vertical: 'center' },
-      }
-
-      const totalStyle = {
-        ...cellStyle,
-        font: { bold: true },
-        fill: { fgColor: { rgb: 'B4C6E7' } },
-      }
+      // Estilos con colores del tema
+      const headerStyle = getExcelHeaderStyle()
+      const cellStyle = getExcelCellStyle()
+      const totalStyle = getExcelTotalStyle()
 
       const applyStyle = (ws: any, range: string, style: any) => {
         const cellRange = XLSX.utils.decode_range(range)
@@ -621,20 +616,16 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
         body: body,
         theme: 'grid',
         headStyles: {
-          fillColor: [220, 220, 220],
-          textColor: [0, 0, 0],
-          fontStyle: 'bold',
+          ...getPDFHeaderStyles(),
           fontSize: 8,
           cellPadding: 2,
         },
         bodyStyles: {
+          ...getPDFBodyStyles(),
           fontSize: 7,
-          textColor: [0, 0, 0],
           cellPadding: 1.5,
         },
-        alternateRowStyles: {
-          fillColor: [250, 250, 250],
-        },
+        alternateRowStyles: getPDFAlternateRowStyles(),
         styles: {
           cellPadding: 1.5,
           overflow: 'linebreak',
@@ -733,17 +724,36 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
             {!fcpIdProp && !isFacilitador && (
               <div>
                 <label className="text-sm font-medium mb-2 block">FCP:</label>
-                <select
+                <Select
                   value={selectedFCP || ''}
-                  onChange={(e) => setSelectedFCP(e.target.value || null)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                  onValueChange={(value) => setSelectedFCP(value || null)}
                 >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Seleccionar FCP">
+                      {selectedFCP ? (
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4" />
+                          <span className="truncate">{userFCPs.find(fcp => fcp.id === selectedFCP)?.nombre || 'Seleccionar FCP'}</span>
+                        </div>
+                      ) : (
+                        'Seleccionar FCP'
+                      )}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
                   {userFCPs.map((fcp) => (
-                    <option key={fcp.id} value={fcp.id}>
-                      {fcp.nombre}
-                    </option>
+                      <SelectItem key={fcp.id} value={fcp.id}>
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4 flex-shrink-0" />
+                          <span className="truncate">{fcp.nombre}</span>
+                          {fcp.numero_identificacion && (
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">({fcp.numero_identificacion})</span>
+                          )}
+                        </div>
+                      </SelectItem>
                   ))}
-                </select>
+                  </SelectContent>
+                </Select>
               </div>
             )}
 
@@ -825,19 +835,19 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse border border-gray-300 text-sm">
+              <table className="w-full border-collapse border border-border text-sm">
                 <thead>
-                  <tr>
-                    <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-left">
+                  <tr className="bg-muted/50">
+                    <th className="border border-border p-2 bg-muted/50 text-left text-foreground">
                       Código
                     </th>
-                    <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-left">
+                    <th className="border border-border p-2 bg-muted/50 text-left text-foreground">
                       FCP
                     </th>
                     {monthNames.map((mes) => (
                       <th
                         key={mes}
-                        className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-center"
+                        className="border border-border p-2 bg-muted/50 text-center text-foreground"
                       >
                         {mes}
                       </th>
@@ -848,22 +858,18 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
                   {reporteData.fcps.map((fcp, index) => (
                     <tr
                       key={fcp.codigo}
-                      className={
-                        index % 2 === 0
-                          ? 'bg-white dark:bg-gray-900'
-                          : 'bg-gray-50 dark:bg-gray-800'
-                      }
+                      className={`border-b border-border ${index % 2 === 0 ? 'bg-background' : 'bg-muted/30'} hover:bg-accent/50`}
                     >
-                      <td className="border border-gray-300 p-2 font-semibold">
+                      <td className="border border-border p-2 font-semibold text-foreground">
                         {fcp.codigo}
                       </td>
-                      <td className="border border-gray-300 p-2">
+                      <td className="border border-border p-2 text-foreground">
                         {fcp.nombre}
                       </td>
                       {monthNames.map((_, mesIndex) => (
                         <td
                           key={mesIndex}
-                          className="border border-gray-300 p-2 text-center"
+                          className="border border-border p-2 text-center text-foreground"
                         >
                           {fcp.porcentajesPorMes[mesIndex]
                             ? `${fcp.porcentajesPorMes[mesIndex].toFixed(2)}%`
@@ -873,14 +879,14 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
                     </tr>
                   ))}
                   {/* Fila de totales */}
-                  <tr className="bg-blue-100 dark:bg-blue-900 font-bold">
-                    <td className="border border-gray-300 p-2" colSpan={2}>
+                  <tr className="bg-accent font-bold">
+                    <td className="border border-border p-2 text-foreground" colSpan={2}>
                       Total General
                     </td>
                     {monthNames.map((_, mesIndex) => (
                       <td
                         key={mesIndex}
-                        className="border border-gray-300 p-2 text-center"
+                        className="border border-border p-2 text-center text-foreground"
                       >
                         {reporteData.totalesPorMes[mesIndex]
                           ? `${reporteData.totalesPorMes[mesIndex].toFixed(2)}%`

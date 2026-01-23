@@ -262,9 +262,9 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
           </DialogDescription>
         </DialogHeader>
 
-        <div className="mb-4 flex items-center justify-between rounded-md bg-blue-50 p-3 dark:bg-blue-900/20">
+        <div className="mb-4 flex items-center justify-between rounded-md bg-muted border border-border p-3">
           <div className="flex-1">
-            <p className="text-sm text-blue-900 dark:text-blue-200">
+            <p className="text-sm text-foreground">
               ¿No tienes el formato? Descarga la plantilla de ejemplo
             </p>
           </div>

@@ -20,6 +20,14 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Building2 } from 'lucide-react'
 
 interface Asistencia {
   id: string
@@ -268,36 +276,62 @@ export function AsistenciaList() {
       <div className="mb-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div>
           <label className="text-sm font-medium mb-2 block">FCP:</label>
-          <select
+          <Select
             value={selectedFCP || ''}
-            onChange={(e) => {
-              setSelectedONG(e.target.value)
+            onValueChange={(value) => {
+              setSelectedONG(value)
               setSelectedAula(null)
             }}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
           >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Seleccionar FCP">
+                {selectedFCP ? (
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-4 w-4" />
+                    <span className="truncate">{userFCPs.find(fcp => fcp.id === selectedFCP)?.nombre || 'Seleccionar FCP'}</span>
+                  </div>
+                ) : (
+                  'Seleccionar FCP'
+                )}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
             {userFCPs.map((fcp) => (
-              <option key={fcp.id} value={fcp.id}>
-                {fcp.nombre}
-              </option>
+                <SelectItem key={fcp.id} value={fcp.id}>
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-4 w-4 flex-shrink-0" />
+                    <span className="truncate">{fcp.nombre}</span>
+                  </div>
+                </SelectItem>
             ))}
-          </select>
+            </SelectContent>
+          </Select>
         </div>
 
         <div>
           <label className="text-sm font-medium mb-2 block">Aula:</label>
-          <select
-            value={selectedAula || ''}
-            onChange={(e) => setSelectedAula(e.target.value || null)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+          <Select
+            value={selectedAula || '__all__'}
+            onValueChange={(value) => setSelectedAula(value === '__all__' ? null : value)}
           >
-            <option value="">Todas las aulas</option>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Todas las aulas">
+                {selectedAula ? (
+                  aulas.find(aula => aula.id === selectedAula)?.nombre || 'Todas las aulas'
+                ) : (
+                  'Todas las aulas'
+                )}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Todas las aulas</SelectItem>
             {aulas.map((aula) => (
-              <option key={aula.id} value={aula.id}>
+                <SelectItem key={aula.id} value={aula.id}>
                 {aula.nombre}
-              </option>
+                </SelectItem>
             ))}
-          </select>
+            </SelectContent>
+          </Select>
         </div>
 
         <div>

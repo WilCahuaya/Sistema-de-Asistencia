@@ -4,12 +4,31 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { MonthPicker } from '@/components/ui/month-picker'
 import { BarChart3, FileSpreadsheet, FileText, Calendar, Download } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Building2 } from 'lucide-react'
+import {
+  getExcelHeaderStyle,
+  getExcelCellStyle,
+  getExcelAlternateRowStyle,
+  getExcelTotalStyle,
+  getPDFHeaderStyles,
+  getPDFBodyStyles,
+  getPDFAlternateRowStyles,
+  getPDFTotalRowColor,
+  getPDFCellTextColor,
+} from '@/lib/utils/exportStyles'
 
 interface ReporteData {
   fcp: {
@@ -81,6 +100,7 @@ export function ReporteList() {
   const [reporteData, setReporteData] = useState<ReporteData | null>(null)
   const [responsable, setResponsable] = useState<{ nombre: string; email: string; rol: string } | null>(null)
   const [isDirector, setIsDirector] = useState(false)
+  const [isFacilitador, setIsFacilitador] = useState(false)
   const router = useRouter()
   const { canViewReports, loading: roleLoading } = useUserRole(selectedFCP)
 
@@ -123,7 +143,8 @@ export function ReporteList() {
 
       if (usuarioFcpError) throw usuarioFcpError
 
-      const isFacilitador = usuarioFcpData && usuarioFcpData.length > 0
+      const isFacilitadorCheck = usuarioFcpData && usuarioFcpData.length > 0
+      setIsFacilitador(isFacilitadorCheck)
 
       // Verificar si el usuario es director
       const { data: directorData, error: directorError } = await supabase
@@ -140,7 +161,7 @@ export function ReporteList() {
 
       let fcps: Array<{ id: string; nombre: string }> = []
 
-      if (isFacilitador) {
+      if (isFacilitadorCheck) {
         // Facilitadores pueden ver todas las FCPs del sistema
         const { data: todasLasFCPs, error: fcpsError } = await supabase
           .from('fcps')
@@ -175,7 +196,8 @@ export function ReporteList() {
       }
 
       setUserFCPs(fcps)
-      if (fcps.length > 0 && !selectedFCP) {
+      // Solo auto-seleccionar FCP si NO es facilitador (facilitadores deben elegir manualmente)
+      if (fcps.length > 0 && !selectedFCP && !isFacilitadorCheck) {
         setSelectedFCP(fcps[0].id)
       }
     } catch (error) {
@@ -640,27 +662,9 @@ export function ReporteList() {
         const month = selectedMonth !== undefined ? selectedMonth : new Date().getMonth()
 
         // Estilos comunes
-        const headerStyle = {
-          font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
-          fill: { fgColor: { rgb: 'DCDCDC' } }, // Gris claro como en PDF
-          alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
-          border: {
-            top: { style: 'thin', color: { rgb: '000000' } },
-            bottom: { style: 'thin', color: { rgb: '000000' } },
-            left: { style: 'thin', color: { rgb: '000000' } },
-            right: { style: 'thin', color: { rgb: '000000' } },
-          },
-        }
-
-        const cellStyle = {
-          border: {
-            top: { style: 'thin', color: { rgb: '000000' } },
-            bottom: { style: 'thin', color: { rgb: '000000' } },
-            left: { style: 'thin', color: { rgb: '000000' } },
-            right: { style: 'thin', color: { rgb: '000000' } },
-          },
-          alignment: { vertical: 'center' },
-        }
+        // Estilos con colores del tema
+        const headerStyle = getExcelHeaderStyle()
+        const cellStyle = getExcelCellStyle()
 
         // Helper para aplicar estilos a un rango
         const applyStyle = (ws: any, range: string, style: any) => {
@@ -910,20 +914,16 @@ export function ReporteList() {
           body: body,
           theme: 'grid',
           headStyles: {
-            fillColor: [220, 220, 220],
-            textColor: [0, 0, 0],
-            fontStyle: 'bold',
+            ...getPDFHeaderStyles(),
             fontSize: 7,
             cellPadding: 1.5,
           },
           bodyStyles: {
+            ...getPDFBodyStyles(),
             fontSize: 6.5,
-            textColor: [0, 0, 0],
             cellPadding: 1.5,
           },
-          alternateRowStyles: {
-            fillColor: [250, 250, 250],
-          },
+          alternateRowStyles: getPDFAlternateRowStyles(),
           styles: {
             cellPadding: 1.5,
             overflow: 'linebreak',
@@ -1031,16 +1031,53 @@ export function ReporteList() {
           <CardTitle>Configurar Reporte</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 grid-cols-1">
-            {/* El selector de FCP está oculto en el reporte general para todos los roles */}
+          <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+            {/* Selector de FCP para facilitadores */}
+            {isFacilitador && userFCPs.length > 0 && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">Proyecto (FCP):</label>
+                <Select
+                  value={selectedFCP || ''}
+                  onValueChange={(value) => {
+                    setSelectedFCP(value)
+                    setReporteData(null) // Limpiar reporte anterior al cambiar FCP
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Seleccionar proyecto">
+                      {selectedFCP ? (
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4" />
+                          <span className="truncate">{userFCPs.find(fcp => fcp.id === selectedFCP)?.nombre || 'Seleccionar proyecto'}</span>
+                        </div>
+                      ) : (
+                        'Seleccionar proyecto'
+                      )}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {userFCPs.map((fcp) => (
+                      <SelectItem key={fcp.id} value={fcp.id}>
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4 flex-shrink-0" />
+                          <span className="truncate">{fcp.nombre}</span>
+                          {fcp.numero_identificacion && (
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">({fcp.numero_identificacion})</span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div>
               <label className="text-sm font-medium mb-2 block">Mes:</label>
-              <Input
-                type="month"
+              <MonthPicker
                 value={`${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`}
-                onChange={(e) => {
-                  const [year, month] = e.target.value.split('-')
+                onChange={(value) => {
+                  const [year, month] = value.split('-')
                   setSelectedYear(parseInt(year))
                   setSelectedMonth(parseInt(month) - 1)
                 }}
@@ -1064,6 +1101,11 @@ export function ReporteList() {
                   </>
                 )}
               </Button>
+              {isFacilitador && !selectedFCP && (
+                <p className="text-sm text-muted-foreground mt-2">
+                  Por favor, selecciona un proyecto para generar el reporte.
+                </p>
+              )}
             </div>
           </RoleGuard>
         </CardContent>
@@ -1106,14 +1148,14 @@ export function ReporteList() {
                 </div>
 
                 {reporteData.diasIncompletos && reporteData.diasIncompletos.length > 0 && (
-                  <div className="mb-4 rounded-md bg-yellow-50 border border-yellow-200 p-4 dark:bg-yellow-900/20 dark:border-yellow-800">
-                    <h4 className="font-semibold text-yellow-800 dark:text-yellow-200 mb-2">
+                  <div className="mb-4 rounded-md bg-warning/20 border border-warning/50 p-4">
+                    <h4 className="font-semibold text-warning-foreground mb-2">
                       ⚠️ Días con asistencia incompleta
                     </h4>
-                    <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-2">
+                    <p className="text-sm text-warning-foreground mb-2">
                       Los siguientes días no se completó la asistencia de todos los estudiantes. Estos días <strong>no se incluyen</strong> en los totales del reporte:
                     </p>
-                    <ul className="text-sm text-yellow-700 dark:text-yellow-300 space-y-2">
+                    <ul className="text-sm text-warning-foreground space-y-2">
                       {reporteData.diasIncompletos.map((dia, index) => {
                         // Parsear fecha como fecha local para evitar problemas de zona horaria
                         const [year, month, day] = dia.fecha.split('-').map(Number)
@@ -1123,7 +1165,7 @@ export function ReporteList() {
                         const asistenciasUrl = `/asistencias?aulaId=${dia.aulaId}&month=${monthForUrl}&year=${yearForUrl}`
                         
                         return (
-                          <li key={`${dia.fecha}-${dia.nivel}-${index}`} className="flex items-center justify-between gap-3 p-2 rounded-md bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800">
+                          <li key={`${dia.fecha}-${dia.nivel}-${index}`} className="flex items-center justify-between gap-3 p-2 rounded-md bg-warning/30 border border-warning/60">
                             <span className="flex-1">
                               • <strong>{dia.fechaFormateada}</strong> - Nivel: <strong>{dia.nivel}</strong> - Marcados: {dia.marcados}/{dia.total} estudiantes
                             </span>
@@ -1144,23 +1186,23 @@ export function ReporteList() {
                   </div>
                 )}
 
-                <div className="border rounded-lg overflow-hidden">
+                <div className="border border-border rounded-lg overflow-hidden">
                   <div className="overflow-x-auto">
-                    <table className="w-full border-collapse border border-gray-300 text-sm">
+                    <table className="w-full border-collapse border border-border text-sm">
                       <thead>
-                        <tr>
-                          <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-center w-12">No</th>
-                          <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-left max-w-[150px]">ESTUDIANTE</th>
-                          <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-center w-16">Cod</th>
-                          <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-center w-16">Niv</th>
-                          <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-left">TUTOR</th>
+                        <tr className="bg-muted/50">
+                          <th className="border border-border p-2 bg-muted/50 text-center w-12 text-foreground">No</th>
+                          <th className="border border-border p-2 bg-muted/50 text-left max-w-[150px] text-foreground">ESTUDIANTE</th>
+                          <th className="border border-border p-2 bg-muted/50 text-center w-16 text-foreground">Cod</th>
+                          <th className="border border-border p-2 bg-muted/50 text-center w-16 text-foreground">Niv</th>
+                          <th className="border border-border p-2 bg-muted/50 text-left text-foreground">TUTOR</th>
                           {reporteData.fechasUnicas?.map((fecha) => {
                             // Parsear fecha manualmente para evitar problemas de zona horaria
                             const [year, month, day] = fecha.split('-').map(Number)
                             return (
                               <th
                                 key={fecha}
-                                className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-center min-w-[30px]"
+                                className="border border-border p-2 bg-muted/50 text-center min-w-[30px] text-foreground"
                               >
                                 {day}
                               </th>
@@ -1170,16 +1212,16 @@ export function ReporteList() {
                       </thead>
                       <tbody>
                         {reporteData.reporteDetallado.map((row, index) => (
-                          <tr key={index} className={index % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800'}>
-                            <td className="border border-gray-300 p-2 text-center w-12">{row.no}</td>
-                            <td className="border border-gray-300 p-2 max-w-[150px] truncate" title={row.persona}>{row.persona}</td>
-                            <td className="border border-gray-300 p-2 text-center font-mono w-16">{row.codigo}</td>
-                            <td className="border border-gray-300 p-2 text-center w-16">{row.nivel}</td>
-                            <td className="border border-gray-300 p-2">{row.tutor}</td>
+                          <tr key={index} className={`border-b border-border ${index % 2 === 0 ? 'bg-background' : 'bg-muted/30'} hover:bg-accent/50`}>
+                            <td className="border border-border p-2 text-center w-12 text-foreground">{row.no}</td>
+                            <td className="border border-border p-2 max-w-[150px] truncate text-foreground" title={row.persona}>{row.persona}</td>
+                            <td className="border border-border p-2 text-center font-mono w-16 text-foreground">{row.codigo}</td>
+                            <td className="border border-border p-2 text-center w-16 text-foreground">{row.nivel}</td>
+                            <td className="border border-border p-2 text-foreground">{row.tutor}</td>
                             {reporteData.fechasUnicas?.map((fecha) => (
                               <td
                                 key={fecha}
-                                className="border border-gray-300 p-2 text-center"
+                                className="border border-border p-2 text-center text-foreground"
                               >
                                 {row.asistenciasPorFecha[fecha] ? '1' : ''}
                               </td>
@@ -1252,30 +1294,30 @@ export function ReporteList() {
                 {/* Resumen por Estudiante (tabla) */}
                 <div>
                   <h3 className="text-lg font-semibold mb-4">Resumen por Estudiante</h3>
-                  <div className="border rounded-lg overflow-hidden">
+                  <div className="border border-border rounded-lg overflow-hidden">
                     <div className="overflow-x-auto max-h-96">
                       <table className="w-full text-sm">
-                        <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
+                        <thead className="bg-muted/50 sticky top-0">
                           <tr>
-                            <th className="px-4 py-2 text-left">Código</th>
-                            <th className="px-4 py-2 text-left">Nombre</th>
-                            <th className="px-4 py-2 text-left">Aula</th>
-                            <th className="px-4 py-2 text-center">Presentes</th>
-                            <th className="px-4 py-2 text-center">Faltas</th>
-                            <th className="px-4 py-2 text-center">Permisos</th>
-                            <th className="px-4 py-2 text-center">Total Días</th>
+                            <th className="px-4 py-2 text-left text-foreground">Código</th>
+                            <th className="px-4 py-2 text-left text-foreground">Nombre</th>
+                            <th className="px-4 py-2 text-left text-foreground">Aula</th>
+                            <th className="px-4 py-2 text-center text-foreground">Presentes</th>
+                            <th className="px-4 py-2 text-center text-foreground">Faltas</th>
+                            <th className="px-4 py-2 text-center text-foreground">Permisos</th>
+                            <th className="px-4 py-2 text-center text-foreground">Total Días</th>
                           </tr>
                         </thead>
                         <tbody>
                           {reporteData.resumenPorEstudiante.map((est, index) => (
-                            <tr key={est.estudiante_id} className={index % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800'}>
-                              <td className="px-4 py-2 font-mono">{est.estudiante_codigo}</td>
-                              <td className="px-4 py-2">{est.estudiante_nombre}</td>
-                              <td className="px-4 py-2">{est.aula_nombre}</td>
-                              <td className="px-4 py-2 text-center text-green-600">{est.presentes}</td>
-                              <td className="px-4 py-2 text-center text-red-600">{est.faltas}</td>
-                              <td className="px-4 py-2 text-center text-yellow-600">{est.permisos}</td>
-                              <td className="px-4 py-2 text-center">{est.total_dias}</td>
+                            <tr key={est.estudiante_id} className={`border-b border-border ${index % 2 === 0 ? 'bg-background' : 'bg-muted/30'} hover:bg-accent/50`}>
+                              <td className="px-4 py-2 font-mono text-foreground">{est.estudiante_codigo}</td>
+                              <td className="px-4 py-2 text-foreground">{est.estudiante_nombre}</td>
+                              <td className="px-4 py-2 text-foreground">{est.aula_nombre}</td>
+                              <td className="px-4 py-2 text-center text-green-600 dark:text-green-400">{est.presentes}</td>
+                              <td className="px-4 py-2 text-center text-red-600 dark:text-red-400">{est.faltas}</td>
+                              <td className="px-4 py-2 text-center text-yellow-600 dark:text-yellow-400">{est.permisos}</td>
+                              <td className="px-4 py-2 text-center text-foreground">{est.total_dias}</td>
                             </tr>
                           ))}
                         </tbody>

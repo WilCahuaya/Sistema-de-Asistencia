@@ -8,6 +8,7 @@ import { useFCP } from '@/contexts/FCPContext'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { FCPSelector } from '@/components/features/fcps/FCPSelector'
+import { UserMenu } from '@/components/layout/UserMenu'
 import {
   Home,
   Building2,
@@ -15,7 +16,6 @@ import {
   GraduationCap,
   ClipboardList,
   BarChart3,
-  LogOut,
 } from 'lucide-react'
 
 const allNavigation = [
@@ -29,9 +29,7 @@ const allNavigation = [
 
 export function DashboardNav() {
   const pathname = usePathname()
-  const { signOut } = useAuth()
   const { userFCPs } = useFCP()
-  const [signingOut, setSigningOut] = useState(false)
   const [isTutor, setIsTutor] = useState(false)
 
   useEffect(() => {
@@ -65,18 +63,8 @@ export function DashboardNav() {
     ? allNavigation.filter(item => item.name !== 'Reportes')
     : allNavigation
 
-  const handleSignOut = async () => {
-    try {
-      setSigningOut(true)
-      await signOut()
-    } catch (error) {
-      console.error('Error signing out:', error)
-      setSigningOut(false)
-    }
-  }
-
   return (
-    <nav className="border-b bg-white dark:bg-gray-800">
+    <nav className="border-b bg-background">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center space-x-8">
@@ -95,7 +83,7 @@ export function DashboardNav() {
                     className={`flex items-center space-x-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                       isActive
                         ? 'bg-primary text-primary-foreground'
-                        : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
+                        : 'text-foreground/80 hover:bg-accent hover:text-foreground'
                     }`}
                   >
                     <Icon className="h-4 w-4" />
@@ -107,15 +95,7 @@ export function DashboardNav() {
           </div>
           <div className="flex items-center gap-4">
             {userFCPs.length > 1 && <FCPSelector />}
-            <Button 
-              variant="ghost" 
-              onClick={handleSignOut} 
-              disabled={signingOut}
-              className="flex items-center space-x-2"
-            >
-              <LogOut className="h-4 w-4" />
-              <span>{signingOut ? 'Cerrando...' : 'Cerrar Sesión'}</span>
-            </Button>
+            <UserMenu />
           </div>
         </div>
       </div>

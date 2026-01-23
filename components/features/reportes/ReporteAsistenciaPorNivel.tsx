@@ -4,11 +4,30 @@ import React, { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { MonthPicker } from '@/components/ui/month-picker'
 import { FileSpreadsheet, FileText, Calendar, Download } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useRouter } from 'next/navigation'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Building2 } from 'lucide-react'
+import {
+  getExcelHeaderStyle,
+  getExcelCellStyle,
+  getExcelAlternateRowStyle,
+  getExcelTotalStyle,
+  getPDFHeaderStyles,
+  getPDFBodyStyles,
+  getPDFAlternateRowStyles,
+  getPDFTotalRowColor,
+  getPDFCellTextColor,
+} from '@/lib/utils/exportStyles'
 
 interface ReporteAsistenciaPorNivelProps {
   fcpId: string | null
@@ -141,20 +160,26 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
 
       if (usuarioFcpError) throw usuarioFcpError
 
-      const isFacilitador = usuarioFcpData && usuarioFcpData.length > 0
+      const isFacilitadorCheck = usuarioFcpData && usuarioFcpData.length > 0
+      setIsFacilitador(isFacilitadorCheck)
 
-      let fcps: Array<{ id: string; nombre: string }> = []
+      let fcps: Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }> = []
 
-      if (isFacilitador) {
+      if (isFacilitadorCheck) {
         // Facilitadores pueden ver todas las FCPs del sistema
         const { data: todasLasFCPs, error: fcpsError } = await supabase
           .from('fcps')
-          .select('id, razon_social')
+          .select('id, razon_social, numero_identificacion')
           .eq('activa', true)
           .order('razon_social', { ascending: true })
         
         if (fcpsError) throw fcpsError
-        fcps = todasLasFCPs || []
+        fcps = (todasLasFCPs || []).map((fcp: any) => ({
+          id: fcp.id,
+          nombre: fcp.razon_social || 'FCP',
+          numero_identificacion: fcp.numero_identificacion,
+          razon_social: fcp.razon_social,
+        }))
       } else {
         // Usuarios no facilitadores solo ven sus FCPs
         const { data, error } = await supabase
@@ -177,7 +202,8 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
       }
 
       setUserFCPs(fcps)
-      if (fcps.length > 0 && !selectedFCP) {
+      // Solo auto-seleccionar FCP si NO es facilitador (facilitadores deben elegir manualmente)
+      if (fcps.length > 0 && !selectedFCP && !isFacilitadorCheck && !fcpIdProp) {
         setSelectedFCP(fcps[0].id)
       }
     } catch (error) {
@@ -568,34 +594,10 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
       ]
 
-      // Estilos comunes
-      const headerStyle = {
-        font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
-        fill: { fgColor: { rgb: '4472C4' } }, // Azul
-        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
-        border: {
-          top: { style: 'thin', color: { rgb: '000000' } },
-          bottom: { style: 'thin', color: { rgb: '000000' } },
-          left: { style: 'thin', color: { rgb: '000000' } },
-          right: { style: 'thin', color: { rgb: '000000' } },
-        },
-      }
-
-      const cellStyle = {
-        border: {
-          top: { style: 'thin', color: { rgb: '000000' } },
-          bottom: { style: 'thin', color: { rgb: '000000' } },
-          left: { style: 'thin', color: { rgb: '000000' } },
-          right: { style: 'thin', color: { rgb: '000000' } },
-        },
-        alignment: { vertical: 'center' },
-      }
-
-      const subtotalStyle = {
-        ...cellStyle,
-        font: { bold: true },
-        fill: { fgColor: { rgb: 'E7E6E6' } }, // Gris claro
-      }
+      // Estilos con colores del tema
+      const headerStyle = getExcelHeaderStyle()
+      const cellStyle = getExcelCellStyle()
+      const subtotalStyle = getExcelTotalStyle()
 
       // Helper para aplicar estilos a un rango
       const applyStyle = (ws: any, range: string, style: any) => {
@@ -1043,33 +1045,27 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         body: body,
         theme: 'grid',
         headStyles: {
-          fillColor: [220, 220, 220],
-          textColor: [0, 0, 0],
-          fontStyle: 'bold',
+          ...getPDFHeaderStyles(),
           fontSize: 8,
         },
         bodyStyles: {
+          ...getPDFBodyStyles(),
           fontSize: 7,
-          textColor: [0, 0, 0],
         },
-        alternateRowStyles: {
-          fillColor: [250, 250, 250],
-        },
+        alternateRowStyles: getPDFAlternateRowStyles(),
         styles: {
           cellPadding: 1.5,
           overflow: 'linebreak',
           fontSize: 6.5,
         },
         headStyles: {
-          fillColor: [220, 220, 220],
-          textColor: [0, 0, 0],
-          fontStyle: 'bold',
+          ...getPDFHeaderStyles(),
           fontSize: 7,
           cellPadding: 1.5,
         },
         bodyStyles: {
+          ...getPDFBodyStyles(),
           fontSize: 6.5,
-          textColor: [0, 0, 0],
           cellPadding: 1.5,
         },
         columnStyles: {
@@ -1094,15 +1090,17 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
             
             // Si la celda contiene "Subtotal", aplicar estilos a toda la fila
             if (cellText === 'Subtotal') {
-              data.cell.styles.fillColor = [220, 220, 220]
+              data.cell.styles.fillColor = getPDFTotalRowColor()
               data.cell.styles.fontStyle = 'bold'
+              data.cell.styles.textColor = getPDFCellTextColor()
               return
             }
             
             // Si la celda contiene "Total General", aplicar estilos más destacados
             if (cellText === 'Total General') {
-              data.cell.styles.fillColor = [200, 200, 200] // Gris medio
+              data.cell.styles.fillColor = getPDFTotalRowColor()
               data.cell.styles.fontStyle = 'bold'
+              data.cell.styles.textColor = getPDFCellTextColor()
               return
             }
             
@@ -1127,11 +1125,13 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                     })
                     
                     if (hasSubtotal) {
-                      data.cell.styles.fillColor = [220, 220, 220]
+                      data.cell.styles.fillColor = getPDFTotalRowColor()
                       data.cell.styles.fontStyle = 'bold'
+                      data.cell.styles.textColor = getPDFCellTextColor()
                     } else if (hasTotalGeneral) {
-                      data.cell.styles.fillColor = [200, 200, 200] // Gris medio
+                      data.cell.styles.fillColor = getPDFTotalRowColor()
                       data.cell.styles.fontStyle = 'bold'
+                      data.cell.styles.textColor = getPDFCellTextColor()
                     }
                   }
                 }
@@ -1202,34 +1202,58 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* El selector de FCP para facilitadores se muestra en la página principal, no aquí */}
-            {!fcpIdProp && !isFacilitador && (
+            {/* Selector de FCP para facilitadores y otros roles (si no viene desde prop) */}
+            {!fcpIdProp && userFCPs.length > 0 && (
               <div>
-                <label className="text-sm font-medium mb-2 block">FCP:</label>
-                <select
+                <label className="text-sm font-medium mb-2 block">Proyecto (FCP):</label>
+                <Select
                   value={selectedFCP || ''}
-                  onChange={(e) => setSelectedFCP(e.target.value || null)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                  onValueChange={(value) => {
+                    setSelectedFCP(value)
+                    if (isFacilitador) {
+                      setReporteData(null) // Limpiar reporte anterior al cambiar FCP
+                    }
+                  }}
                 >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Seleccionar proyecto">
+                      {selectedFCP ? (
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4" />
+                          <span className="truncate">{userFCPs.find(fcp => fcp.id === selectedFCP)?.nombre || 'Seleccionar proyecto'}</span>
+                        </div>
+                      ) : (
+                        'Seleccionar proyecto'
+                      )}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
                   {userFCPs.map((fcp) => (
-                    <option key={fcp.id} value={fcp.id}>
-                      {fcp.nombre}
-                    </option>
+                      <SelectItem key={fcp.id} value={fcp.id}>
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4 flex-shrink-0" />
+                          <span className="truncate">{fcp.nombre}</span>
+                          {fcp.numero_identificacion && (
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">({fcp.numero_identificacion})</span>
+                          )}
+                        </div>
+                      </SelectItem>
                   ))}
-                </select>
+                  </SelectContent>
+                </Select>
               </div>
             )}
+
             <div>
               <label className="text-sm font-medium mb-2 block">Mes:</label>
-              <input
-                type="month"
+              <MonthPicker
                 value={`${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`}
-                onChange={(e) => {
-                  const [year, month] = e.target.value.split('-')
+                onChange={(value) => {
+                  const [year, month] = value.split('-')
                   setSelectedYear(parseInt(year))
                   setSelectedMonth(parseInt(month) - 1)
                 }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                className="w-full"
               />
             </div>
           </div>
@@ -1249,6 +1273,11 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                   </>
                 )}
               </Button>
+              {isFacilitador && !selectedFCP && (
+                <p className="text-sm text-muted-foreground mt-2">
+                  Por favor, selecciona un proyecto para generar el reporte.
+                </p>
+              )}
             </div>
           </RoleGuard>
         </CardContent>
@@ -1290,14 +1319,14 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
           <CardContent>
             {/* Mensaje de días incompletos */}
             {reporteData.diasIncompletos.length > 0 && (
-              <div className="mb-4 rounded-md bg-gray-50 border border-gray-200 p-4 dark:bg-gray-900/20 dark:border-gray-800">
-                <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-2">
+              <div className="mb-4 rounded-md bg-warning/20 border border-warning/50 p-4">
+                <h4 className="font-semibold text-warning-foreground mb-2">
                   ⚠️ Días con asistencia incompleta
                 </h4>
-                <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
+                <p className="text-sm text-warning-foreground mb-2">
                   Los siguientes días no se completó la asistencia de todos los estudiantes. Estos días <strong>no se incluyen</strong> en los totales del reporte:
                 </p>
-                <ul className="text-sm text-gray-700 dark:text-gray-300 space-y-2">
+                <ul className="text-sm text-warning-foreground space-y-2">
                   {reporteData.diasIncompletos.map((dia, index) => {
                     // Parsear fecha como fecha local para evitar problemas de zona horaria
                     const [year, month, day] = dia.fecha.split('-').map(Number)
@@ -1307,7 +1336,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                     const asistenciasUrl = `/asistencias?aulaId=${dia.aulaId}&month=${monthForUrl}&year=${yearForUrl}`
                     
                     return (
-                      <li key={`${dia.fecha}-${dia.nivel}-${index}`} className="flex items-center justify-between gap-3 p-2 rounded-md bg-gray-100 dark:bg-gray-900/30 border border-gray-200 dark:border-gray-800">
+                      <li key={`${dia.fecha}-${dia.nivel}-${index}`} className="flex items-center justify-between gap-3 p-2 rounded-md bg-warning/30 border border-warning/60">
                         <span className="flex-1">
                           • <strong>{dia.fechaFormateada}</strong> - Nivel: <strong>{dia.nivel}</strong> 
                           {' '}(Tutor: {dia.tutorNombre}) - Marcados: {dia.marcados}/{dia.total} estudiantes
@@ -1317,7 +1346,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                           size="sm"
                           variant="outline"
                           onClick={() => router.push(asistenciasUrl)}
-                          className="ml-auto text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-900/30 hover:text-gray-700 dark:hover:text-gray-300 whitespace-nowrap"
+                          className="ml-auto text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-700 dark:hover:text-blue-300 whitespace-nowrap"
                         >
                           <Calendar className="h-4 w-4 mr-1.5" />
                           Corregir asistencia
@@ -1330,57 +1359,57 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
             )}
 
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse border border-gray-300 text-sm">
+              <table className="w-full border-collapse border border-border text-sm">
                 <thead>
-                  <tr>
-                    <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-left">Nivel</th>
-                    <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-left">TUTOR</th>
+                  <tr className="bg-muted/50">
+                    <th className="border border-border p-2 bg-muted/50 text-left text-foreground">Nivel</th>
+                    <th className="border border-border p-2 bg-muted/50 text-left text-foreground">TUTOR</th>
                     {reporteData.fechasUnicas.map((fecha) => {
                       // Parsear fecha manualmente para evitar problemas de zona horaria
                       const [year, month, day] = fecha.split('-').map(Number)
                       return (
                         <th
                           key={fecha}
-                          className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-center min-w-[50px]"
+                          className="border border-border p-2 bg-muted/50 text-center min-w-[50px] text-foreground"
                         >
                           {day}
                         </th>
                       )
                     })}
-                    <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-center">Asis.Pro.m</th>
-                    <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-center">Reg.Pro.m</th>
-                    <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-center">% Asistió</th>
-                    <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-center">% Permiso</th>
-                    <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-center">% Faltó</th>
+                    <th className="border border-border p-2 bg-muted/50 text-center text-foreground">Asis.Pro.m</th>
+                    <th className="border border-border p-2 bg-muted/50 text-center text-foreground">Reg.Pro.m</th>
+                    <th className="border border-border p-2 bg-muted/50 text-center text-foreground">% Asistió</th>
+                    <th className="border border-border p-2 bg-muted/50 text-center text-foreground">% Permiso</th>
+                    <th className="border border-border p-2 bg-muted/50 text-center text-foreground">% Faltó</th>
                   </tr>
                 </thead>
                 <tbody>
                   {reporteData.niveles.map((nivel, nivelIndex) => (
                     <React.Fragment key={nivel.nivel}>
                       {nivel.aulas.map((aula, aulaIndex) => (
-                        <tr key={`${aula.aulaId}-${aulaIndex}`} className={aulaIndex % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800'}>
-                          <td className="border border-gray-300 p-2 font-semibold">
+                        <tr key={`${aula.aulaId}-${aulaIndex}`} className={`border-b border-border ${aulaIndex % 2 === 0 ? 'bg-background' : 'bg-muted/30'} hover:bg-accent/50`}>
+                          <td className="border border-border p-2 font-semibold text-foreground">
                             {aulaIndex === 0 ? nivel.nivel : ''}
                           </td>
-                          <td className="border border-gray-300 p-2">{aula.tutorNombre}</td>
+                          <td className="border border-border p-2 text-foreground">{aula.tutorNombre}</td>
                           {reporteData.fechasUnicas.map((fecha) => {
                             const asistenciaFecha = aula.asistencias[fecha]
                             return (
                               <td
                                 key={fecha}
-                                className="border border-gray-300 p-2 text-center"
+                                className="border border-border p-2 text-center text-foreground"
                               >
                                 {asistenciaFecha ? asistenciaFecha.presente : ''}
                               </td>
                             )
                           })}
-                          <td className="border border-gray-300 p-2 text-center font-semibold">
+                          <td className="border border-border p-2 text-center font-semibold text-foreground">
                             {aula.asistenPromed.toFixed(2)}
                           </td>
-                          <td className="border border-gray-300 p-2 text-center font-semibold">
+                          <td className="border border-border p-2 text-center font-semibold text-foreground">
                             {aula.totalRegistros}
                           </td>
-                          <td className="border border-gray-300 p-2 text-center font-semibold">
+                          <td className="border border-border p-2 text-center font-semibold text-foreground">
                             {(() => {
                               try {
                                 const presente = typeof aula.totalPresente === 'number' ? aula.totalPresente : (Number(aula.totalPresente) || 0)
@@ -1396,7 +1425,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                               }
                             })()}%
                           </td>
-                          <td className="border border-gray-300 p-2 text-center font-semibold">
+                          <td className="border border-border p-2 text-center font-semibold text-foreground">
                             {(() => {
                               try {
                                 const presente = typeof aula.totalPresente === 'number' ? aula.totalPresente : (Number(aula.totalPresente) || 0)
@@ -1412,7 +1441,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                               }
                             })()}%
                           </td>
-                          <td className="border border-gray-300 p-2 text-center font-semibold">
+                          <td className="border border-border p-2 text-center font-semibold text-foreground">
                             {(() => {
                               try {
                                 const presente = typeof aula.totalPresente === 'number' ? aula.totalPresente : (Number(aula.totalPresente) || 0)
@@ -1431,9 +1460,9 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                         </tr>
                       ))}
                       {/* Fila de subtotal */}
-                      <tr className="bg-gray-100 dark:bg-gray-800 font-bold">
-                        <td className="border border-gray-300 p-2">{nivel.nivel}</td>
-                        <td className="border border-gray-300 p-2">Subtotal</td>
+                      <tr className="bg-muted font-bold">
+                        <td className="border border-border p-2 text-foreground">{nivel.nivel}</td>
+                        <td className="border border-border p-2 text-foreground">Subtotal</td>
                         {reporteData.fechasUnicas.map((fecha) => {
                           const totalFecha = nivel.aulas.reduce((sum, a) => {
                             const asistenciaFecha = a.asistencias[fecha]
@@ -1442,15 +1471,15 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                           return (
                             <td
                               key={fecha}
-                              className="border border-gray-300 p-2 text-center"
+                              className="border border-border p-2 text-center text-foreground"
                             >
                               {totalFecha}
                             </td>
                           )
                         })}
-                        <td className="border border-gray-300 p-2 text-center">{nivel.asistenPromed.toFixed(2)}</td>
-                        <td className="border border-gray-300 p-2 text-center">{nivel.totalRegistros}</td>
-                        <td className="border border-gray-300 p-2 text-center">
+                        <td className="border border-border p-2 text-center text-foreground">{nivel.asistenPromed.toFixed(2)}</td>
+                        <td className="border border-border p-2 text-center text-foreground">{nivel.totalRegistros}</td>
+                        <td className="border border-border p-2 text-center text-foreground">
                           {(() => {
                             try {
                               const presente = typeof nivel.totalPresente === 'number' ? nivel.totalPresente : (Number(nivel.totalPresente) || 0)
@@ -1466,7 +1495,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                             }
                           })()}%
                         </td>
-                        <td className="border border-gray-300 p-2 text-center">
+                        <td className="border border-border p-2 text-center text-foreground">
                           {(() => {
                             try {
                               const presente = typeof nivel.totalPresente === 'number' ? nivel.totalPresente : (Number(nivel.totalPresente) || 0)
@@ -1482,7 +1511,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                             }
                           })()}%
                         </td>
-                        <td className="border border-gray-300 p-2 text-center">
+                        <td className="border border-border p-2 text-center text-foreground">
                           {(() => {
                             try {
                               const presente = typeof nivel.totalPresente === 'number' ? nivel.totalPresente : (Number(nivel.totalPresente) || 0)
@@ -1514,9 +1543,9 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                       : 0
                     
                     return (
-                      <tr className="bg-gray-200 dark:bg-gray-700 font-bold">
-                        <td className="border border-gray-300 p-2">Total General</td>
-                        <td className="border border-gray-300 p-2"></td>
+                      <tr className="bg-accent font-bold">
+                        <td className="border border-border p-2 text-foreground">Total General</td>
+                        <td className="border border-border p-2 text-foreground"></td>
                         {reporteData.fechasUnicas.map((fecha) => {
                           const totalFecha = reporteData.niveles.reduce((sum, nivel) => {
                             const totalFechaNivel = nivel.aulas.reduce((sumAula, a) => {
@@ -1528,15 +1557,15 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                           return (
                             <td
                               key={fecha}
-                              className="border border-gray-300 p-2 text-center"
+                              className="border border-border p-2 text-center text-foreground"
                             >
                               {totalFecha}
                             </td>
                           )
                         })}
-                        <td className="border border-gray-300 p-2 text-center">{totalGeneralAsistenPromed.toFixed(2)}</td>
-                        <td className="border border-gray-300 p-2 text-center">{totalGeneralRegistros}</td>
-                        <td className="border border-gray-300 p-2 text-center">
+                        <td className="border border-border p-2 text-center text-foreground">{totalGeneralAsistenPromed.toFixed(2)}</td>
+                        <td className="border border-border p-2 text-center text-foreground">{totalGeneralRegistros}</td>
+                        <td className="border border-border p-2 text-center text-foreground">
                           {(() => {
                             try {
                               const presente = typeof totalGeneralPresente === 'number' ? totalGeneralPresente : (Number(totalGeneralPresente) || 0)
@@ -1552,7 +1581,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                             }
                           })()}%
                         </td>
-                        <td className="border border-gray-300 p-2 text-center">
+                        <td className="border border-border p-2 text-center text-foreground">
                           {(() => {
                             try {
                               const presente = typeof totalGeneralPresente === 'number' ? totalGeneralPresente : (Number(totalGeneralPresente) || 0)
@@ -1568,7 +1597,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                             }
                           })()}%
                         </td>
-                        <td className="border border-gray-300 p-2 text-center">
+                        <td className="border border-border p-2 text-center text-foreground">
                           {(() => {
                             try {
                               const presente = typeof totalGeneralPresente === 'number' ? totalGeneralPresente : (Number(totalGeneralPresente) || 0)

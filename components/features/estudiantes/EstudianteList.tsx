@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -29,6 +29,14 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '@/components/ui/pagination'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Building2 } from 'lucide-react'
 
 interface Estudiante {
   id: string
@@ -62,13 +70,96 @@ export function EstudianteList() {
   const [searchTerm, setSearchTerm] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [totalEstudiantes, setTotalEstudiantes] = useState(0)
+  const [tableWidth, setTableWidth] = useState<number | null>(null) // Ancho personalizado de la tabla
+  const [isResizingTable, setIsResizingTable] = useState(false)
+  const [resizeStartX, setResizeStartX] = useState(0)
+  const [resizeStartWidth, setResizeStartWidth] = useState(0)
   const itemsPerPage = 15
   const router = useRouter()
   const { canEdit } = useUserRole(selectedFCP)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const defaultWidthRef = useRef<number | null>(null) // Ancho por defecto del contenedor
 
   useEffect(() => {
     loadUserFCPs()
   }, [])
+
+  // Efecto para obtener el ancho por defecto del div contenedor (mb-8 mx-auto max-w-7xl)
+  useEffect(() => {
+    const updateDefaultWidth = () => {
+      // Buscar el div contenedor con las clases mb-8 mx-auto max-w-7xl (donde está el título)
+      const titleContainer = document.querySelector('div.mb-8.mx-auto.max-w-7xl')
+      
+      if (titleContainer) {
+        const rect = titleContainer.getBoundingClientRect()
+        if (defaultWidthRef.current === null || defaultWidthRef.current !== rect.width) {
+          defaultWidthRef.current = rect.width
+          // Si no hay un ancho personalizado, actualizar el ancho de la tabla
+          if (!tableWidth) {
+            // Forzar re-render actualizando el estado (aunque no cambie el valor)
+            setTableWidth(null)
+          }
+        }
+      } else {
+        // Fallback: buscar el div contenedor con las clases mx-auto max-w-7xl
+        const container = document.querySelector('div.mx-auto.max-w-7xl')
+        
+        if (container) {
+          const rect = container.getBoundingClientRect()
+          if (defaultWidthRef.current === null || defaultWidthRef.current !== rect.width) {
+            defaultWidthRef.current = rect.width
+            if (!tableWidth) {
+              setTableWidth(null)
+            }
+          }
+        } else {
+          // Fallback final: usar el ancho de la ventana menos padding (1280px es max-w-7xl)
+          const fallbackWidth = Math.min(1280, window.innerWidth - 64)
+          if (defaultWidthRef.current === null || defaultWidthRef.current !== fallbackWidth) {
+            defaultWidthRef.current = fallbackWidth
+            if (!tableWidth) {
+              setTableWidth(null)
+            }
+          }
+        }
+      }
+    }
+    
+    // Ejecutar inmediatamente y luego en cada resize
+    updateDefaultWidth()
+    const timer = setTimeout(updateDefaultWidth, 50) // Reducir delay para detectar más rápido
+    window.addEventListener('resize', updateDefaultWidth)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('resize', updateDefaultWidth)
+    }
+  }, [tableWidth])
+
+  // Efecto para manejar el resize de la tabla
+  useEffect(() => {
+    if (!isResizingTable) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      e.preventDefault()
+      if (cardRef.current) {
+        const diff = e.pageX - resizeStartX
+        const newWidth = Math.max(800, Math.min(window.innerWidth * 2, resizeStartWidth + diff))
+        setTableWidth(newWidth)
+      }
+    }
+
+    const handleMouseUp = () => {
+      setIsResizingTable(false)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizingTable, resizeStartX, resizeStartWidth])
 
   useEffect(() => {
     if (userFCPs.length > 0 && !selectedFCP) {
@@ -602,8 +693,8 @@ export function EstudianteList() {
           const fcpIdToUse = selectedFCP || (isTutorState && userFCPs.length > 0 ? userFCPs[0].id : null)
           const fcp = userFCPs.find(fcp => fcp.id === fcpIdToUse) || (isTutorState && userFCPs.length > 0 ? userFCPs[0] : null)
           return (
-            <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
-              <p className="text-sm font-medium text-blue-900 dark:text-blue-200">
+            <div className="mb-4 p-3 bg-muted border border-border rounded-md">
+              <p className="text-sm font-medium text-foreground">
                 <strong>PROYECTO:</strong> {fcp?.numero_identificacion || ''} {fcp?.razon_social || 'FCP'}
               </p>
             </div>
@@ -614,28 +705,47 @@ export function EstudianteList() {
           {!isDirector && !isSecretario && !isTutorState && (
             <div className="flex-1">
               <label className="text-sm font-medium mb-2 block">Seleccionar FCP:</label>
-              <select
+              <Select
                 value={selectedFCP || ''}
-                onChange={(e) => {
-                  setSelectedFCP(e.target.value)
+                onValueChange={(value) => {
+                  setSelectedFCP(value)
                   setSelectedAula(null)
                 }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
               >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Seleccionar FCP">
+                    {selectedFCP ? (
+                      <div className="flex items-center gap-2">
+                        <Building2 className="h-4 w-4" />
+                        <span className="truncate">{userFCPs.find(fcp => fcp.id === selectedFCP)?.nombre || 'Seleccionar FCP'}</span>
+                      </div>
+                    ) : (
+                      'Seleccionar FCP'
+                    )}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
                 {userFCPs.map((fcp) => (
-                  <option key={fcp.id} value={fcp.id}>
-                    {fcp.nombre}
-                  </option>
+                    <SelectItem key={fcp.id} value={fcp.id}>
+                      <div className="flex items-center gap-2">
+                        <Building2 className="h-4 w-4 flex-shrink-0" />
+                        <span className="truncate">{fcp.nombre}</span>
+                        {fcp.numero_identificacion && (
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">({fcp.numero_identificacion})</span>
+                        )}
+                      </div>
+                    </SelectItem>
                 ))}
-              </select>
+                </SelectContent>
+              </Select>
             </div>
           )}
           <div className="flex-1">
             <label className="text-sm font-medium mb-2 block">Filtrar por Aula (opcional):</label>
-            <select
-              value={selectedAula || ''}
-              onChange={(e) => {
-                const aulaId = e.target.value || null
+            <Select
+              value={selectedAula || '__all__'}
+              onValueChange={(value) => {
+                const aulaId = value === '__all__' ? null : value
                 // Si es tutor, validar que el aula seleccionada esté en sus aulas asignadas
                 if (isTutorState && aulaId) {
                   const aulaExists = aulas.some(aula => aula.id === aulaId)
@@ -646,15 +756,25 @@ export function EstudianteList() {
                 }
                 setSelectedAula(aulaId)
               }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
             >
-              <option value="">Todas las aulas</option>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Todas las aulas">
+                  {selectedAula ? (
+                    aulas.find(aula => aula.id === selectedAula)?.nombre || 'Todas las aulas'
+                  ) : (
+                    'Todas las aulas'
+                  )}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Todas las aulas</SelectItem>
               {aulas.map((aula) => (
-                <option key={aula.id} value={aula.id}>
+                  <SelectItem key={aula.id} value={aula.id}>
                   {aula.nombre}
-                </option>
+                  </SelectItem>
               ))}
-            </select>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -733,16 +853,62 @@ export function EstudianteList() {
           </CardContent>
         </Card>
       ) : (
-        <Card>
+        <Card ref={cardRef} className="relative mx-auto" style={{ 
+          width: tableWidth 
+            ? `${tableWidth}px` 
+            : (defaultWidthRef.current 
+              ? `${defaultWidthRef.current}px` 
+              : '100%'), 
+          maxWidth: tableWidth 
+            ? `${tableWidth}px` 
+            : (defaultWidthRef.current 
+              ? `${defaultWidthRef.current}px` 
+              : '100%'), 
+          overflow: 'visible' 
+        }}>
+          {/* Resizer handle para la tarjeta completa */}
+          <div
+            className="absolute top-0 right-0 w-4 h-full cursor-col-resize hover:bg-primary/60 opacity-0 hover:opacity-100 transition-opacity z-50"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              setIsResizingTable(true)
+              setResizeStartX(e.pageX)
+              if (cardRef.current) {
+                const currentWidth = cardRef.current.offsetWidth
+                setResizeStartWidth(currentWidth)
+                if (defaultWidthRef.current === null) {
+                  defaultWidthRef.current = currentWidth
+                }
+              } else {
+                const fallbackWidth = defaultWidthRef.current || Math.min(1280, window.innerWidth - 64)
+                setResizeStartWidth(fallbackWidth)
+              }
+            }}
+            style={{ cursor: 'col-resize' }}
+            title="Arrastra para expandir la tabla horizontalmente"
+          />
           <CardHeader>
-            <CardTitle>
-              Estudiantes ({displayTotal} {displayTotal === 1 ? 'estudiante' : 'estudiantes'})
-              {searchTerm && (
-                <span className="text-sm font-normal text-muted-foreground ml-2">
-                  (filtrado de {totalEstudiantes} total)
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <CardTitle>
+                Estudiantes ({displayTotal} {displayTotal === 1 ? 'estudiante' : 'estudiantes'})
+                {searchTerm && (
+                  <span className="text-sm font-normal text-muted-foreground ml-2">
+                    (filtrado de {totalEstudiantes} total)
+                  </span>
+                )}
+              </CardTitle>
+              {tableWidth && (
+                <span className="text-xs text-muted-foreground">
+                  Ancho tabla: {tableWidth}px | Arrastra el borde derecho para ajustar
                 </span>
               )}
-            </CardTitle>
+              {!tableWidth && (
+                <span className="text-xs text-muted-foreground opacity-60">
+                  Arrastra el borde derecho de la tarjeta para expandir la tabla
+                </span>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">

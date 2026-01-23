@@ -6,6 +6,14 @@ import { createClient } from '@/lib/supabase/client'
 import { AsistenciaCalendarView } from '@/components/features/asistencias/AsistenciaCalendarView'
 import { Card, CardContent } from '@/components/ui/card'
 import { ClipboardList } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Building2 } from 'lucide-react'
 
 export default function AsistenciasPage() {
   const searchParams = useSearchParams()
@@ -130,8 +138,10 @@ export default function AsistenciasPage() {
 
   if (userFCPs.length === 0) {
     return (
-      <div className="container mx-auto py-6">
-        <h1 className="text-3xl font-bold mb-6">Asistencias</h1>
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-foreground">Asistencias</h1>
+        </div>
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <ClipboardList className="h-12 w-12 text-muted-foreground mb-4" />
@@ -145,41 +155,62 @@ export default function AsistenciasPage() {
   }
 
   return (
-    <div className="container mx-auto py-6">
-      <h1 className="text-3xl font-bold mb-6">Asistencias</h1>
+    <div className="w-full px-4 py-8 sm:px-6 lg:px-8 overflow-x-auto">
+      <div className="mb-8 mx-auto max-w-7xl">
+        {/* El selector de FCP no se muestra para directores ni secretarios, solo ven su FCP asignada */}
+        {!isDirector && !isSecretario && userFCPs.length > 1 && (
+          <div className="mb-4">
+            <label className="text-sm font-medium mb-2 block">FCP:</label>
+            <Select
+              value={selectedFCP || ''}
+              onValueChange={(value) => {
+                setSelectedFCP(value)
+                setSelectedAula(null)
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-auto">
+                <SelectValue placeholder="Seleccionar FCP">
+                  {selectedFCP ? (
+                    <div className="flex items-center gap-2">
+                      <Building2 className="h-4 w-4" />
+                      <span className="truncate">{userFCPs.find(fcp => fcp.id === selectedFCP)?.nombre || 'Seleccionar FCP'}</span>
+                    </div>
+                  ) : (
+                    'Seleccionar FCP'
+                  )}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {userFCPs.map((fcp) => (
+                  <SelectItem key={fcp.id} value={fcp.id}>
+                    <div className="flex items-center gap-2">
+                      <Building2 className="h-4 w-4 flex-shrink-0" />
+                      <span className="truncate">{fcp.nombre}</span>
+                      {fcp.numero_identificacion && (
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">({fcp.numero_identificacion})</span>
+                      )}
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        <h1 className="text-3xl font-bold text-foreground">Asistencias</h1>
+      </div>
 
       {/* Mostrar información de FCP para directores y secretarios */}
       {(isDirector || isSecretario) && selectedFCP && userFCPs.length > 0 && (() => {
         const fcp = userFCPs.find(fcp => fcp.id === selectedFCP)
         return (
-          <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
-            <p className="text-sm font-medium text-blue-900 dark:text-blue-200">
+          <div className="mb-4 p-3 bg-muted border border-border rounded-md mx-auto max-w-7xl">
+            <p className="text-sm font-medium text-foreground">
               <strong>PROYECTO:</strong> {fcp?.numero_identificacion || ''} {fcp?.razon_social || 'FCP'}
             </p>
           </div>
         )
       })()}
-
-      {/* El selector de FCP no se muestra para directores ni secretarios, solo ven su FCP asignada */}
-      {!isDirector && !isSecretario && userFCPs.length > 1 && (
-        <div className="mb-4">
-          <label className="text-sm font-medium mb-2 block">FCP:</label>
-          <select
-            value={selectedFCP || ''}
-            onChange={(e) => {
-              setSelectedFCP(e.target.value)
-              setSelectedAula(null)
-            }}
-            className="w-full sm:w-auto px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
-          >
-            {userFCPs.map((fcp) => (
-              <option key={fcp.id} value={fcp.id}>
-                {fcp.nombre}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
 
       {selectedFCP && (
         <AsistenciaCalendarView

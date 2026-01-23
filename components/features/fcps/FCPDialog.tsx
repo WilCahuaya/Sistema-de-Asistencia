@@ -339,7 +339,7 @@ export function FCPDialog({ open, onOpenChange, onSuccess }: FCPDialogProps) {
                 {...register('rol_contacto', { required: 'El rol es requerido' })}
                 readOnly
                 disabled
-                className="bg-gray-100 dark:bg-gray-800 cursor-not-allowed"
+                className="bg-muted cursor-not-allowed"
               />
               {errors.rol_contacto && (
                 <p className="text-sm text-red-500">{errors.rol_contacto.message}</p>

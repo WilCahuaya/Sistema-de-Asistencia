@@ -278,30 +278,30 @@ export function ReporteMensualResumen() {
         <CardTitle>Reporte Mensual - Mes Actual</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="border rounded-lg overflow-hidden">
-          <table className="w-full border-collapse border border-gray-300 text-sm">
+        <div className="border border-border rounded-lg overflow-hidden">
+          <table className="w-full border-collapse border border-border text-sm">
             <thead>
               <tr>
-                <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-left">Niveles</th>
-                <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-right">Asisten. Promed</th>
-                <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-right">Registrados</th>
-                <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 text-right">Porcentaje</th>
+                <th className="border border-border p-2 bg-muted/50 text-left text-foreground">Niveles</th>
+                <th className="border border-border p-2 bg-muted/50 text-right text-foreground">Asisten. Promed</th>
+                <th className="border border-border p-2 bg-muted/50 text-right text-foreground">Registrados</th>
+                <th className="border border-border p-2 bg-muted/50 text-right text-foreground">Porcentaje</th>
               </tr>
             </thead>
             <tbody>
               {reporteData.niveles.map((nivel, index) => (
-                <tr key={index} className={index % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800'}>
-                  <td className="border border-gray-300 p-2">{nivel.nivel}</td>
-                  <td className="border border-gray-300 p-2 text-right">{nivel.asistenPromed.toFixed(2)}</td>
-                  <td className="border border-gray-300 p-2 text-right">{nivel.registrados}</td>
-                  <td className="border border-gray-300 p-2 text-right">{nivel.porcentaje.toFixed(2)}%</td>
+                <tr key={index} className={index % 2 === 0 ? 'bg-background hover:bg-accent/50' : 'bg-muted/30 hover:bg-accent/50'}>
+                  <td className="border border-border p-2 text-foreground">{nivel.nivel}</td>
+                  <td className="border border-border p-2 text-right text-foreground">{nivel.asistenPromed.toFixed(2)}</td>
+                  <td className="border border-border p-2 text-right text-foreground">{nivel.registrados}</td>
+                  <td className="border border-border p-2 text-right text-foreground">{nivel.porcentaje.toFixed(2)}%</td>
                 </tr>
               ))}
-              <tr className="bg-gray-200 dark:bg-gray-700 font-bold">
-                <td className="border border-gray-300 p-2">Total</td>
-                <td className="border border-gray-300 p-2 text-right">{reporteData.totalAsistenPromed.toFixed(2)}</td>
-                <td className="border border-gray-300 p-2 text-right">{reporteData.totalRegistrados}</td>
-                <td className="border border-gray-300 p-2 text-right">{reporteData.totalPorcentaje.toFixed(2)}%</td>
+              <tr className="bg-accent font-bold">
+                <td className="border border-border p-2 text-foreground">Total</td>
+                <td className="border border-border p-2 text-right text-foreground">{reporteData.totalAsistenPromed.toFixed(2)}</td>
+                <td className="border border-border p-2 text-right text-foreground">{reporteData.totalRegistrados}</td>
+                <td className="border border-border p-2 text-right text-foreground">{reporteData.totalPorcentaje.toFixed(2)}%</td>
               </tr>
             </tbody>
           </table>

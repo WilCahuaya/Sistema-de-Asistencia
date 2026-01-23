@@ -4,9 +4,18 @@ import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { CheckCircle2, XCircle, Clock, CheckCheck, X } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { MonthPicker } from '@/components/ui/month-picker'
 
 interface Estudiante {
   id: string
@@ -42,6 +51,94 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const [saving, setSaving] = useState<Set<string>>(new Set())
   const [savingDates, setSavingDates] = useState<Set<string>>(new Set()) // Para rastrear qué fechas están guardándose
   const [toast, setToast] = useState<{ message: string; date: string } | null>(null)
+  const [zoomLevel, setZoomLevel] = useState(1) // Nivel de zoom para la tabla
+  const [isDragging, setIsDragging] = useState(false)
+  const [startX, setStartX] = useState(0)
+  const [scrollLeft, setScrollLeft] = useState(0)
+  const [tableWidth, setTableWidth] = useState<number | null>(null) // Ancho personalizado de la tabla
+  const [isResizingTable, setIsResizingTable] = useState(false)
+  const [resizeStartX, setResizeStartX] = useState(0)
+  const [resizeStartWidth, setResizeStartWidth] = useState(0)
+  const tableContainerRef = useRef<HTMLDivElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const defaultWidthRef = useRef<number | null>(null) // Ancho por defecto del contenedor
+  
+  // Efecto para obtener el ancho por defecto del div contenedor (mb-8 mx-auto max-w-7xl)
+  useEffect(() => {
+    const updateDefaultWidth = () => {
+      // Buscar el div contenedor con las clases mb-8 mx-auto max-w-7xl (donde está el título)
+      const titleContainer = document.querySelector('div.mb-8.mx-auto.max-w-7xl')
+      
+      if (titleContainer) {
+        const rect = titleContainer.getBoundingClientRect()
+        if (defaultWidthRef.current === null || defaultWidthRef.current !== rect.width) {
+          defaultWidthRef.current = rect.width
+          // Si no hay un ancho personalizado, actualizar el ancho de la tabla
+          if (!tableWidth) {
+            // Forzar re-render actualizando el estado (aunque no cambie el valor)
+            setTableWidth(null)
+          }
+        }
+      } else {
+        // Fallback: buscar el div contenedor con las clases mx-auto max-w-7xl
+        const container = document.querySelector('div.mx-auto.max-w-7xl')
+        
+        if (container) {
+          const rect = container.getBoundingClientRect()
+          if (defaultWidthRef.current === null || defaultWidthRef.current !== rect.width) {
+            defaultWidthRef.current = rect.width
+            if (!tableWidth) {
+              setTableWidth(null)
+            }
+          }
+        } else {
+          // Fallback final: usar el ancho de la ventana menos padding (1280px es max-w-7xl)
+          const fallbackWidth = Math.min(1280, window.innerWidth - 64)
+          if (defaultWidthRef.current === null || defaultWidthRef.current !== fallbackWidth) {
+            defaultWidthRef.current = fallbackWidth
+            if (!tableWidth) {
+              setTableWidth(null)
+            }
+          }
+        }
+      }
+    }
+    
+    // Ejecutar inmediatamente y luego en cada resize
+    updateDefaultWidth()
+    const timer = setTimeout(updateDefaultWidth, 50) // Reducir delay para detectar más rápido
+    window.addEventListener('resize', updateDefaultWidth)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('resize', updateDefaultWidth)
+    }
+  }, [tableWidth])
+  
+  // Efecto para manejar el resize de la tabla
+  useEffect(() => {
+    if (!isResizingTable) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      e.preventDefault()
+      if (cardRef.current) {
+        const diff = e.pageX - resizeStartX
+        const newWidth = Math.max(800, Math.min(window.innerWidth * 2, resizeStartWidth + diff))
+        setTableWidth(newWidth)
+      }
+    }
+
+    const handleMouseUp = () => {
+      setIsResizingTable(false)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizingTable, resizeStartX, resizeStartWidth])
   
   const longPressTimerRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
   const prevAulaRef = useRef<string | null>(null) // Para detectar cambios de aula
@@ -832,18 +929,18 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
 
   const getEstadoIcon = (estado: AsistenciaEstado, isSaving: boolean) => {
     if (isSaving) {
-      return <Clock className="h-4 w-4 text-gray-400 animate-spin" />
+      return <Clock className="h-4 w-4 text-muted-foreground animate-spin" />
     }
 
     switch (estado) {
       case 'presente':
-        return <CheckCircle2 className="h-5 w-5 text-green-600" />
+        return <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
       case 'falto':
-        return <XCircle className="h-5 w-5 text-red-600" />
+        return <XCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
       case 'permiso':
-        return <Clock className="h-5 w-5 text-yellow-600" />
+        return <Clock className="h-5 w-5 text-warning" />
       default:
-        return <div className="h-5 w-5 border border-gray-300 rounded" />
+        return <div className="h-5 w-5 border border-border rounded" />
     }
   }
 
@@ -863,53 +960,110 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
             Por favor, selecciona un aula para ver las asistencias.
           </p>
           {aulas.length > 0 && (
-            <select
+            <Select
               value={selectedAula || ''}
-              onChange={(e) => setSelectedAula(e.target.value || null)}
-              className="px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+              onValueChange={(value) => setSelectedAula(value || null)}
             >
-              <option value="">Selecciona un aula</option>
-              {aulas.map((aula) => (
-                <option key={aula.id} value={aula.id}>
-                  {aula.nombre}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="w-full sm:w-auto">
+                <SelectValue placeholder="Selecciona un aula">
+                  {selectedAula ? (
+                    aulas.find(aula => aula.id === selectedAula)?.nombre || 'Selecciona un aula'
+                  ) : (
+                    'Selecciona un aula'
+                  )}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {aulas.map((aula) => (
+                  <SelectItem key={aula.id} value={aula.id}>
+                    {aula.nombre}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
         </CardContent>
       </Card>
     )
   }
 
+  // Calcular el ancho actual de la tabla
+  const currentWidth = tableWidth || (defaultWidthRef.current ? `${defaultWidthRef.current}px` : '100%')
+
   return (
-    <Card>
+    <Card ref={cardRef} className="relative mx-auto" style={{ width: currentWidth, maxWidth: currentWidth, overflow: 'visible' }}>
+      {/* Resizer handle para la tarjeta completa - más visible */}
+      <div
+        className="absolute top-0 right-0 w-4 h-full cursor-col-resize hover:bg-primary/60 opacity-0 hover:opacity-100 transition-opacity z-50"
+        onMouseDown={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          setIsResizingTable(true)
+          setResizeStartX(e.pageX)
+          if (cardRef.current) {
+            const currentWidth = cardRef.current.offsetWidth
+            setResizeStartWidth(currentWidth)
+            if (defaultWidthRef.current === null) {
+              defaultWidthRef.current = currentWidth
+            }
+          } else {
+            const fallbackWidth = defaultWidthRef.current || Math.min(1280, window.innerWidth - 64)
+            setResizeStartWidth(fallbackWidth)
+          }
+        }}
+        style={{ cursor: 'col-resize' }}
+        title="Arrastra para expandir la tabla horizontalmente"
+      />
       <CardHeader>
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <CardTitle>Control de Asistencia - {formatMonthYear(selectedMonth, selectedYear)}</CardTitle>
           <div className="flex gap-2 items-center">
+            {zoomLevel !== 1 && (
+              <span className="text-xs text-muted-foreground">
+                Zoom: {Math.round(zoomLevel * 100)}% | Ctrl+Scroll para ajustar
+              </span>
+            )}
+            {tableWidth && (
+              <span className="text-xs text-muted-foreground">
+                Ancho tabla: {tableWidth}px | Arrastra el borde derecho para ajustar
+              </span>
+            )}
+            {!tableWidth && (
+              <span className="text-xs text-muted-foreground opacity-60">
+                Arrastra el borde derecho de la tarjeta para expandir la tabla
+              </span>
+            )}
             {/* Selector de Aula */}
-            <select
+            <Select
               value={selectedAula || ''}
-              onChange={(e) => setSelectedAula(e.target.value || null)}
-              className="px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+              onValueChange={(value) => setSelectedAula(value || null)}
             >
-              {aulas.map((aula) => (
-                <option key={aula.id} value={aula.id}>
-                  {aula.nombre}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="w-full sm:w-auto">
+                <SelectValue placeholder="Seleccionar aula">
+                  {selectedAula ? (
+                    aulas.find(aula => aula.id === selectedAula)?.nombre || 'Seleccionar aula'
+                  ) : (
+                    'Seleccionar aula'
+                  )}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {aulas.map((aula) => (
+                  <SelectItem key={aula.id} value={aula.id}>
+                    {aula.nombre}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
             {/* Selector de Mes */}
-            <input
-              type="month"
+            <MonthPicker
               value={`${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`}
-              onChange={(e) => {
-                const [year, month] = e.target.value.split('-')
+              onChange={(value) => {
+                const [year, month] = value.split('-')
                 setSelectedYear(parseInt(year))
                 setSelectedMonth(parseInt(month) - 1)
               }}
-              className="px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
             />
           </div>
         </div>
@@ -922,14 +1076,84 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
             No hay estudiantes en esta aula.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse border border-gray-300 text-sm">
+          <div 
+            ref={tableContainerRef}
+            className="overflow-x-auto select-none"
+            style={{ 
+              cursor: isDragging ? 'grabbing' : (role === 'director' || role === 'secretario') ? 'grab' : 'default'
+            }}
+            onWheel={(e) => {
+              // Solo permitir scroll horizontal para directores y secretarios
+              if (role !== 'director' && role !== 'secretario') {
+                return
+              }
+              
+              // Ctrl + scroll o Cmd + scroll para zoom
+              if (e.ctrlKey || e.metaKey) {
+                e.preventDefault()
+                const delta = e.deltaY > 0 ? -0.05 : 0.05
+                setZoomLevel(prev => Math.max(0.7, Math.min(1.5, prev + delta)))
+              } else if (e.shiftKey) {
+                // Shift + scroll para desplazamiento horizontal
+                e.preventDefault()
+                e.stopPropagation()
+                if (tableContainerRef.current) {
+                  // Usar deltaY para scroll horizontal cuando Shift está presionado
+                  tableContainerRef.current.scrollLeft += e.deltaY
+                }
+              }
+            }}
+            onMouseDown={(e) => {
+              // Solo permitir drag scroll para directores y secretarios
+              if (role !== 'director' && role !== 'secretario') {
+                return
+              }
+              
+              // Solo activar drag si es click izquierdo y no está en elementos interactivos
+              const target = e.target as HTMLElement
+              const isClickableCell = target.closest('td[class*="cursor-pointer"]')
+              const isButton = target.closest('button')
+              const isInStickyColumn = target.closest('th[class*="sticky"], td[class*="sticky"]')
+              const isInput = target.closest('input, select, textarea')
+              
+              if (e.button === 0 && !isClickableCell && !isButton && !isInStickyColumn && !isInput) {
+                setIsDragging(true)
+                const rect = tableContainerRef.current?.getBoundingClientRect()
+                setStartX(e.pageX - (rect?.left || 0))
+                setScrollLeft(tableContainerRef.current?.scrollLeft || 0)
+                e.preventDefault()
+                e.stopPropagation()
+              }
+            }}
+            onMouseMove={(e) => {
+              if (isDragging && tableContainerRef.current && (role === 'director' || role === 'secretario')) {
+                e.preventDefault()
+                e.stopPropagation()
+                const rect = tableContainerRef.current.getBoundingClientRect()
+                const x = e.pageX - rect.left
+                const walk = (x - startX) * 2 // Aumentar velocidad del scroll
+                tableContainerRef.current.scrollLeft = scrollLeft - walk
+              }
+            }}
+            onMouseUp={() => {
+              if (isDragging) {
+                setIsDragging(false)
+              }
+            }}
+            onMouseLeave={() => {
+              if (isDragging) {
+                setIsDragging(false)
+              }
+            }}
+          >
+            <div style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'top left', width: `${100 / zoomLevel}%` }}>
+            <table className="border-collapse border border-border text-sm" style={{ width: 'max-content', minWidth: '100%' }}>
               <thead>
                 <tr>
-                  <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 sticky left-0 z-10 min-w-[120px] text-left">
+                  <th className="border border-border p-2 bg-muted sticky left-0 z-20 min-w-[120px] text-left shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
                     Código
                   </th>
-                  <th className="border border-gray-300 p-2 bg-gray-100 dark:bg-gray-800 sticky left-[120px] z-10 min-w-[180px] text-left">
+                  <th className="border border-border p-2 bg-muted sticky left-[120px] z-20 min-w-[180px] text-left shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
                     Participante
                   </th>
                   {daysInMonth.map(({ day, date, dayName, fechaStr }) => {
@@ -941,9 +1165,12 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                     return (
                       <th
                         key={`header-${day}-${selectedMonth}-${selectedYear}`}
-                        className={`border border-gray-300 p-1 text-center min-w-[60px] ${
-                          hayFaltantes ? 'bg-yellow-50 dark:bg-yellow-900/20' : 'bg-gray-100 dark:bg-gray-800'
+                        className={`border p-1 text-center ${
+                          hayFaltantes 
+                            ? 'bg-warning/20 border-warning/50' 
+                            : 'bg-muted/30 border-border'
                         }`}
+                        style={{ width: '80px', minWidth: '80px' }}
                       >
                         <div className="flex flex-col items-center gap-1">
                           <span className="text-xs font-medium">{dayName}</span>
@@ -951,12 +1178,12 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                           {/* Indicador de validación - solo mostrar si hay al menos un estudiante marcado */}
                           {marcados > 0 && (
                             <span
-                              className={`text-[10px] px-1 py-0.5 rounded ${
+                              className={`text-[10px] px-1 py-0.5 rounded font-semibold ${
                                 todosMarcados
                                   ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
                                   : hayFaltantes
-                                  ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
-                                  : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                                  ? 'bg-warning/30 text-warning-foreground border border-warning/60'
+                                  : 'bg-muted text-muted-foreground'
                               }`}
                               title={todosMarcados ? 'Todos los estudiantes marcados' : `${faltantes} estudiante(s) sin marcar`}
                             >
@@ -966,7 +1193,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                           {/* Indicador opcional para días sin atención (puedes comentar esto si no lo quieres) */}
                           {esDiaSinAtencion && (
                             <span
-                              className="text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400"
+                              className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground"
                               title="Día sin atención"
                             >
                               Sin atención
@@ -1021,10 +1248,10 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
               <tbody>
                 {estudiantes.map((estudiante) => (
                   <tr key={estudiante.id}>
-                    <td className="border border-gray-300 p-2 bg-gray-50 dark:bg-gray-900 sticky left-0 font-mono text-xs min-w-[120px]">
+                    <td className="border border-border p-2 bg-muted sticky left-0 z-10 font-mono text-xs min-w-[120px] shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
                       {estudiante.codigo}
                     </td>
-                    <td className="border border-gray-300 p-2 bg-gray-50 dark:bg-gray-900 sticky left-[120px] text-xs min-w-[180px]">
+                    <td className="border border-border p-2 bg-muted sticky left-[120px] z-10 text-xs min-w-[180px] shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
                       {estudiante.nombre_completo}
                     </td>
                     {daysInMonth.map(({ day, date, fechaStr }) => {
@@ -1051,11 +1278,12 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                       return (
                         <td
                           key={day}
-                          className={`border border-gray-300 p-1 text-center transition-colors ${
+                          className={`border border-border p-1 text-center transition-colors ${
                             (canEdit && (role === 'director' || role === 'secretario'))
-                              ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800'
+                              ? 'cursor-pointer hover:bg-accent/50'
                               : 'cursor-not-allowed opacity-60'
                           }`}
+                          style={{ width: '80px', minWidth: '80px' }}
                           onClick={() => handleCellClick(estudiante.id, fechaStr, false)}
                           onDoubleClick={() => handleCellClick(estudiante.id, fechaStr, true)}
                           onMouseDown={() => handleCellMouseDown(estudiante.id, fechaStr)}
@@ -1075,6 +1303,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </CardContent>

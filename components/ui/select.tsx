@@ -6,6 +6,40 @@ import { Check, ChevronDown, ChevronUp } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
+// Hook para obtener el tema actual
+function useCurrentTheme() {
+  const [theme, setTheme] = React.useState<string>('blue')
+  
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return
+    
+    const updateTheme = () => {
+      const html = document.documentElement
+      const themeClasses = ['theme-blue', 'theme-green', 'theme-purple', 'theme-gray', 'theme-dark-blue', 'theme-dark-green', 'theme-dark-purple']
+      const currentTheme = themeClasses.find(cls => html.classList.contains(cls))
+      if (currentTheme) {
+        setTheme(currentTheme.replace('theme-', ''))
+      } else {
+        const savedTheme = localStorage.getItem('app-theme') || 'blue'
+        setTheme(savedTheme)
+      }
+    }
+    
+    updateTheme()
+    
+    // Observar cambios en las clases del HTML
+    const observer = new MutationObserver(updateTheme)
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class']
+    })
+    
+    return () => observer.disconnect()
+  }, [])
+  
+  return theme
+}
+
 const Select = SelectPrimitive.Root
 
 const SelectGroup = SelectPrimitive.Group
@@ -15,13 +49,22 @@ const SelectValue = SelectPrimitive.Value
 const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
->(({ className, children, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => {
+  const theme = useCurrentTheme()
+  const isDark = theme.startsWith('dark-')
+  
+  return (
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background data-[placeholder]:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+        "flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm ring-offset-background data-[placeholder]:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
       className
     )}
+      style={{
+        backgroundColor: isDark ? `hsl(var(--background))` : undefined,
+        color: isDark ? `hsl(var(--foreground))` : undefined,
+        borderColor: isDark ? `hsl(var(--input))` : undefined,
+      }}
     {...props}
   >
     {children}
@@ -29,7 +72,8 @@ const SelectTrigger = React.forwardRef<
       <ChevronDown className="h-4 w-4 opacity-50" />
     </SelectPrimitive.Icon>
   </SelectPrimitive.Trigger>
-))
+  )
+})
 SelectTrigger.displayName = SelectPrimitive.Trigger.displayName
 
 const SelectScrollUpButton = React.forwardRef<
@@ -70,7 +114,11 @@ SelectScrollDownButton.displayName =
 const SelectContent = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
->(({ className, children, position = "popper", ...props }, ref) => (
+>(({ className, children, position = "popper", ...props }, ref) => {
+  const theme = useCurrentTheme()
+  const isDark = theme.startsWith('dark-')
+  
+  return (
   <SelectPrimitive.Portal>
     <SelectPrimitive.Content
       ref={ref}
@@ -80,6 +128,11 @@ const SelectContent = React.forwardRef<
           "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
         className
       )}
+        style={{
+          backgroundColor: isDark ? `hsl(var(--popover))` : undefined,
+          color: isDark ? `hsl(var(--popover-foreground))` : undefined,
+          borderColor: isDark ? `hsl(var(--border))` : undefined,
+        }}
       position={position}
       {...props}
     >
@@ -96,7 +149,8 @@ const SelectContent = React.forwardRef<
       <SelectScrollDownButton />
     </SelectPrimitive.Content>
   </SelectPrimitive.Portal>
-))
+  )
+})
 SelectContent.displayName = SelectPrimitive.Content.displayName
 
 const SelectLabel = React.forwardRef<
@@ -114,13 +168,32 @@ SelectLabel.displayName = SelectPrimitive.Label.displayName
 const SelectItem = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Item>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
->(({ className, children, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => {
+  const theme = useCurrentTheme()
+  const isDark = theme.startsWith('dark-')
+  
+  return (
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
       "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className
     )}
+      style={{
+        color: isDark ? `hsl(var(--popover-foreground))` : undefined,
+      }}
+      onMouseEnter={(e) => {
+        if (isDark) {
+          e.currentTarget.style.backgroundColor = `hsl(var(--accent))`
+          e.currentTarget.style.color = `hsl(var(--accent-foreground))`
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (isDark) {
+          e.currentTarget.style.backgroundColor = ''
+          e.currentTarget.style.color = `hsl(var(--popover-foreground))`
+        }
+      }}
     {...props}
   >
     <span className="absolute right-2 flex h-3.5 w-3.5 items-center justify-center">
@@ -130,7 +203,8 @@ const SelectItem = React.forwardRef<
     </span>
     <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
   </SelectPrimitive.Item>
-))
+  )
+})
 SelectItem.displayName = SelectPrimitive.Item.displayName
 
 const SelectSeparator = React.forwardRef<
