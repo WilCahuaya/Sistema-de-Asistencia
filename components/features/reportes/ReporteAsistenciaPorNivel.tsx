@@ -409,18 +409,78 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
       const fechaInicio = firstDay.toISOString().split('T')[0]
       const fechaFin = lastDay.toISOString().split('T')[0]
 
-      // Obtener estudiantes por aula (incluyendo created_at para filtrar por fecha) usando el fcpId del rol seleccionado
-      const { data: estudiantesData, error: estudiantesError } = await supabase
-        .from('estudiantes')
-        .select('id, codigo, nombre_completo, aula_id, created_at')
+      // Determinar si estamos consultando un mes anterior
+      const fechaActual = new Date()
+      const mesActual = new Date(fechaActual.getFullYear(), fechaActual.getMonth(), 1)
+      const mesConsultado = new Date(selectedYear, selectedMonth, 1)
+      const esMesAnterior = mesConsultado < mesActual
+
+      console.log('📅 [ReporteAsistenciaPorNivel] Mes consultado:', {
+        mesConsultado: `${selectedYear}-${selectedMonth + 1}`,
+        mesActual: `${fechaActual.getFullYear()}-${fechaActual.getMonth() + 1}`,
+        esMesAnterior
+      })
+
+      // IMPORTANTE: Incluir aula_id de la asistencia para preservar el aula histórica
+      // Primero obtener asistencias para determinar qué estudiantes y aulas incluir
+      const { data: asistenciasData, error: asistenciasError } = await supabase
+        .from('asistencias')
+        .select(`
+          estudiante_id, 
+          fecha, 
+          estado,
+          aula_id,
+          aula:aulas(id, nombre),
+          estudiante:estudiantes(id, codigo, nombre_completo, aula_id, created_at)
+        `)
         .eq('fcp_id', fcpIdParaReporte)
-        .eq('activo', true)
-        .in('aula_id', aulas.map(a => a.id))
+        .gte('fecha', fechaInicio)
+        .lte('fecha', fechaFin)
 
-      if (estudiantesError) throw estudiantesError
+      if (asistenciasError) throw asistenciasError
 
-      // Obtener asistencias del mes
-      const estudianteIds = estudiantesData?.map(e => e.id) || []
+      // Obtener estudiantes según el mes consultado
+      let estudiantesData: any[] = []
+      let estudianteIds: string[] = []
+
+      if (esMesAnterior) {
+        // Para meses anteriores, obtener estudiantes únicos de las asistencias
+        const estudiantesMap = new Map<string, any>()
+        asistenciasData?.forEach((asist: any) => {
+          if (asist.estudiante && !estudiantesMap.has(asist.estudiante_id)) {
+            estudiantesMap.set(asist.estudiante_id, {
+              id: asist.estudiante.id,
+              codigo: asist.estudiante.codigo,
+              nombre_completo: asist.estudiante.nombre_completo,
+              aula_id: asist.aula_id, // Usar aula_id de la asistencia (histórica)
+              created_at: asist.estudiante.created_at
+            })
+          }
+        })
+        estudiantesData = Array.from(estudiantesMap.values())
+        estudianteIds = estudiantesData.map(e => e.id)
+        
+        console.log('📊 [ReporteAsistenciaPorNivel] Estudiantes cargados de mes anterior (basados en asistencias):', {
+          total: estudiantesData.length
+        })
+      } else {
+        // Para meses actuales/futuros, cargar todos los estudiantes activos de la FCP
+        const { data: estudiantesDataQuery, error: estudiantesError } = await supabase
+          .from('estudiantes')
+          .select('id, codigo, nombre_completo, aula_id, created_at')
+          .eq('fcp_id', fcpIdParaReporte)
+          .eq('activo', true)
+          .in('aula_id', aulas.map(a => a.id))
+
+        if (estudiantesError) throw estudiantesError
+
+        estudiantesData = estudiantesDataQuery || []
+        estudianteIds = estudiantesData.map(e => e.id)
+        
+        console.log('📊 [ReporteAsistenciaPorNivel] Estudiantes cargados (mes actual/futuro):', {
+          total: estudiantesData.length
+        })
+      }
       
       console.log('🔍 [ReporteAsistenciaPorNivel] Debug:', {
         fcpIdParaReporte,
@@ -432,15 +492,8 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         fechaFin,
         year: selectedYear,
         month: selectedMonth,
+        esMesAnterior
       })
-      
-      const { data: asistenciasData, error: asistenciasError } = await supabase
-        .from('asistencias')
-        .select('estudiante_id, fecha, estado')
-        .eq('fcp_id', fcpIdParaReporte)
-        .in('estudiante_id', estudianteIds)
-        .gte('fecha', fechaInicio)
-        .lte('fecha', fechaFin)
 
       console.log('📊 Asistencias en reporte:', {
         count: asistenciasData?.length || 0,
@@ -487,9 +540,49 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         fechas: Array.from(fechasSet).sort()
       })
 
-      aulas.forEach(aula => {
-        const estudiantesDeAula = estudiantesData?.filter(e => e.aula_id === aula.id) || []
+      // IMPORTANTE: Para meses anteriores, obtener aulas únicas de las asistencias (históricas)
+      // Para meses actuales/futuros, usar las aulas cargadas normalmente
+      let aulasParaProcesar: any[] = []
+      
+      if (esMesAnterior) {
+        // Para meses anteriores, obtener aulas únicas de las asistencias
+        const aulasMap = new Map<string, any>()
+        asistenciasData?.forEach((a: any) => {
+          if (a.aula_id && a.aula && !aulasMap.has(a.aula_id)) {
+            // Buscar el tutor de esta aula en la lista de aulas cargadas
+            const aulaOriginal = aulas.find(au => au.id === a.aula_id)
+            aulasMap.set(a.aula_id, {
+              id: a.aula_id,
+              nombre: a.aula.nombre || 'Sin aula',
+              tutor: aulaOriginal?.tutor || null
+            })
+          }
+        })
+        aulasParaProcesar = Array.from(aulasMap.values())
+      } else {
+        aulasParaProcesar = aulas
+      }
+
+      aulasParaProcesar.forEach(aula => {
+        // IMPORTANTE: Agrupar estudiantes por aula según el mes consultado
+        // Para meses anteriores: usar aula_id de las asistencias (histórica)
+        // Para meses actuales/futuros: usar aula_id actual del estudiante
+        let estudiantesDeAula: any[] = []
+        
+        if (esMesAnterior) {
+          // Para meses anteriores, filtrar asistencias que pertenecen a esta aula según aula_id de la asistencia
+          const asistenciasDeAula = asistenciasData?.filter((a: any) => a.aula_id === aula.id) || []
+          const estudiantesIdsEnAula = new Set(asistenciasDeAula.map((a: any) => a.estudiante_id))
+          estudiantesDeAula = estudiantesData?.filter(e => estudiantesIdsEnAula.has(e.id)) || []
+        } else {
+          // Para meses actuales/futuros, filtrar estudiantes por su aula_id actual
+          estudiantesDeAula = estudiantesData?.filter(e => e.aula_id === aula.id) || []
+        }
+        
         const totalEstudiantes = estudiantesDeAula.length
+        
+        // IMPORTANTE: Usar aula_id de la asistencia para filtrar asistencias correctamente
+        const asistenciasDeAula = asistenciasData?.filter((a: any) => a.aula_id === aula.id) || []
         const asistenciasPorFecha: AsistenciaPorFecha = {}
         const diasIncompletosAula: Array<{ fecha: string; aulaId: string; tutorNombre: string; marcados: number; total: number }> = []
         const tutorNombre = aula.tutor?.nombre_completo || aula.tutor?.email || 'Sin tutor asignado'
@@ -500,10 +593,10 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         let totalFalto = 0
         let diasDeAtencion = 0 // Contar días completos de atención
 
-        // 1. Primero procesar TODAS las asistencias por fecha (sin filtrar por created_at aquí)
-        // El filtrado por created_at se hará solo al verificar días completos
+        // 1. Primero procesar TODAS las asistencias por fecha usando aula_id de la asistencia
         estudiantesDeAula.forEach(estudiante => {
-          const asistenciasEstudiante = asistenciasData?.filter(a => a.estudiante_id === estudiante.id) || []
+          // Filtrar asistencias que pertenecen a esta aula según aula_id de la asistencia
+          const asistenciasEstudiante = asistenciasDeAula.filter((a: any) => a.estudiante_id === estudiante.id) || []
           
           asistenciasEstudiante.forEach(asistencia => {
             const fecha = asistencia.fecha

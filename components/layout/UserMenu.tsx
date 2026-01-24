@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useSelectedRole } from '@/contexts/SelectedRoleContext'
+import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -14,7 +16,9 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { MoreVertical, LogOut, Palette, Check } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { MoreVertical, LogOut, Palette, Check, User, Building2, Shield, Mail } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 const themes = [
   {
@@ -70,10 +74,36 @@ const themes = [
 
 type Theme = typeof themes[number]['value']
 
+const roleLabels: Record<string, string> = {
+  director: 'Director',
+  secretario: 'Secretario',
+  tutor: 'Tutor',
+  facilitador: 'Facilitador',
+}
+
+const roleColors: Record<string, string> = {
+  director: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 border-purple-300 dark:border-purple-700',
+  secretario: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border-blue-300 dark:border-blue-700',
+  tutor: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 border-green-300 dark:border-green-700',
+  facilitador: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200 border-orange-300 dark:border-orange-700',
+}
+
+const roleIcons: Record<string, string> = {
+  director: '👔',
+  secretario: '📋',
+  tutor: '👨‍🏫',
+  facilitador: '🌐',
+}
+
 export function UserMenu() {
   const { signOut } = useAuth()
+  const { selectedRole, loading: roleLoading } = useSelectedRole()
   const [signingOut, setSigningOut] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [userInfo, setUserInfo] = useState<{
+    nombre: string
+    email: string
+  } | null>(null)
   const [theme, setThemeState] = useState<Theme>(() => {
     if (typeof window === 'undefined') return 'blue'
     const savedTheme = localStorage.getItem('app-theme') as Theme | null
@@ -114,6 +144,51 @@ export function UserMenu() {
         setThemeState(savedTheme)
       }
     }
+  }, [])
+
+  useEffect(() => {
+    const loadUserInfo = async () => {
+      try {
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+
+        if (!user) {
+          return
+        }
+
+        // Intentar obtener información del usuario desde public.usuarios
+        const { data: usuarioData } = await supabase
+          .from('usuarios')
+          .select('nombre_completo, email')
+          .eq('id', user.id)
+          .maybeSingle()
+
+        if (usuarioData) {
+          setUserInfo({
+            nombre: usuarioData.nombre_completo || user.email || 'Usuario',
+            email: usuarioData.email || user.email || '',
+          })
+        } else {
+          // Fallback a información de auth.users
+          setUserInfo({
+            nombre: user.user_metadata?.full_name || user.email || 'Usuario',
+            email: user.email || '',
+          })
+        }
+      } catch (error) {
+        console.error('Error loading user info:', error)
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          setUserInfo({
+            nombre: user.email || 'Usuario',
+            email: user.email || '',
+          })
+        }
+      }
+    }
+
+    loadUserInfo()
   }, [])
 
   const handleThemeChange = (newTheme: Theme) => {
@@ -169,7 +244,60 @@ export function UserMenu() {
           <MoreVertical className="h-5 w-5" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent align="end" className="w-72">
+        {/* Información del usuario */}
+        {userInfo && selectedRole && (
+          <>
+            <div className="px-2 py-3 space-y-2">
+              {/* Nombre y Avatar */}
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center h-10 w-10 rounded-full bg-primary/10 text-primary shrink-0">
+                  <User className="h-5 w-5" />
+                </div>
+                <div className="flex flex-col min-w-0 flex-1">
+                  <span className="text-sm font-semibold text-foreground truncate">
+                    {userInfo.nombre}
+                  </span>
+                  <span className="text-xs text-muted-foreground truncate flex items-center gap-1">
+                    <Mail className="h-3 w-3" />
+                    {userInfo.email}
+                  </span>
+                </div>
+              </div>
+
+              {/* Rol */}
+              <div className="flex items-center gap-2 pt-1 border-t border-border/50">
+                <Shield className="h-4 w-4 text-muted-foreground shrink-0" />
+                <Badge 
+                  variant="outline" 
+                  className={cn("text-xs font-medium border shrink-0", roleColors[selectedRole.role] || 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200')}
+                >
+                  <span className="mr-1">{roleIcons[selectedRole.role] || '👤'}</span>
+                  {roleLabels[selectedRole.role] || selectedRole.role}
+                </Badge>
+              </div>
+
+              {/* FCP */}
+              {selectedRole.fcp && (
+                <div className="flex items-start gap-2 pt-1 border-t border-border/50">
+                  <Building2 className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                  <div className="flex flex-col min-w-0 flex-1">
+                    {selectedRole.fcp.numero_identificacion && (
+                      <span className="text-xs font-semibold text-foreground">
+                        {selectedRole.fcp.numero_identificacion}
+                      </span>
+                    )}
+                    <span className="text-xs text-muted-foreground truncate">
+                      {selectedRole.fcp.razon_social || 'Sin FCP seleccionada'}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+            <DropdownMenuSeparator />
+          </>
+        )}
+
         <DropdownMenuLabel>Opciones</DropdownMenuLabel>
         <DropdownMenuSeparator />
         

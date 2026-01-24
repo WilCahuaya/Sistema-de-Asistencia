@@ -295,8 +295,8 @@ export function MiembroEditDialog({
         return
       }
 
-      // Validar que si es tutor, tenga al menos una aula asignada
-      if (rol === 'tutor' && selectedAulas.length === 0) {
+      // Validar que si es tutor y está activo, tenga al menos una aula asignada
+      if (activo && rol === 'tutor' && selectedAulas.length === 0) {
         setError('Debes asignar al menos una aula al tutor.')
         setLoading(false)
         return
@@ -404,45 +404,56 @@ export function MiembroEditDialog({
         return
       }
 
-      // Si el rol es tutor, actualizar las asignaciones de aulas
+      // Si el rol es tutor, manejar asignaciones de aulas según el estado
       if (rol === 'tutor') {
-        // Primero, eliminar cualquier tutor previo de las aulas seleccionadas
-        // (cada aula solo puede tener un tutor)
-        for (const aulaId of selectedAulas) {
-          const { error: deleteOldTutorError } = await supabase
+        if (!activo) {
+          // Si está inactivo, eliminar todas las asignaciones de aulas
+          const { error: deleteAssignmentsError } = await supabase
             .from('tutor_aula')
             .delete()
-            .eq('aula_id', aulaId)
-            .eq('activo', true)
+            .eq('fcp_miembro_id', miembro.id)
 
-          if (deleteOldTutorError) {
-            console.error(`Error eliminando tutor previo del aula ${aulaId}:`, deleteOldTutorError)
-            throw deleteOldTutorError
+          if (deleteAssignmentsError) throw deleteAssignmentsError
+        } else {
+          // Si está activo, actualizar las asignaciones de aulas
+          // Primero, eliminar cualquier tutor previo de las aulas seleccionadas
+          // (cada aula solo puede tener un tutor)
+          for (const aulaId of selectedAulas) {
+            const { error: deleteOldTutorError } = await supabase
+              .from('tutor_aula')
+              .delete()
+              .eq('aula_id', aulaId)
+              .eq('activo', true)
+
+            if (deleteOldTutorError) {
+              console.error(`Error eliminando tutor previo del aula ${aulaId}:`, deleteOldTutorError)
+              throw deleteOldTutorError
+            }
           }
-        }
 
-        // Eliminar todas las asignaciones antiguas de este tutor
-        const { error: deleteOldAssignmentsError } = await supabase
-          .from('tutor_aula')
-          .delete()
-          .eq('fcp_miembro_id', miembro.id)
-
-        if (deleteOldAssignmentsError) throw deleteOldAssignmentsError
-
-        // Insertar nuevas asignaciones
-        if (selectedAulas.length > 0) {
-          const assignments = selectedAulas.map(aulaId => ({
-            fcp_miembro_id: miembro.id,
-            aula_id: aulaId,
-            fcp_id: miembro.fcp_id,
-            activo: true,
-          }))
-
-          const { error: assignError } = await supabase
+          // Eliminar todas las asignaciones antiguas de este tutor
+          const { error: deleteOldAssignmentsError } = await supabase
             .from('tutor_aula')
-            .insert(assignments)
+            .delete()
+            .eq('fcp_miembro_id', miembro.id)
 
-          if (assignError) throw assignError
+          if (deleteOldAssignmentsError) throw deleteOldAssignmentsError
+
+          // Insertar nuevas asignaciones
+          if (selectedAulas.length > 0) {
+            const assignments = selectedAulas.map(aulaId => ({
+              fcp_miembro_id: miembro.id,
+              aula_id: aulaId,
+              fcp_id: miembro.fcp_id,
+              activo: true,
+            }))
+
+            const { error: assignError } = await supabase
+              .from('tutor_aula')
+              .insert(assignments)
+
+            if (assignError) throw assignError
+          }
         }
       } else {
         // Si el rol cambia de tutor a otro, eliminar todas las asignaciones de aulas
@@ -465,13 +476,82 @@ export function MiembroEditDialog({
   }
   
   const handleMultipleRolesUpdate = async () => {
-    if (!miembro.usuario_id) {
-      setError('El miembro debe tener un usuario asociado.')
+    // Si está inactivo, desactivar todos los roles del miembro en esta FCP
+    // Esto funciona tanto para miembros con usuario_id como para invitaciones pendientes (email_pendiente)
+    if (!activo) {
+      if (miembro.usuario_id) {
+        // Si tiene usuario_id, desactivar todos los roles del usuario en esta FCP
+        const { error: deactivateAllError } = await supabase
+          .from('fcp_miembros')
+          .update({ activo: false })
+          .eq('usuario_id', miembro.usuario_id)
+          .eq('fcp_id', miembro.fcp_id)
+        
+        if (deactivateAllError) {
+          console.error('Error desactivando todos los roles:', deactivateAllError)
+          throw deactivateAllError
+        }
+        
+        // Eliminar todas las asignaciones de aulas de todos los roles tutor del usuario
+        const { data: tutorRecords } = await supabase
+          .from('fcp_miembros')
+          .select('id')
+          .eq('usuario_id', miembro.usuario_id)
+          .eq('fcp_id', miembro.fcp_id)
+          .eq('rol', 'tutor')
+        
+        if (tutorRecords && tutorRecords.length > 0) {
+          const tutorIds = tutorRecords.map(tr => tr.id)
+          const { error: deleteAssignmentsError } = await supabase
+            .from('tutor_aula')
+            .delete()
+            .in('fcp_miembro_id', tutorIds)
+          
+          if (deleteAssignmentsError) {
+            console.error('Error eliminando asignaciones de aulas:', deleteAssignmentsError)
+            throw deleteAssignmentsError
+          }
+        }
+      } else {
+        // Si no tiene usuario_id (invitación pendiente), solo desactivar este registro específico
+        const { error: deactivateError } = await supabase
+          .from('fcp_miembros')
+          .update({ activo: false })
+          .eq('id', miembro.id)
+        
+        if (deactivateError) {
+          console.error('Error desactivando miembro:', deactivateError)
+          throw deactivateError
+        }
+        
+        // Si es tutor, eliminar asignaciones de aulas de este registro específico
+        if (miembro.rol === 'tutor') {
+          const { error: deleteAssignmentsError } = await supabase
+            .from('tutor_aula')
+            .delete()
+            .eq('fcp_miembro_id', miembro.id)
+          
+          if (deleteAssignmentsError) {
+            console.error('Error eliminando asignaciones de aulas:', deleteAssignmentsError)
+            throw deleteAssignmentsError
+          }
+        }
+      }
+      
+      setError(null)
+      onSuccess()
       setLoading(false)
       return
     }
 
-    // Validar que si tutor está seleccionado, tenga al menos una aula asignada
+    // Si está activo, requerir usuario_id para asignar roles
+    if (!miembro.usuario_id) {
+      setError('El miembro debe tener un usuario asociado para asignar roles.')
+      setLoading(false)
+      return
+    }
+
+    // Validar que si tutor está seleccionado y está activo, tenga al menos una aula asignada
     if (selectedRoles.includes('tutor') && selectedAulas.length === 0) {
       setError('Si asignas el rol de tutor, debes asignar al menos una aula.')
       setLoading(false)
@@ -743,10 +823,11 @@ export function MiembroEditDialog({
                         setSelectedRoles(selectedRoles.filter(r => r !== 'secretario'))
                       }
                     }}
+                    disabled={!activo || !canEditThisMember}
                   />
                   <label
                     htmlFor="rol-secretario"
-                    className="text-sm font-medium leading-none cursor-pointer"
+                    className={`text-sm font-medium leading-none ${!activo || !canEditThisMember ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
                   >
                     {getRolDisplayName('secretario')}
                   </label>
@@ -763,23 +844,31 @@ export function MiembroEditDialog({
                         setSelectedAulas([]) // Limpiar aulas si se desmarca tutor
                       }
                     }}
+                    disabled={!activo || !canEditThisMember}
                   />
                   <label
                     htmlFor="rol-tutor"
-                    className="text-sm font-medium leading-none cursor-pointer"
+                    className={`text-sm font-medium leading-none ${!activo || !canEditThisMember ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
                   >
                     {getRolDisplayName('tutor')}
                   </label>
                 </div>
               </div>
-              {selectedRoles.length === 0 && (
+              {selectedRoles.length === 0 && activo && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
                   Debes seleccionar al menos un rol (Secretario y/o Tutor).
                 </p>
               )}
-              <p className="text-xs text-muted-foreground">
-                Como director, puedes asignar uno o ambos roles al miembro.
-              </p>
+              {!activo && (
+                <p className="text-xs text-muted-foreground">
+                  Los roles están bloqueados cuando el miembro está inactivo.
+                </p>
+              )}
+              {activo && (
+                <p className="text-xs text-muted-foreground">
+                  Como director, puedes asignar uno o ambos roles al miembro.
+                </p>
+              )}
             </div>
           ) : (
             <div className="grid gap-2">
@@ -799,7 +888,7 @@ export function MiembroEditDialog({
                   }
                   setRol(value as 'facilitador' | 'director' | 'secretario' | 'tutor')
                 }}
-                disabled={!canEditThisMember || (isSecretario && miembro.rol === 'tutor')}
+                disabled={!activo || !canEditThisMember || (isSecretario && miembro.rol === 'tutor')}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecciona un rol" />
@@ -855,7 +944,11 @@ export function MiembroEditDialog({
           {((canAssignMultipleRoles && selectedRoles.includes('tutor')) || rol === 'tutor') && (
             <div className="grid gap-2">
               <Label htmlFor="aulas">Aulas Asignadas *</Label>
-              {loadingAulas ? (
+              {!activo ? (
+                <p className="text-sm text-muted-foreground">
+                  Las aulas están bloqueadas cuando el miembro está inactivo.
+                </p>
+              ) : loadingAulas ? (
                 <p className="text-sm text-muted-foreground">Cargando aulas...</p>
               ) : aulas.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
@@ -877,10 +970,11 @@ export function MiembroEditDialog({
                             setSelectedAulas(newAulas)
                           }
                         }}
+                        disabled={!activo}
                       />
                       <label
                         htmlFor={`aula-${aula.id}`}
-                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                        className={`text-sm font-medium leading-none ${!activo ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
                       >
                         {aula.nombre}
                       </label>
@@ -888,7 +982,7 @@ export function MiembroEditDialog({
                   ))}
                 </div>
               )}
-              {((canAssignMultipleRoles && selectedRoles.includes('tutor')) || rol === 'tutor') && selectedAulas.length === 0 && (
+              {activo && ((canAssignMultipleRoles && selectedRoles.includes('tutor')) || rol === 'tutor') && selectedAulas.length === 0 && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
                   Debes asignar al menos una aula al tutor.
                 </p>
@@ -913,8 +1007,8 @@ export function MiembroEditDialog({
             disabled={
               loading || 
               !canEditThisMember || 
-              (canAssignMultipleRoles && (selectedRoles.length === 0 || (selectedRoles.includes('tutor') && selectedAulas.length === 0))) ||
-              (!canAssignMultipleRoles && rol === 'tutor' && selectedAulas.length === 0)
+              (activo && canAssignMultipleRoles && (selectedRoles.length === 0 || (selectedRoles.includes('tutor') && selectedAulas.length === 0))) ||
+              (activo && !canAssignMultipleRoles && rol === 'tutor' && selectedAulas.length === 0)
             }
           >
             {loading ? 'Actualizando...' : 'Guardar Cambios'}

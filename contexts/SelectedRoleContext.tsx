@@ -138,7 +138,18 @@ export function SelectedRoleProvider({ children }: { children: ReactNode }) {
       // Si tiene múltiples roles, usar el de mayor jerarquía como predeterminado
       const roles = allRolesData.map(r => r.rol) as RolType[]
       const highestRole = getHighestPriorityRole(roles)
-      const highestRoleData = allRolesData.find(r => r.rol === highestRole)
+      
+      // Si el rol de mayor jerarquía es facilitador, preferir uno con fcp_id no nulo
+      let highestRoleData = allRolesData.find(r => r.rol === highestRole)
+      
+      // Si el rol seleccionado es facilitador y tiene fcp_id null, buscar uno con fcp_id no nulo
+      if (highestRole === 'facilitador' && highestRoleData && !highestRoleData.fcp_id) {
+        const facilitadorConFcp = allRolesData.find(r => r.rol === 'facilitador' && r.fcp_id !== null)
+        if (facilitadorConFcp) {
+          highestRoleData = facilitadorConFcp
+          console.log('👤 [SelectedRoleContext] Facilitador con fcp_id null, usando uno con FCP asignada')
+        }
+      }
 
       if (highestRoleData) {
         const roleToSet = {

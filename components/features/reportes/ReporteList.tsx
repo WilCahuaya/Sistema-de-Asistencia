@@ -90,10 +90,96 @@ export function ReporteList() {
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear())
   const [reporteData, setReporteData] = useState<ReporteData | null>(null)
   const [responsable, setResponsable] = useState<{ nombre: string; email: string; rol: string } | null>(null)
+  const [esFacilitador, setEsFacilitador] = useState<boolean>(false)
+  const [fcpIdParaFacilitador, setFcpIdParaFacilitador] = useState<string | null>(null)
   const router = useRouter()
   const { selectedRole } = useSelectedRole()
   const fcpIdParaReporte = selectedRole?.fcpId
-  const { canViewReports, loading: roleLoading } = useUserRole(fcpIdParaReporte || null)
+  // Determinar el fcpId a usar: el seleccionado o el del facilitador (se actualizará después del useEffect)
+  const [fcpIdFinal, setFcpIdFinal] = useState<string | null>(fcpIdParaReporte || null)
+  const { canViewReports, loading: roleLoading, isFacilitador: isFacilitadorFromHook } = useUserRole(fcpIdFinal)
+
+  // Verificar si el usuario es facilitador y obtener su primera FCP si no hay fcpId seleccionado
+  useEffect(() => {
+    const verificarFacilitador = async () => {
+      if (fcpIdParaReporte) {
+        // Si ya hay un fcpId, usarlo directamente
+        setEsFacilitador(false)
+        setFcpIdParaFacilitador(null)
+        setFcpIdFinal(fcpIdParaReporte)
+        return
+      }
+
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        setEsFacilitador(false)
+        setFcpIdParaFacilitador(null)
+        setFcpIdFinal(null)
+        return
+      }
+
+      // Si selectedRole indica que es facilitador pero fcpId es null, buscar la primera FCP donde es facilitador
+      if (selectedRole?.role === 'facilitador' && !selectedRole.fcpId) {
+        console.log('👤 [ReporteList] Facilitador sin fcpId, buscando primera FCP asignada')
+        
+        // Buscar todas las FCPs donde el usuario es facilitador con fcp_id no nulo
+        const { data: facilitadorFCPs, error: facilitadorFCPsError } = await supabase
+          .from('fcp_miembros')
+          .select('fcp_id, fcp:fcps(id, razon_social, numero_identificacion)')
+          .eq('usuario_id', user.id)
+          .eq('rol', 'facilitador')
+          .eq('activo', true)
+          .not('fcp_id', 'is', null) // Solo FCPs con fcp_id no nulo
+          .order('fecha_asignacion', { ascending: false }) // Más reciente primero
+          .limit(1)
+          .maybeSingle()
+
+        if (!facilitadorFCPsError && facilitadorFCPs && facilitadorFCPs.fcp_id) {
+          setEsFacilitador(true)
+          setFcpIdParaFacilitador(facilitadorFCPs.fcp_id)
+          setFcpIdFinal(facilitadorFCPs.fcp_id)
+          console.log('👤 [ReporteList] Facilitador encontrado con FCP:', facilitadorFCPs.fcp_id, facilitadorFCPs.fcp)
+        } else {
+          // Es facilitador pero no tiene FCPs asignadas (facilitador del sistema)
+          setEsFacilitador(true)
+          setFcpIdParaFacilitador(null)
+          setFcpIdFinal(null)
+          console.log('👤 [ReporteList] Usuario es facilitador del sistema (sin FCP específica)')
+        }
+      } else if (!fcpIdParaReporte) {
+        // Si no hay fcpId y no es facilitador según selectedRole, verificar si es facilitador
+        const { data: facilitadorCheck, error: facilitadorCheckError } = await supabase
+          .from('fcp_miembros')
+          .select('fcp_id, fcp:fcps(id, razon_social, numero_identificacion)')
+          .eq('usuario_id', user.id)
+          .eq('rol', 'facilitador')
+          .eq('activo', true)
+          .not('fcp_id', 'is', null)
+          .order('fecha_asignacion', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (!facilitadorCheckError && facilitadorCheck && facilitadorCheck.fcp_id) {
+          setEsFacilitador(true)
+          setFcpIdParaFacilitador(facilitadorCheck.fcp_id)
+          setFcpIdFinal(facilitadorCheck.fcp_id)
+          console.log('👤 [ReporteList] Usuario es facilitador (detectado sin selectedRole), usando FCP:', facilitadorCheck.fcp_id)
+        } else {
+          setEsFacilitador(false)
+          setFcpIdParaFacilitador(null)
+          setFcpIdFinal(null)
+        }
+      } else {
+        // Ya hay fcpId, no necesitamos verificar
+        setEsFacilitador(false)
+        setFcpIdParaFacilitador(null)
+      }
+    }
+
+    verificarFacilitador()
+  }, [fcpIdParaReporte])
 
   useEffect(() => {
     // Inicializar con el mes actual
@@ -118,23 +204,39 @@ export function ReporteList() {
 
 
   const generarReporte = async () => {
-    if (!fcpIdParaReporte) {
+    const fcpIdAUsar = fcpIdParaReporte || fcpIdParaFacilitador
+    
+    if (!fcpIdAUsar) {
       alert('Por favor, asegúrate de tener un rol seleccionado')
       return
     }
 
     console.log('📊 [ReporteList] Generando reporte con:', {
       fcpIdParaReporte,
+      fcpIdParaFacilitador,
+      fcpIdAUsar,
       selectedRoleFcpId: selectedRole?.fcpId,
-      selectedRole: selectedRole?.role
+      selectedRole: selectedRole?.role,
+      esFacilitador
     })
 
     // Asegurar que las fechas estén configuradas según el mes seleccionado
     const inicio = new Date(selectedYear, selectedMonth, 1)
     const fin = new Date(selectedYear, selectedMonth + 1, 0)
     fin.setHours(23, 59, 59, 999)
-    setFechaInicio(inicio.toISOString().split('T')[0])
-    setFechaFin(fin.toISOString().split('T')[0])
+    const fechaInicioStr = inicio.toISOString().split('T')[0]
+    const fechaFinStr = fin.toISOString().split('T')[0]
+    setFechaInicio(fechaInicioStr)
+    setFechaFin(fechaFinStr)
+
+    console.log('📅 [ReporteList] Generando reporte para:', {
+      selectedYear,
+      selectedMonth,
+      mesNombre: new Date(selectedYear, selectedMonth).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }),
+      fechaInicio: fechaInicioStr,
+      fechaFin: fechaFinStr,
+      esMesAnterior: inicio < new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+    })
 
     try {
       setLoading(true)
@@ -187,7 +289,7 @@ export function ReporteList() {
             usuario:usuarios(nombre_completo, email)
           `)
           .eq('usuario_id', user.id)
-          .eq('fcp_id', fcpIdParaReporte)
+          .eq('fcp_id', fcpIdAUsar)
           .eq('activo', true)
           .limit(1)
 
@@ -209,11 +311,11 @@ export function ReporteList() {
         }
       }
 
-      // Obtener datos de la FCP usando el fcpId del rol seleccionado
+      // Obtener datos de la FCP usando el fcpId (del rol seleccionado o del facilitador)
       const { data: fcpData, error: fcpError } = await supabase
         .from('fcps')
         .select('id, razon_social, numero_identificacion')
-        .eq('id', fcpIdParaReporte)
+        .eq('id', fcpIdAUsar)
         .single()
 
       if (fcpError) {
@@ -221,37 +323,103 @@ export function ReporteList() {
         throw fcpError
       }
 
-      // Obtener estudiantes activos de la FCP (incluyendo created_at para filtrar por fecha) usando el fcpId del rol seleccionado
-      const { data: estudiantesData, error: estudiantesError } = await supabase
-        .from('estudiantes')
-        .select(`
-          id,
-          codigo,
-          nombre_completo,
-          aula_id,
-          created_at,
-          aula:aulas(id, nombre)
-        `)
-        .eq('fcp_id', fcpIdParaReporte)
-        .eq('activo', true)
+      // Determinar si estamos consultando un mes anterior
+      const fechaActual = new Date()
+      const mesActual = new Date(fechaActual.getFullYear(), fechaActual.getMonth(), 1)
+      const mesConsultado = new Date(selectedYear, selectedMonth, 1)
+      const esMesAnterior = mesConsultado < mesActual
 
-      if (estudiantesError) {
-        console.error('❌ [ReporteList] Error obteniendo estudiantes:', estudiantesError)
-        throw estudiantesError
-      }
+      console.log('📅 [ReporteList] Mes consultado:', {
+        mesConsultado: `${selectedYear}-${selectedMonth + 1}`,
+        mesActual: `${fechaActual.getFullYear()}-${fechaActual.getMonth() + 1}`,
+        esMesAnterior
+      })
 
-      // Obtener asistencias en el rango de fechas usando el fcpId del rol seleccionado
+      // Obtener asistencias en el rango de fechas usando el fcpId
+      // IMPORTANTE: Incluir aula_id de la asistencia para preservar el aula histórica
+      // IMPORTANTE: Usar fechaInicioStr y fechaFinStr que se calcularon del mes seleccionado
       const { data: asistenciasData, error: asistenciasError } = await supabase
         .from('asistencias')
-        .select('estudiante_id, estado, fecha')
-        .eq('fcp_id', fcpIdParaReporte)
-        .gte('fecha', fechaInicio)
-        .lte('fecha', fechaFin)
+        .select(`
+          estudiante_id, 
+          estado, 
+          fecha,
+          aula_id,
+          aula:aulas(id, nombre),
+          estudiante:estudiantes(id, codigo, nombre_completo, aula_id, created_at)
+        `)
+        .eq('fcp_id', fcpIdAUsar)
+        .gte('fecha', fechaInicioStr)
+        .lte('fecha', fechaFinStr)
 
       if (asistenciasError) {
         console.error('❌ [ReporteList] Error obteniendo asistencias:', asistenciasError)
         throw asistenciasError
       }
+
+      // Obtener estudiantes activos de la FCP
+      // IMPORTANTE: Para meses anteriores, cargar estudiantes basándose en las asistencias del mes
+      // Para meses actuales/futuros, cargar estudiantes basándose en su aula_id actual
+      let estudiantesData: any[] = []
+
+      if (esMesAnterior) {
+        // Para meses anteriores, obtener estudiantes únicos de las asistencias
+        // Esto asegura que solo incluyamos estudiantes que realmente estaban en esa aula en ese mes
+        const estudiantesMap = new Map<string, any>()
+        asistenciasData?.forEach((asist: any) => {
+          if (asist.estudiante && !estudiantesMap.has(asist.estudiante_id)) {
+            estudiantesMap.set(asist.estudiante_id, {
+              id: asist.estudiante.id,
+              codigo: asist.estudiante.codigo,
+              nombre_completo: asist.estudiante.nombre_completo,
+              aula_id: asist.aula_id, // Usar aula_id de la asistencia (histórica)
+              created_at: asist.estudiante.created_at,
+              aula: asist.aula // Usar aula de la asistencia (histórica)
+            })
+          }
+        })
+        estudiantesData = Array.from(estudiantesMap.values())
+        
+        console.log('📊 [ReporteList] Estudiantes cargados de mes anterior (basados en asistencias):', {
+          total: estudiantesData.length,
+          muestra: estudiantesData.slice(0, 3).map(e => ({ nombre: e.nombre_completo, aula: e.aula?.nombre }))
+        })
+      } else {
+        // Para meses actuales/futuros, cargar todos los estudiantes activos de la FCP
+        const { data: estudiantesDataQuery, error: estudiantesError } = await supabase
+          .from('estudiantes')
+          .select(`
+            id,
+            codigo,
+            nombre_completo,
+            aula_id,
+            created_at,
+            aula:aulas(id, nombre)
+          `)
+          .eq('fcp_id', fcpIdAUsar)
+          .eq('activo', true)
+
+        if (estudiantesError) {
+          console.error('❌ [ReporteList] Error obteniendo estudiantes:', estudiantesError)
+          throw estudiantesError
+        }
+
+        estudiantesData = estudiantesDataQuery || []
+        
+        console.log('📊 [ReporteList] Estudiantes cargados (mes actual/futuro):', {
+          total: estudiantesData.length
+        })
+      }
+
+      console.log('📊 [ReporteList] Asistencias obtenidas:', {
+        total: asistenciasData?.length || 0,
+        fechaInicio: fechaInicioStr,
+        fechaFin: fechaFinStr,
+        fechasUnicas: [...new Set(asistenciasData?.map((a: any) => a.fecha) || [])].sort(),
+        estudiantesUnicos: [...new Set(asistenciasData?.map((a: any) => a.estudiante_id) || [])].length,
+        aulasUnicas: [...new Set(asistenciasData?.map((a: any) => a.aula_id).filter((id: string) => id) || [])].length,
+        estudiantesCargados: estudiantesData.length
+      })
 
       // Calcular estadísticas
       const totalEstudiantes = estudiantesData?.length || 0
@@ -279,26 +447,101 @@ export function ReporteList() {
         total_dias: number
       }>()
 
-      // Inicializar mapas con estudiantes
-      estudiantesData?.forEach((est) => {
-        const aulaId = est.aula_id
-        const aulaNombre = (est.aula as any)?.nombre || 'Sin aula'
-
-        // Inicializar resumen por aula
-        if (!resumenPorAulaMap.has(aulaId)) {
-          resumenPorAulaMap.set(aulaId, {
-            aula_id: aulaId,
-            aula_nombre: aulaNombre,
-            total_estudiantes: 0,
-            presentes: 0,
-            faltas: 0,
-            permisos: 0,
-          })
+      // Inicializar mapas con aulas encontradas en las asistencias (usar aula_id de la asistencia)
+      // Primero, identificar todas las aulas únicas de las asistencias
+      const aulasEnAsistencias = new Map<string, { id: string; nombre: string }>()
+      asistenciasData?.forEach((asist: any) => {
+        if (asist.aula_id && asist.aula) {
+          if (!aulasEnAsistencias.has(asist.aula_id)) {
+            aulasEnAsistencias.set(asist.aula_id, {
+              id: asist.aula_id,
+              nombre: asist.aula.nombre || 'Sin aula'
+            })
+          }
         }
-        const aulaResumen = resumenPorAulaMap.get(aulaId)!
-        aulaResumen.total_estudiantes++
+      })
 
-        // Inicializar resumen por estudiante
+      // Inicializar resumen por aula usando aulas de las asistencias
+      aulasEnAsistencias.forEach((aula, aulaId) => {
+        resumenPorAulaMap.set(aulaId, {
+          aula_id: aulaId,
+          aula_nombre: aula.nombre,
+          total_estudiantes: 0,
+          presentes: 0,
+          faltas: 0,
+          permisos: 0,
+        })
+      })
+
+      // Inicializar resumen por estudiante usando el aula_id de sus asistencias
+      // Agrupar estudiantes por aula según sus asistencias
+      const estudiantesPorAula = new Map<string, Set<string>>() // aula_id -> Set<estudiante_id>
+      asistenciasData?.forEach((asist: any) => {
+        if (asist.aula_id && asist.estudiante_id) {
+          if (!estudiantesPorAula.has(asist.aula_id)) {
+            estudiantesPorAula.set(asist.aula_id, new Set())
+          }
+          estudiantesPorAula.get(asist.aula_id)!.add(asist.estudiante_id)
+        }
+      })
+
+      // Actualizar total_estudiantes por aula
+      estudiantesPorAula.forEach((estudiantesIds, aulaId) => {
+        const aulaResumen = resumenPorAulaMap.get(aulaId)
+        if (aulaResumen) {
+          aulaResumen.total_estudiantes = estudiantesIds.size
+        }
+      })
+
+      // Inicializar resumen por estudiante usando el aula_id de sus asistencias del mes consultado
+      // IMPORTANTE: Solo incluir estudiantes que tienen asistencias en el mes consultado
+      // El reporte debe mostrar solo los estudiantes que asistieron en ese mes específico
+      const estudiantesConAsistencias = new Set<string>()
+      asistenciasData?.forEach((asist: any) => {
+        if (asist.estudiante_id) {
+          estudiantesConAsistencias.add(asist.estudiante_id)
+        }
+      })
+
+      estudiantesConAsistencias.forEach((estudianteId) => {
+        const est = estudiantesData?.find(e => e.id === estudianteId)
+        if (!est) return
+
+        // Obtener el aula del estudiante según el mes consultado
+        let aulaNombre = 'Sin aula'
+        let aulaIdEstudiante: string | null = null
+        
+        if (esMesAnterior) {
+          // Para meses anteriores, usar siempre el aula_id de las asistencias (histórica)
+          const asistenciasDelEstudiante = asistenciasData?.filter((a: any) => a.estudiante_id === est.id) || []
+          
+          if (asistenciasDelEstudiante.length > 0) {
+            // Usar el aula_id de la primera asistencia del mes (todas deberían tener el mismo aula_id del mes)
+            const primeraAsistenciaDelMes = asistenciasDelEstudiante[0]
+            if (primeraAsistenciaDelMes?.aula_id && primeraAsistenciaDelMes?.aula) {
+              aulaIdEstudiante = primeraAsistenciaDelMes.aula_id
+              aulaNombre = primeraAsistenciaDelMes.aula.nombre || 'Sin aula'
+            }
+          }
+        } else {
+          // Para meses actuales/futuros, usar el aula_id actual del estudiante
+          // Esto asegura que si un estudiante cambió de aula, se muestre su aula actual
+          if (est.aula_id && est.aula) {
+            aulaIdEstudiante = est.aula_id
+            aulaNombre = (est.aula as any)?.nombre || 'Sin aula'
+          }
+        }
+        
+        console.log('👤 [ReporteList] Estudiante en reporte:', {
+          estudiante: est.nombre_completo,
+          aulaMostrada: aulaNombre,
+          aulaIdMostrada: aulaIdEstudiante,
+          aulaActual: (est.aula as any)?.nombre,
+          aulaIdActual: est.aula_id,
+          mesConsultado: `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`,
+          esMesAnterior
+        })
+
         resumenPorEstudianteMap.set(est.id, {
           estudiante_id: est.id,
           estudiante_codigo: est.codigo,
@@ -314,21 +557,64 @@ export function ReporteList() {
       // Crear un mapa para rastrear días completos únicos por estudiante
       const diasCompletosPorEstudiante = new Map<string, Set<string>>() // estudiante_id -> Set<fecha>
 
-      // Primero, identificar días completos por aula
+      // Primero, identificar días completos por aula usando aula_id de las asistencias
       const diasCompletosPorAula = new Map<string, Set<string>>() // aula_id -> Set<fecha>
       const aulasMap = new Map<string, { aulaId: string; aulaNombre: string; estudiantesIds: string[] }>()
       
-      estudiantesData?.forEach(est => {
-        const aulaId = est.aula_id
-        const aulaNombre = (est.aula as any)?.nombre || 'Sin aula'
-        if (!aulasMap.has(aulaId)) {
-          aulasMap.set(aulaId, {
-            aulaId,
-            aulaNombre,
-            estudiantesIds: [],
-          })
-        }
-        aulasMap.get(aulaId)!.estudiantesIds.push(est.id)
+      // IMPORTANTE: Agrupar estudiantes por aula según el mes consultado
+      // Para meses anteriores: usar aula_id de las asistencias (histórica)
+      // Para meses actuales/futuros: usar aula_id actual del estudiante
+      if (esMesAnterior) {
+        // Para meses anteriores, agrupar estudiantes por aula_id de sus asistencias
+        asistenciasData?.forEach((asist: any) => {
+          if (asist.aula_id) {
+            const aulaId = asist.aula_id
+            const aulaNombre = asist.aula?.nombre || 'Sin aula'
+            
+            if (!aulasMap.has(aulaId)) {
+              aulasMap.set(aulaId, {
+                aulaId,
+                aulaNombre,
+                estudiantesIds: [],
+              })
+            }
+            
+            // Agregar estudiante solo si no está ya en la lista
+            if (!aulasMap.get(aulaId)!.estudiantesIds.includes(asist.estudiante_id)) {
+              aulasMap.get(aulaId)!.estudiantesIds.push(asist.estudiante_id)
+            }
+          }
+        })
+      } else {
+        // Para meses actuales/futuros, agrupar estudiantes por su aula_id actual
+        estudiantesData?.forEach((est: any) => {
+          if (est.aula_id) {
+            const aulaId = est.aula_id
+            const aulaNombre = (est.aula as any)?.nombre || 'Sin aula'
+            
+            if (!aulasMap.has(aulaId)) {
+              aulasMap.set(aulaId, {
+                aulaId,
+                aulaNombre,
+                estudiantesIds: [],
+              })
+            }
+            
+            // Agregar estudiante solo si no está ya en la lista
+            if (!aulasMap.get(aulaId)!.estudiantesIds.includes(est.id)) {
+              aulasMap.get(aulaId)!.estudiantesIds.push(est.id)
+            }
+          }
+        })
+      }
+
+      console.log('🏫 [ReporteList] Aulas agrupadas:', {
+        totalAulas: aulasMap.size,
+        aulas: Array.from(aulasMap.entries()).map(([aulaId, aula]) => ({
+          aulaId: aulaId.substring(0, 8),
+          aulaNombre: aula.aulaNombre,
+          totalEstudiantes: aula.estudiantesIds.length
+        }))
       })
 
       // Identificar días completos (días donde todos los estudiantes del aula están marcados)
@@ -336,16 +622,14 @@ export function ReporteList() {
         const totalEstudiantes = aula.estudiantesIds.length
         const asistenciasPorFecha = new Map<string, Set<string>>() // fecha -> Set<estudiante_id>
 
-        // Agrupar TODAS las asistencias por fecha para esta aula (sin filtrar por created_at aquí)
-        // El filtrado por created_at se hará solo al verificar días completos
-        asistenciasData?.forEach(asist => {
-          if (aula.estudiantesIds.includes(asist.estudiante_id)) {
-            const estudiante = estudiantesData?.find(e => e.id === asist.estudiante_id)
-            if (!estudiante) return
-            
+        // Agrupar TODAS las asistencias por fecha para esta aula
+        // IMPORTANTE: Usar aula_id de la asistencia para agrupar correctamente
+        asistenciasData?.forEach((asist: any) => {
+          // Solo incluir asistencias que pertenecen a esta aula (según aula_id de la asistencia)
+          if (asist.aula_id === aulaId && aula.estudiantesIds.includes(asist.estudiante_id)) {
             const fecha = asist.fecha
             
-            // Contar TODAS las asistencias registradas (sin filtrar por created_at aquí)
+            // Contar TODAS las asistencias registradas
             if (!asistenciasPorFecha.has(fecha)) {
               asistenciasPorFecha.set(fecha, new Set())
             }
@@ -372,30 +656,19 @@ export function ReporteList() {
           const fechaFinDate = new Date(yearFin, monthFin - 1, dayFin)
           const esDelRango = fechaDate >= fechaInicioDate && fechaDate <= fechaFinDate
           
-          // IMPORTANTE: Filtrar estudiantes que existían en esta fecha específica
-          // Solo contar estudiantes que fueron creados ANTES o EN esta fecha
-          const fechaDateObj = new Date(fecha + 'T23:59:59') // Fin del día
-          const estudiantesActivosEnFecha = aula.estudiantesIds.filter(estId => {
-            const estudiante = estudiantesData?.find(e => e.id === estId)
-            if (!estudiante) return false
-            // Si el estudiante tiene created_at, verificar que fue creado antes o en esta fecha
-            if (estudiante.created_at) {
-              const fechaCreacion = new Date(estudiante.created_at)
-              return fechaCreacion <= fechaDateObj
-            }
-            // Si no tiene created_at, asumimos que existía (para compatibilidad con datos antiguos)
-            return true
-          })
+          // IMPORTANTE: Para detectar días completos, usar TODOS los estudiantes del aula
+          // NO filtrar por created_at porque los estudiantes pueden haber sido agregados después
+          // pero aún así deberían tener asistencia registrada para fechas anteriores
+          // Esto es consistente con la lógica de detección de días incompletos
+          const totalEstudiantesEnFecha = aula.estudiantesIds.length
           
-          const totalEstudiantesEnFecha = estudiantesActivosEnFecha.length
-          
-          // Contar solo estudiantes que existían en esa fecha Y tienen asistencia registrada
-          const estudiantesActivosIdsSet = new Set(estudiantesActivosEnFecha)
+          // Contar estudiantes marcados que pertenecen a esta aula
+          const estudiantesAulaSet = new Set(aula.estudiantesIds)
           const marcados = Array.from(estudiantesMarcados).filter(estId => 
-            estudiantesActivosIdsSet.has(estId)
+            estudiantesAulaSet.has(estId)
           ).length
           
-          // Si todos los estudiantes que existían están marcados y está en el rango, es un día completo
+          // Si todos los estudiantes del aula están marcados y está en el rango, es un día completo
           if (marcados === totalEstudiantesEnFecha && totalEstudiantesEnFecha > 0 && esDelRango) {
             console.log('✅ [ReporteList] Día completo detectado:', {
               fecha,
@@ -412,11 +685,13 @@ export function ReporteList() {
       })
 
       // Procesar asistencias solo de días completos y dentro del rango
-      asistenciasData?.forEach((asist) => {
+      // IMPORTANTE: Usar aula_id de la asistencia, no del estudiante
+      asistenciasData?.forEach((asist: any) => {
         const estudiante = estudiantesData?.find(e => e.id === asist.estudiante_id)
         if (!estudiante) return
 
-        const aulaId = estudiante.aula_id
+        // Usar aula_id de la asistencia para preservar el aula histórica
+        const aulaId = asist.aula_id || estudiante.aula_id // Fallback al aula actual si no hay aula_id en asistencia
         const fecha = asist.fecha
         
         // Verificar que la fecha esté en el rango seleccionado
@@ -446,6 +721,17 @@ export function ReporteList() {
         // Actualizar resumen por estudiante
         const estudianteResumen = resumenPorEstudianteMap.get(asist.estudiante_id)
         if (estudianteResumen) {
+          // IMPORTANTE: Solo actualizar el aula_nombre usando el aula_id de la asistencia para meses anteriores
+          // Para meses actuales, mantener el aula_nombre que se estableció usando el aula_id actual del estudiante
+          if (esMesAnterior && asist.aula_id && asist.aula) {
+            const aulaNombreDeAsistencia = asist.aula.nombre || 'Sin aula'
+            // Solo actualizar si es diferente (puede haber múltiples asistencias del mismo estudiante)
+            if (estudianteResumen.aula_nombre !== aulaNombreDeAsistencia) {
+              estudianteResumen.aula_nombre = aulaNombreDeAsistencia
+            }
+          }
+          // Para meses actuales, NO sobrescribir el aula_nombre (ya está correcto desde la inicialización)
+          
           // Contar días completos únicos por estudiante
           if (!diasCompletosPorEstudiante.has(asist.estudiante_id)) {
             diasCompletosPorEstudiante.set(asist.estudiante_id, new Set())
@@ -526,9 +812,10 @@ export function ReporteList() {
           const totalEstudiantes = aula.estudiantesIds.length
           const asistenciasPorFecha = new Map<string, Set<string>>() // fecha -> Set<estudiante_id>
 
-          // Agrupar asistencias por fecha para esta aula
-          asistenciasData?.forEach(asist => {
-            if (aula.estudiantesIds.includes(asist.estudiante_id)) {
+          // Agrupar asistencias por fecha para esta aula usando aula_id de la asistencia
+          asistenciasData?.forEach((asist: any) => {
+            // Solo incluir asistencias que pertenecen a esta aula según aula_id de la asistencia
+            if (asist.aula_id === aulaId && aula.estudiantesIds.includes(asist.estudiante_id)) {
               const fecha = asist.fecha
               // Verificar que la fecha esté en el rango
               const [year, month, day] = fecha.split('-').map(Number)
@@ -548,10 +835,11 @@ export function ReporteList() {
             }
           })
 
-          // Obtener todas las fechas únicas con asistencias registradas para esta aula
+          // Obtener todas las fechas únicas con asistencias registradas para esta aula usando aula_id de la asistencia
           const fechasConAsistencias = new Set<string>()
-          asistenciasData?.forEach(asist => {
-            if (aula.estudiantesIds.includes(asist.estudiante_id)) {
+          asistenciasData?.forEach((asist: any) => {
+            // Solo incluir asistencias que pertenecen a esta aula según aula_id de la asistencia
+            if (asist.aula_id === aulaId && aula.estudiantesIds.includes(asist.estudiante_id)) {
               const fecha = asist.fecha
               // Verificar que la fecha esté en el rango seleccionado
               const [year, month, day] = fecha.split('-').map(Number)
@@ -677,8 +965,10 @@ export function ReporteList() {
           })
         })
 
-        // Obtener tutores asignados a cada aula
-        const aulasIds = Array.from(new Set(estudiantesData?.map(e => e.aula_id) || []))
+        // Obtener tutores asignados a cada aula usando aulas de las asistencias
+        const aulasIds = Array.from(new Set(
+          asistenciasData?.map((a: any) => a.aula_id).filter((id: string) => id) || []
+        ))
         const aulaTutorMap = new Map<string, string>() // aula_id -> tutor_nombre
 
         // Obtener todos los tutores asignados a aulas de una vez usando el fcpId del rol seleccionado
@@ -692,7 +982,7 @@ export function ReporteList() {
               usuario:usuarios(nombre_completo, email)
             )
           `)
-          .eq('fcp_id', fcpIdParaReporte)
+          .eq('fcp_id', fcpIdAUsar)
           .eq('activo', true)
           .in('aula_id', aulasIds)
 
@@ -712,11 +1002,24 @@ export function ReporteList() {
         })
 
         // Crear mapa de asistencias por estudiante y fecha (TODAS las asistencias registradas)
+        // IMPORTANTE: También actualizar el aula_nombre del estudiante usando el aula_id de la asistencia
         const asistenciasMap = new Map<string, Map<string, boolean>>() // estudiante_id -> fecha -> presente
 
-        asistenciasData?.forEach((asist) => {
+        asistenciasData?.forEach((asist: any) => {
           const estudiante = estudiantesData?.find(e => e.id === asist.estudiante_id)
           if (!estudiante) return
+          
+          // IMPORTANTE: Solo actualizar el aula_nombre usando el aula_id de la asistencia para meses anteriores
+          // Para meses actuales, mantener el aula_nombre que se estableció usando el aula_id actual del estudiante
+          const estudianteResumen = resumenPorEstudianteMap.get(asist.estudiante_id)
+          if (estudianteResumen && esMesAnterior && asist.aula_id && asist.aula) {
+            const aulaNombreDeAsistencia = asist.aula.nombre || 'Sin aula'
+            // Actualizar el aula_nombre si es diferente (para preservar el aula histórica)
+            if (estudianteResumen.aula_nombre !== aulaNombreDeAsistencia) {
+              estudianteResumen.aula_nombre = aulaNombreDeAsistencia
+            }
+          }
+          // Para meses actuales, NO sobrescribir el aula_nombre (ya está correcto desde la inicialización)
           
           const fecha = asist.fecha
           
@@ -744,9 +1047,13 @@ export function ReporteList() {
 
         reporteDetallado = estudiantesOrdenados.map((est, index) => {
           const estudiante = estudiantesData?.find(e => e.id === est.estudiante_id)
-          const aulaId = estudiante?.aula_id || ''
+          // Obtener aula_id de las asistencias del estudiante en el mes consultado para preservar el aula histórica
+          // IMPORTANTE: Usar el aula_id de las asistencias del mes, no el aula_id actual del estudiante
+          const asistenciasDelEstudiante = asistenciasData?.filter((a: any) => a.estudiante_id === est.estudiante_id) || []
+          const primeraAsistenciaDelMes = asistenciasDelEstudiante[0]
+          const aulaId = primeraAsistenciaDelMes?.aula_id || estudiante?.aula_id || ''
           const tutor = aulaTutorMap.get(aulaId) || 'Sin tutor asignado'
-          const nivel = est.aula_nombre
+          const nivel = est.aula_nombre // Ya está usando el aula_nombre correcto del resumenPorEstudianteMap
 
           const asistenciasPorFecha: { [fecha: string]: boolean } = {}
           const asistMap = asistenciasMap.get(est.estudiante_id)
@@ -1205,7 +1512,8 @@ export function ReporteList() {
     }
   }
 
-  if (!fcpIdParaReporte) {
+  // Si no hay fcpId y no es facilitador, mostrar mensaje
+  if (!fcpIdFinal && !esFacilitador && !roleLoading) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
@@ -1257,9 +1565,9 @@ export function ReporteList() {
             </div>
           </div>
 
-          <RoleGuard fcpId={fcpIdParaReporte || undefined} allowedRoles={['facilitador', 'director', 'secretario']}>
+          <RoleGuard fcpId={fcpIdFinal || undefined} allowedRoles={['facilitador', 'director', 'secretario']}>
             <div className="mt-4">
-              <Button onClick={generarReporte} disabled={loading || !fcpIdParaReporte}>
+              <Button onClick={generarReporte} disabled={loading || !fcpIdFinal}>
                 {loading ? (
                   <>
                     <Calendar className="mr-2 h-4 w-4 animate-pulse" />
@@ -1272,7 +1580,7 @@ export function ReporteList() {
                   </>
                 )}
               </Button>
-              {!fcpIdParaReporte && (
+              {!fcpIdFinal && (
                 <p className="text-sm text-muted-foreground mt-2">
                   Por favor, asegúrate de tener un rol seleccionado.
                 </p>
@@ -1287,7 +1595,7 @@ export function ReporteList() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>Reporte Generado</CardTitle>
-              <RoleGuard fcpId={fcpIdParaReporte || undefined} allowedRoles={['facilitador', 'director', 'secretario']}>
+              <RoleGuard fcpId={fcpIdFinal || undefined} allowedRoles={['facilitador', 'director', 'secretario']}>
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={exportarExcel}>
                     <FileSpreadsheet className="mr-2 h-4 w-4" />

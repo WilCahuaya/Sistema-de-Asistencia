@@ -13,6 +13,14 @@ import {
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { ArrowRight, AlertCircle } from 'lucide-react'
 
 interface Estudiante {
@@ -150,8 +158,8 @@ export function EstudianteMovimientoDialog({
         <div className="grid gap-4 py-4">
           <div>
             <Label className="mb-2 block">Estudiante:</Label>
-            <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
-              <p className="font-medium">{estudiante.nombre_completo}</p>
+            <div className="p-3 bg-muted border border-border rounded-md">
+              <p className="font-medium text-foreground">{estudiante.nombre_completo}</p>
               <p className="text-sm text-muted-foreground font-mono">{estudiante.codigo}</p>
             </div>
           </div>
@@ -178,18 +186,18 @@ export function EstudianteMovimientoDialog({
                 </div>
               </div>
             ) : (
-              <select
-                id="aula-destino"
-                value={selectedAulaId}
-                onChange={(e) => setSelectedAulaId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md dark:bg-gray-800 dark:border-gray-700 dark:text-white"
-              >
-                {aulasDisponibles.map((aula) => (
-                  <option key={aula.id} value={aula.id}>
-                    {aula.nombre}
-                  </option>
-                ))}
-              </select>
+              <Select value={selectedAulaId} onValueChange={setSelectedAulaId}>
+                <SelectTrigger id="aula-destino" className="w-full">
+                  <SelectValue placeholder="Selecciona un aula" />
+                </SelectTrigger>
+                <SelectContent>
+                  {aulasDisponibles.map((aula) => (
+                    <SelectItem key={aula.id} value={aula.id}>
+                      {aula.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
           </div>
 

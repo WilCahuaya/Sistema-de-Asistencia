@@ -241,13 +241,14 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     }
   }, [selectedAula, fcpId]) // Remover selectedMonth y selectedYear de aquí - no deberían limpiar estudiantes
 
-  // Efecto separado para recargar asistencias cuando cambia el mes/año (sin limpiar estudiantes)
+  // Efecto separado para recargar estudiantes y asistencias cuando cambia el mes/año
+  // IMPORTANTE: Si cambia a un mes anterior, necesitamos recargar estudiantes basándose en asistencias
   useEffect(() => {
-    if (selectedAula && estudiantes.length > 0) {
-      console.log('🔄 Mes/año cambió, recargando asistencias sin limpiar estudiantes')
-      loadAsistenciasMes()
+    if (selectedAula) {
+      console.log('🔄 Mes/año cambió, recargando estudiantes y asistencias')
+      loadEstudiantes() // Esto cargará estudiantes basándose en el mes (histórico o actual)
     }
-  }, [selectedMonth, selectedYear]) // Solo cuando cambia mes/año, no limpiar nada
+  }, [selectedMonth, selectedYear]) // Cuando cambia mes/año, recargar estudiantes (que luego cargará asistencias)
 
   // Efecto principal para cargar asistencias cuando hay estudiantes y aula
   // Este efecto se ejecuta cuando cambian los estudiantes (después de cargarse)
@@ -322,24 +323,89 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     try {
       setLoading(true)
       const supabase = createClient()
-      const { data, error } = await supabase
-        .from('estudiantes')
-        .select('id, codigo, nombre_completo')
-        .eq('fcp_id', fcpId)
-        .eq('aula_id', selectedAula)
-        .eq('activo', true)
-        .order('nombre_completo', { ascending: true })
+      
+      // Determinar si estamos consultando un mes anterior
+      const fechaActual = new Date()
+      const mesActual = new Date(fechaActual.getFullYear(), fechaActual.getMonth(), 1)
+      const mesConsultado = new Date(selectedYear, selectedMonth, 1)
+      const esMesAnterior = mesConsultado < mesActual
+      
+      let nuevosEstudiantes: Estudiante[] = []
+      
+      if (esMesAnterior) {
+        // Si es un mes anterior, cargar estudiantes basándose en las asistencias de ese mes
+        // IMPORTANTE: Usar aula_id de las asistencias, no el aula_id actual del estudiante
+        const firstDay = formatDateToLocalString(new Date(selectedYear, selectedMonth, 1))
+        const lastDay = formatDateToLocalString(new Date(selectedYear, selectedMonth + 1, 0))
+        
+        console.log('📅 Cargando estudiantes de mes anterior basándose en asistencias:', {
+          mes: selectedMonth,
+          año: selectedYear,
+          aula: selectedAula,
+          fechaInicio: firstDay,
+          fechaFin: lastDay
+        })
+        
+        // Obtener estudiantes que tienen asistencias en esta aula durante el mes consultado
+        const { data: asistenciasData, error: asistenciasError } = await supabase
+          .from('asistencias')
+          .select(`
+            estudiante_id,
+            aula_id,
+            estudiante:estudiantes(id, codigo, nombre_completo)
+          `)
+          .eq('fcp_id', fcpId)
+          .eq('aula_id', selectedAula)
+          .gte('fecha', firstDay)
+          .lte('fecha', lastDay)
+        
+        if (asistenciasError) throw asistenciasError
+        
+        // Extraer estudiantes únicos de las asistencias
+        const estudiantesIds = new Set<string>()
+        const estudiantesMap = new Map<string, Estudiante>()
+        
+        asistenciasData?.forEach((asist: any) => {
+          if (asist.estudiante && !estudiantesIds.has(asist.estudiante_id)) {
+            estudiantesIds.add(asist.estudiante_id)
+            estudiantesMap.set(asist.estudiante_id, {
+              id: asist.estudiante.id,
+              codigo: asist.estudiante.codigo,
+              nombre_completo: asist.estudiante.nombre_completo
+            })
+          }
+        })
+        
+        nuevosEstudiantes = Array.from(estudiantesMap.values())
+          .sort((a, b) => a.nombre_completo.localeCompare(b.nombre_completo))
+        
+        console.log('✅ Estudiantes cargados de mes anterior (basados en asistencias):', {
+          count: nuevosEstudiantes.length,
+          aula: selectedAula,
+          muestraIds: nuevosEstudiantes.slice(0, 3).map(e => e.id.substring(0, 8))
+        })
+      } else {
+        // Si es el mes actual o futuro, cargar estudiantes basándose en su aula_id actual
+        const { data, error } = await supabase
+          .from('estudiantes')
+          .select('id, codigo, nombre_completo')
+          .eq('fcp_id', fcpId)
+          .eq('aula_id', selectedAula)
+          .eq('activo', true)
+          .order('nombre_completo', { ascending: true })
 
-      if (error) throw error
+        if (error) throw error
+        
+        nuevosEstudiantes = data || []
+        
+        console.log('✅ Estudiantes cargados (mes actual/futuro):', {
+          count: nuevosEstudiantes.length,
+          aula: selectedAula,
+          muestraIds: nuevosEstudiantes.slice(0, 3).map(e => e.id.substring(0, 8))
+        })
+      }
       
-      const nuevosEstudiantes = data || []
       const nuevosIds = new Set(nuevosEstudiantes.map(e => e.id))
-      
-      console.log('✅ Estudiantes cargados:', {
-        count: nuevosEstudiantes.length,
-        aula: selectedAula,
-        muestraIds: nuevosEstudiantes.slice(0, 3).map(e => e.id.substring(0, 8))
-      })
       
       // Actualizar estudiantes
       setEstudiantes(prev => {
@@ -347,9 +413,9 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         const idsCambiaron = nuevosIds.size !== prevIds.size || 
                              !Array.from(nuevosIds).every(id => prevIds.has(id))
         
-        // Si los IDs cambiaron (cambio de aula), limpiar asistencias
+        // Si los IDs cambiaron (cambio de aula o mes), limpiar asistencias
         if (idsCambiaron && prev.length > 0) {
-          console.log('🔄 IDs de estudiantes cambiaron (cambio de aula), limpiando asistencias')
+          console.log('🔄 IDs de estudiantes cambiaron (cambio de aula/mes), limpiando asistencias')
           setAsistencias(new Map())
         }
         
@@ -540,6 +606,30 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       return
     }
 
+    // Validar inmutabilidad: no permitir registrar/editar asistencias en fechas de meses anteriores
+    // IMPORTANTE: Comparar solo meses, no días, para permitir mes actual y futuros
+    const fechaAsistencia = new Date(fechaStr + 'T00:00:00') // Asegurar hora local
+    const fechaActual = new Date()
+    const mesAsistencia = new Date(fechaAsistencia.getFullYear(), fechaAsistencia.getMonth(), 1)
+    const mesActual = new Date(fechaActual.getFullYear(), fechaActual.getMonth(), 1)
+    
+    console.log('🔍 [AsistenciaCalendarView] Validación de fecha en saveAsistencia:', {
+      fechaStr,
+      fechaAsistencia: fechaAsistencia.toISOString(),
+      mesAsistencia: mesAsistencia.toISOString(),
+      mesActual: mesActual.toISOString(),
+      esMesAnterior: mesAsistencia < mesActual,
+      esMesActual: mesAsistencia.getTime() === mesActual.getTime(),
+      esMesFuturo: mesAsistencia > mesActual
+    })
+    
+    // Solo bloquear si es un mes anterior (estrictamente menor)
+    // Permitir mes actual (igual) y meses futuros (mayor)
+    if (mesAsistencia < mesActual) {
+      alert('No se pueden registrar o modificar asistencias en fechas de meses anteriores. Las asistencias quedan cerradas al finalizar cada mes.')
+      return
+    }
+
     const key = `${estudianteId}_${fechaStr}`
     const existingAsistencia = asistencias.get(key)
 
@@ -593,6 +683,17 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
           .single()
 
         if (error) {
+          // Si el error es de inmutabilidad desde la BD, mostrar mensaje específico
+          if (error.message?.includes('meses anteriores') || error.message?.includes('mes cerrado')) {
+            alert('No se pueden registrar asistencias en fechas de meses anteriores. Las asistencias quedan cerradas al finalizar cada mes.')
+            setSaving((prev) => {
+              const updated = new Set(prev)
+              updated.delete(key)
+              return updated
+            })
+            return
+          }
+          
           // Si el error es 409 (Conflict), la asistencia ya existe, intentar actualizar
           if (error.code === '23505' || error.message?.includes('409') || error.message?.includes('duplicate')) {
             // Buscar la asistencia existente y actualizarla
@@ -618,7 +719,19 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
               .select()
               .single()
 
-            if (updateError) throw updateError
+            if (updateError) {
+              // Si el error es de inmutabilidad desde la BD, mostrar mensaje específico
+              if (updateError.message?.includes('meses anteriores') || updateError.message?.includes('mes cerrado')) {
+                alert('No se pueden modificar asistencias de meses anteriores. Las asistencias quedan cerradas al finalizar cada mes.')
+                setSaving((prev) => {
+                  const updated = new Set(prev)
+                  updated.delete(key)
+                  return updated
+                })
+                return
+              }
+              throw updateError
+            }
 
             // Actualizar estado local - usar el objeto completo de existingData actualizado
             setAsistencias((prev) => {
@@ -640,9 +753,12 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       }
     } catch (error: any) {
       console.error('Error saving asistencia:', error)
-      // Solo mostrar alerta si no es un error de aborto
-      if (!error?.message?.includes('AbortError') && !error?.message?.includes('aborted')) {
-        alert('Error al guardar asistencia. Por favor, intenta nuevamente.')
+      // Si el error es de inmutabilidad, ya se manejó arriba
+      if (!error?.message?.includes('meses anteriores') && !error?.message?.includes('mes cerrado')) {
+        // Solo mostrar alerta si no es un error de aborto
+        if (!error?.message?.includes('AbortError') && !error?.message?.includes('aborted')) {
+          alert(error.message || 'Error al guardar asistencia. Por favor, intenta nuevamente.')
+        }
       }
     } finally {
       setSaving((prev) => {
@@ -729,6 +845,30 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const handleMarkAllPresente = async (fechaStr: string) => {
     // Validar permisos: solo director y secretario pueden registrar/editar asistencias
     if (!canEdit || !selectedAula || (role !== 'director' && role !== 'secretario')) {
+      return
+    }
+
+    // Validar inmutabilidad: no permitir registrar asistencias en fechas de meses anteriores
+    // IMPORTANTE: Comparar solo meses, no días, para permitir mes actual y futuros
+    const fechaAsistencia = new Date(fechaStr + 'T00:00:00') // Asegurar hora local
+    const fechaActual = new Date()
+    const mesAsistencia = new Date(fechaAsistencia.getFullYear(), fechaAsistencia.getMonth(), 1)
+    const mesActual = new Date(fechaActual.getFullYear(), fechaActual.getMonth(), 1)
+    
+    console.log('🔍 [AsistenciaCalendarView] Validación de fecha en handleMarkAllPresente:', {
+      fechaStr,
+      fechaAsistencia: fechaAsistencia.toISOString(),
+      mesAsistencia: mesAsistencia.toISOString(),
+      mesActual: mesActual.toISOString(),
+      esMesAnterior: mesAsistencia < mesActual,
+      esMesActual: mesAsistencia.getTime() === mesActual.getTime(),
+      esMesFuturo: mesAsistencia > mesActual
+    })
+    
+    // Solo bloquear si es un mes anterior (estrictamente menor)
+    // Permitir mes actual (igual) y meses futuros (mayor)
+    if (mesAsistencia < mesActual) {
+      alert('No se pueden registrar asistencias en fechas de meses anteriores. Las asistencias quedan cerradas al finalizar cada mes.')
       return
     }
 
@@ -841,6 +981,35 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     // Esperar a que ambas operaciones terminen
     Promise.all([updatePromises, insertPromise])
       .then(([updateResult, insertResult]) => {
+        // Verificar errores de inmutabilidad primero
+        if (updateResult.error) {
+          if (updateResult.error.message?.includes('meses anteriores') || updateResult.error.message?.includes('mes cerrado')) {
+            alert('No se pueden modificar asistencias de meses anteriores. Las asistencias quedan cerradas al finalizar cada mes.')
+            setSavingDates((prev) => {
+              const updated = new Set(prev)
+              updated.delete(fechaStr)
+              return updated
+            })
+            // Revertir actualización optimista
+            loadAsistencias()
+            return
+          }
+        }
+        
+        if (insertResult.error) {
+          if (insertResult.error.message?.includes('meses anteriores') || insertResult.error.message?.includes('mes cerrado')) {
+            alert('No se pueden registrar asistencias en fechas de meses anteriores. Las asistencias quedan cerradas al finalizar cada mes.')
+            setSavingDates((prev) => {
+              const updated = new Set(prev)
+              updated.delete(fechaStr)
+              return updated
+            })
+            // Revertir actualización optimista
+            loadAsistencias()
+            return
+          }
+        }
+        
         const hasErrors = (updateResult.error && !updateResult.error.message?.includes('AbortError')) ||
                          (insertResult.error && !insertResult.error.message?.includes('AbortError'))
 
@@ -854,21 +1023,36 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                 .select()
                 .single()
 
-              if (insertError && (insertError.code === '23505' || insertError.message?.includes('409'))) {
-                // Ya existe, buscar y actualizar
-                const { data: existing } = await supabase
-                  .from('asistencias')
-                  .select('*')
-                  .eq('estudiante_id', item.estudiante_id)
-                  .eq('fecha', item.fecha)
-                  .eq('fcp_id', item.fcp_id)
-                  .single()
-
-                if (existing) {
-                  await supabase
+              if (insertError) {
+                // Si el error es de inmutabilidad, mostrar mensaje y continuar con el siguiente
+                if (insertError.message?.includes('meses anteriores') || insertError.message?.includes('mes cerrado')) {
+                  console.warn('No se puede registrar asistencia de mes anterior:', item.fecha)
+                  return // Continuar con el siguiente item
+                }
+                
+                // Si el error es 409 (Conflict), la asistencia ya existe, intentar actualizar
+                if (insertError.code === '23505' || insertError.message?.includes('409')) {
+                  // Ya existe, buscar y actualizar
+                  const { data: existing } = await supabase
                     .from('asistencias')
-                    .update({ estado: 'presente', updated_at: new Date().toISOString() })
-                    .eq('id', existing.id)
+                    .select('*')
+                    .eq('estudiante_id', item.estudiante_id)
+                    .eq('fecha', item.fecha)
+                    .eq('fcp_id', item.fcp_id)
+                    .single()
+
+                  if (existing) {
+                    const { error: updateError } = await supabase
+                      .from('asistencias')
+                      .update({ estado: 'presente', updated_at: new Date().toISOString() })
+                      .eq('id', existing.id)
+                    
+                    // Si el error de actualización es de inmutabilidad, ignorar
+                    if (updateError && (updateError.message?.includes('meses anteriores') || updateError.message?.includes('mes cerrado'))) {
+                      console.warn('No se puede actualizar asistencia de mes anterior:', item.fecha)
+                      return
+                    }
+                  }
                 }
               } else if (result) {
                 // Actualizar estado local con el ID real
@@ -913,6 +1097,14 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       })
       .catch((error) => {
         console.error('Error saving asistencias:', error)
+        // Si el error es de inmutabilidad, mostrar mensaje específico
+        if (error?.message?.includes('meses anteriores') || error?.message?.includes('mes cerrado')) {
+          alert('No se pueden registrar asistencias en fechas de meses anteriores. Las asistencias quedan cerradas al finalizar cada mes.')
+          // Revertir actualización optimista
+          loadAsistencias()
+        } else {
+          alert(error?.message || 'Error al guardar las asistencias. Por favor, intenta nuevamente.')
+        }
         // Aún así, quitar el estado de guardando
         setSavingDates((prev) => {
           const updated = new Set(prev)
@@ -928,8 +1120,31 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       return
     }
 
+    // Validar inmutabilidad: no permitir eliminar asistencias de meses anteriores
+    // IMPORTANTE: Comparar solo meses, no días, para permitir mes actual y futuros
+    const fechaDate = new Date(fechaStr + 'T00:00:00') // Asegurar hora local
+    const fechaActual = new Date()
+    const mesAsistencia = new Date(fechaDate.getFullYear(), fechaDate.getMonth(), 1)
+    const mesActual = new Date(fechaActual.getFullYear(), fechaActual.getMonth(), 1)
+    
+    console.log('🔍 [AsistenciaCalendarView] Validación de fecha en handleEliminarTodasAsistencias:', {
+      fechaStr,
+      fechaDate: fechaDate.toISOString(),
+      mesAsistencia: mesAsistencia.toISOString(),
+      mesActual: mesActual.toISOString(),
+      esMesAnterior: mesAsistencia < mesActual,
+      esMesActual: mesAsistencia.getTime() === mesActual.getTime(),
+      esMesFuturo: mesAsistencia > mesActual
+    })
+    
+    // Solo bloquear si es un mes anterior (estrictamente menor)
+    // Permitir mes actual (igual) y meses futuros (mayor)
+    if (mesAsistencia < mesActual) {
+      alert('No se pueden eliminar asistencias de meses anteriores. Las asistencias quedan cerradas al finalizar cada mes.')
+      return
+    }
+
     // Confirmar eliminación
-    const fechaDate = new Date(fechaStr)
     const dayNames = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
     const dayName = dayNames[fechaDate.getDay()]
     const dayNumber = fechaDate.getDate()
@@ -955,7 +1170,21 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         .eq('fecha', fechaStr)
         .in('estudiante_id', estudianteIds)
 
-      if (error) throw error
+      if (error) {
+        // Si el error es de inmutabilidad desde la BD, mostrar mensaje específico
+        if (error.message?.includes('meses anteriores') || error.message?.includes('mes cerrado')) {
+          alert('No se pueden eliminar asistencias de meses anteriores. Las asistencias quedan cerradas al finalizar cada mes.')
+        } else {
+          throw error
+        }
+        // Quitar el estado de guardando
+        setSavingDates((prev) => {
+          const updated = new Set(prev)
+          updated.delete(fechaStr)
+          return updated
+        })
+        return
+      }
 
       // Actualizar estado local: eliminar todas las asistencias de esa fecha
       setAsistencias((prev) => {
@@ -983,7 +1212,10 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       }, 3000)
     } catch (error: any) {
       console.error('Error eliminando asistencias:', error)
-      alert('Error al eliminar asistencias. Por favor, intenta nuevamente.')
+      // Si el error es de inmutabilidad, ya se manejó arriba
+      if (!error.message?.includes('meses anteriores') && !error.message?.includes('mes cerrado')) {
+        alert(error.message || 'Error al eliminar asistencias. Por favor, intenta nuevamente.')
+      }
       
       // Quitar el estado de guardando
       setSavingDates((prev) => {

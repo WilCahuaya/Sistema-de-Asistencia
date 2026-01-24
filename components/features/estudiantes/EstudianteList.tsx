@@ -56,6 +56,7 @@ interface Estudiante {
 
 export function EstudianteList() {
   const [estudiantes, setEstudiantes] = useState<Estudiante[]>([])
+  const [estudiantesCompletos, setEstudiantesCompletos] = useState<Estudiante[]>([]) // Todos los estudiantes cargados (sin filtro de búsqueda)
   const [loading, setLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false)
@@ -170,18 +171,37 @@ export function EstudianteList() {
     }
   }, [isResizingTable, resizeStartX, resizeStartWidth])
 
+  // Establecer selectedFCP basado en fcpIdFromRole o la primera FCP disponible
   useEffect(() => {
+    // Si hay un fcpId del rol seleccionado, usarlo prioritariamente
+    if (fcpIdFromRole && !selectedFCP) {
+      // Verificar que la FCP del rol esté en la lista de FCPs del usuario
+      const fcpExists = userFCPs.find(fcp => fcp.id === fcpIdFromRole)
+      if (fcpExists) {
+        setSelectedFCP(fcpIdFromRole)
+        console.log('👤 [EstudianteList] Estableciendo selectedFCP desde fcpIdFromRole:', fcpIdFromRole)
+        return
+      }
+    }
+    
+    // Si no hay selectedFCP y hay FCPs disponibles, usar la primera
     if (userFCPs.length > 0 && !selectedFCP) {
       setSelectedFCP(userFCPs[0].id)
+      console.log('👤 [EstudianteList] Estableciendo selectedFCP a la primera FCP:', userFCPs[0].id)
     }
-  }, [userFCPs])
+  }, [userFCPs, fcpIdFromRole, selectedFCP])
 
   // Asegurar que selectedFCP esté establecido para secretarios y directores
   useEffect(() => {
-    if ((isSecretario || isDirector) && userFCPs.length > 0 && !selectedFCP) {
-      setSelectedFCP(userFCPs[0].id)
+    if ((isSecretario || isDirector || isFacilitador) && userFCPs.length > 0 && !selectedFCP) {
+      // Priorizar fcpIdFromRole si está disponible
+      if (fcpIdFromRole && userFCPs.find(fcp => fcp.id === fcpIdFromRole)) {
+        setSelectedFCP(fcpIdFromRole)
+      } else {
+        setSelectedFCP(userFCPs[0].id)
+      }
     }
-  }, [isSecretario, isDirector, userFCPs, selectedFCP])
+  }, [isSecretario, isDirector, isFacilitador, userFCPs, selectedFCP, fcpIdFromRole])
 
   useEffect(() => {
     // Si es tutor, cargar aulas inmediatamente cuando se detecta
@@ -214,6 +234,40 @@ export function EstudianteList() {
       loadEstudiantes()
     }
   }, [currentPage])
+
+  // Filtrar estudiantes en memoria cuando cambia el término de búsqueda (sin consultar BD)
+  useEffect(() => {
+    if (estudiantesCompletos.length === 0) {
+      // Si no hay estudiantes cargados, no hacer nada
+      return
+    }
+    
+    // Filtrar en memoria sin hacer consulta a BD
+    if (!searchTerm.trim()) {
+      // Si no hay término de búsqueda, aplicar paginación a los estudiantes cargados
+      const from = (currentPage - 1) * itemsPerPage
+      const to = from + itemsPerPage
+      setEstudiantes(estudiantesCompletos.slice(from, to))
+    } else {
+      // Si hay término de búsqueda, filtrar en memoria (sin paginación - mostrar todos los resultados)
+      const terminoBusqueda = searchTerm.toLowerCase().trim()
+      const estudiantesFiltrados = estudiantesCompletos.filter(est => 
+        est.nombre_completo.toLowerCase().includes(terminoBusqueda) ||
+        est.codigo.toLowerCase().includes(terminoBusqueda)
+      )
+      setEstudiantes(estudiantesFiltrados)
+      setCurrentPage(1) // Resetear a la primera página cuando se busca
+    }
+  }, [searchTerm, estudiantesCompletos])
+  
+  // Aplicar paginación cuando cambia la página (solo si no hay búsqueda)
+  useEffect(() => {
+    if (!searchTerm.trim() && estudiantesCompletos.length > 0) {
+      const from = (currentPage - 1) * itemsPerPage
+      const to = from + itemsPerPage
+      setEstudiantes(estudiantesCompletos.slice(from, to))
+    }
+  }, [currentPage, searchTerm, estudiantesCompletos])
 
   const loadUserFCPs = async () => {
     try {
@@ -288,7 +342,14 @@ export function EstudianteList() {
   }
 
   const loadAulas = async () => {
-    if (!selectedFCP && !isTutorState) return
+    // Determinar el fcpId a usar: selectedFCP o fcpIdFromRole
+    const fcpIdToUse = selectedFCP || fcpIdFromRole
+    
+    if (!fcpIdToUse && !isTutorState) {
+      console.log('⚠️ [EstudianteList] No hay FCP seleccionada para cargar aulas')
+      setAulas([])
+      return
+    }
 
     try {
       const supabase = createClient()
@@ -364,18 +425,16 @@ export function EstudianteList() {
         }
       } else {
         // Para otros roles, cargar todas las aulas de la FCP
-        // Usar el fcpId del rol seleccionado si está disponible
-        const fcpIdForAulas = fcpIdFromRole || selectedFCP
-        
+        // Usar fcpIdToUse que ya está determinado arriba
         console.log('👥 [EstudianteList] Cargando aulas para FCP:', {
-          fcpIdForAulas,
+          fcpIdToUse,
           fcpIdFromRole,
           selectedFCP,
           usuario: user.email,
           rolSeleccionado: selectedRole?.role
         })
         
-        if (!fcpIdForAulas) {
+        if (!fcpIdToUse) {
           console.error('❌ [EstudianteList] No hay fcpId disponible para cargar aulas')
           setAulas([])
           return
@@ -384,7 +443,7 @@ export function EstudianteList() {
         const { data: aulasData, error: aulasError } = await supabase
           .from('aulas')
           .select('id, nombre')
-          .eq('fcp_id', fcpIdForAulas)
+          .eq('fcp_id', fcpIdToUse)
           .eq('activa', true)
           .order('nombre', { ascending: true })
 
@@ -394,7 +453,7 @@ export function EstudianteList() {
         console.log('👥 [EstudianteList] Aulas encontradas:', {
           cantidad: data?.length || 0,
           aulas: data,
-          fcpIdUsado: fcpIdForAulas
+          fcpIdUsado: fcpIdToUse
         })
       }
 
@@ -410,7 +469,16 @@ export function EstudianteList() {
   }
 
   const loadEstudiantes = async () => {
-    if (!selectedFCP && !isTutorState) return
+    // Determinar el fcpId a usar: selectedFCP o fcpIdFromRole
+    const fcpIdToUse = selectedFCP || fcpIdFromRole
+    
+    if (!fcpIdToUse && !isTutorState) {
+      console.log('⚠️ [EstudianteList] No hay FCP seleccionada, no se cargarán estudiantes')
+      setEstudiantes([])
+      setTotalEstudiantes(0)
+      setLoading(false)
+      return
+    }
 
     try {
       setLoading(true)
@@ -486,6 +554,15 @@ export function EstudianteList() {
         }
       } else {
         // Para otros roles, cargar todos los estudiantes de la FCP
+        // Usar fcpIdToUse que puede ser selectedFCP o fcpIdFromRole
+        if (!fcpIdToUse) {
+          console.error('⚠️ [EstudianteList] No hay fcpId disponible para cargar estudiantes')
+          setEstudiantes([])
+          setTotalEstudiantes(0)
+          setLoading(false)
+          return
+        }
+        
         query = supabase
           .from('estudiantes')
           .select(`
@@ -493,7 +570,7 @@ export function EstudianteList() {
             aula:aulas(id, nombre),
             fcp:fcps(razon_social)
           `)
-          .eq('fcp_id', selectedFCP)
+          .eq('fcp_id', fcpIdToUse)
           .eq('activo', true)
 
         if (selectedAula) {
@@ -501,10 +578,8 @@ export function EstudianteList() {
         }
       }
 
-      // Si hay término de búsqueda, aplicar filtro en la base de datos
-      if (searchTerm) {
-        query = query.or(`nombre_completo.ilike.%${searchTerm}%,codigo.ilike.%${searchTerm}%`)
-      }
+      // NO aplicar filtro de búsqueda aquí - se hará en memoria después de cargar
+      // Siempre cargar todos los estudiantes (sin filtro de búsqueda) para poder filtrar en memoria
       
       // Obtener el total de estudiantes usando la misma query pero con count
       // Clonar la query para el conteo sin afectar la query principal
@@ -538,24 +613,28 @@ export function EstudianteList() {
             if (selectedAula && aulaIds.includes(selectedAula)) {
               countQuery = countQuery.eq('aula_id', selectedAula)
             }
+            
+            // NO aplicar filtro de búsqueda aquí - el conteo será del total sin búsqueda
           }
         }
       } else {
-        countQuery = supabase
-          .from('estudiantes')
-          .select('id', { count: 'exact', head: true })
-          .eq('fcp_id', selectedFCP)
-          .eq('activo', true)
-        
-        if (selectedAula) {
-          countQuery = countQuery.eq('aula_id', selectedAula)
+        // Usar fcpIdToUse para el conteo también
+        if (!fcpIdToUse) {
+          setTotalEstudiantes(0)
+        } else {
+          countQuery = supabase
+            .from('estudiantes')
+            .select('id', { count: 'exact', head: true })
+            .eq('fcp_id', fcpIdToUse)
+            .eq('activo', true)
+          
+          if (selectedAula) {
+            countQuery = countQuery.eq('aula_id', selectedAula)
+          }
         }
       }
       
-      // Aplicar filtro de búsqueda si existe
-      if (searchTerm && countQuery) {
-        countQuery = countQuery.or(`nombre_completo.ilike.%${searchTerm}%,codigo.ilike.%${searchTerm}%`)
-      }
+      // NO aplicar filtro de búsqueda aquí - el conteo será del total sin búsqueda
       
       // Ejecutar el conteo
       let totalCount = 0
@@ -568,15 +647,10 @@ export function EstudianteList() {
         }
       }
       
-      // Aplicar paginación solo si no hay búsqueda (la búsqueda muestra todos los resultados)
+      // NO aplicar paginación en la BD - siempre cargar TODOS los estudiantes
+      // La paginación y búsqueda se harán en memoria para mayor velocidad
       let finalQuery = query.order('nombre_completo', { ascending: true })
-      
-      if (!searchTerm) {
-        // Solo aplicar paginación cuando no hay búsqueda
-        const from = (currentPage - 1) * itemsPerPage
-        const to = from + itemsPerPage - 1
-        finalQuery = finalQuery.range(from, to)
-      }
+      // No aplicar .range() aquí - cargar todos los estudiantes
       
       const { data, error } = await finalQuery
 
@@ -585,9 +659,32 @@ export function EstudianteList() {
         throw error
       }
       
-      console.log('Estudiantes cargados:', data?.length || 0, 'Total:', totalCount, 'Página actual:', currentPage)
-      setEstudiantes(data || [])
+      // Guardar TODOS los estudiantes cargados (sin filtro de búsqueda ni paginación)
+      const estudiantesCargados = data || []
+      setEstudiantesCompletos(estudiantesCargados)
+      
+      // Aplicar filtro de búsqueda y paginación en memoria
+      let estudiantesFiltrados = estudiantesCargados
+      
+      // Si hay término de búsqueda, filtrar en memoria
+      if (searchTerm) {
+        const terminoBusqueda = searchTerm.toLowerCase().trim()
+        estudiantesFiltrados = estudiantesCargados.filter(est => 
+          est.nombre_completo.toLowerCase().includes(terminoBusqueda) ||
+          est.codigo.toLowerCase().includes(terminoBusqueda)
+        )
+      }
+      
+      // Aplicar paginación solo si NO hay búsqueda
+      if (!searchTerm) {
+        const from = (currentPage - 1) * itemsPerPage
+        const to = from + itemsPerPage
+        estudiantesFiltrados = estudiantesFiltrados.slice(from, to)
+      }
+      
+      setEstudiantes(estudiantesFiltrados)
       setTotalEstudiantes(totalCount || 0)
+      console.log('Estudiantes cargados:', estudiantesCargados.length, 'Filtrados:', estudiantesFiltrados.length, 'Total en BD:', totalCount, 'Página actual:', currentPage, 'Búsqueda:', searchTerm)
       
       // Log para debug de paginación
       if (totalCount) {
@@ -627,18 +724,21 @@ export function EstudianteList() {
   }
 
   // Calcular paginación
-  // Si totalEstudiantes es 0 pero hay estudiantes cargados, usar el número de estudiantes cargados
-  const effectiveTotal = totalEstudiantes > 0 ? totalEstudiantes : estudiantes.length
+  // Cuando hay búsqueda, usar el número de estudiantes filtrados
+  // Cuando no hay búsqueda, usar el total de estudiantes cargados o el total de la BD
+  const effectiveTotal = searchTerm 
+    ? estudiantes.length 
+    : (totalEstudiantes > 0 ? totalEstudiantes : estudiantesCompletos.length)
   const totalPages = Math.ceil(effectiveTotal / itemsPerPage)
   const startIndex = searchTerm ? 1 : (currentPage - 1) * itemsPerPage + 1
   const endIndex = searchTerm ? estudiantes.length : Math.min(currentPage * itemsPerPage, effectiveTotal)
 
-  // Cuando hay búsqueda, mostrar todos los resultados sin paginación
+  // Cuando hay búsqueda, mostrar todos los resultados filtrados sin paginación
   const displayEstudiantes = estudiantes
   const displayTotal = searchTerm ? estudiantes.length : effectiveTotal
   
   // Mostrar paginación si hay más estudiantes que itemsPerPage Y no hay búsqueda activa
-  const shouldShowPagination = !searchTerm && (effectiveTotal > itemsPerPage || estudiantes.length > itemsPerPage)
+  const shouldShowPagination = !searchTerm && effectiveTotal > itemsPerPage
 
   if (userFCPs.length === 0) {
     return (
@@ -762,10 +862,15 @@ export function EstudianteList() {
                 value={searchTerm}
                 onChange={(e) => {
                   setSearchTerm(e.target.value)
-                  setCurrentPage(1) // Resetear a la primera página cuando se busca
+                  // El useEffect manejará el debounce y reseteará la página
                 }}
                 className="pl-10"
               />
+              {searchTerm && loading && (
+                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                </div>
+              )}
             </div>
           </div>
           <div className="flex gap-2">

@@ -161,6 +161,30 @@ export function AsistenciaRegistroDialog({
       return
     }
 
+    // Validar inmutabilidad: no permitir registrar asistencias en fechas de meses anteriores
+    // IMPORTANTE: Comparar solo meses, no días, para permitir mes actual y futuros
+    const fechaAsistencia = new Date(fecha + 'T00:00:00') // Asegurar hora local
+    const fechaActual = new Date()
+    const mesAsistencia = new Date(fechaAsistencia.getFullYear(), fechaAsistencia.getMonth(), 1)
+    const mesActual = new Date(fechaActual.getFullYear(), fechaActual.getMonth(), 1)
+    
+    console.log('🔍 [AsistenciaRegistroDialog] Validación de fecha:', {
+      fecha,
+      fechaAsistencia: fechaAsistencia.toISOString(),
+      mesAsistencia: mesAsistencia.toISOString(),
+      mesActual: mesActual.toISOString(),
+      esMesAnterior: mesAsistencia < mesActual,
+      esMesActual: mesAsistencia.getTime() === mesActual.getTime(),
+      esMesFuturo: mesAsistencia > mesActual
+    })
+    
+    // Solo bloquear si es un mes anterior (estrictamente menor)
+    // Permitir mes actual (igual) y meses futuros (mayor)
+    if (mesAsistencia < mesActual) {
+      alert('No se pueden registrar asistencias en fechas de meses anteriores. Las asistencias quedan cerradas al finalizar cada mes.')
+      return
+    }
+
     try {
       setLoading(true)
 
@@ -175,9 +199,11 @@ export function AsistenciaRegistroDialog({
       const { user, supabase } = authResult
 
       // Preparar datos para inserción/actualización
+      // Incluir aula_id para preservar el aula al momento del registro
       const asistenciasToSave = Array.from(asistencias.values()).map((asist) => ({
         fcp_id: fcpId,
         estudiante_id: asist.estudianteId,
+        aula_id: aulaId, // Guardar el aula_id al momento del registro
         fecha,
         estado: asist.estado,
         observaciones: asist.observaciones || null,
@@ -198,7 +224,16 @@ export function AsistenciaRegistroDialog({
           onConflict: 'estudiante_id,fecha',
         })
 
-      if (error) throw error
+      if (error) {
+        // Si el error es de inmutabilidad desde la BD, mostrar mensaje específico
+        if (error.message?.includes('meses anteriores') || error.message?.includes('mes cerrado')) {
+          alert('No se pueden registrar asistencias en fechas de meses anteriores. Las asistencias quedan cerradas al finalizar cada mes.')
+        } else {
+          throw error
+        }
+        setLoading(false)
+        return
+      }
 
       setSavedCount(asistenciasToSave.length)
       setTimeout(() => {

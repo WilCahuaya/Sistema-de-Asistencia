@@ -248,30 +248,38 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
 
         if (aulasError) throw aulasError
 
-        // Obtener todos los estudiantes activos de la FCP
-        const { data: estudiantesData, error: estudiantesError } = await supabase
-          .from('estudiantes')
-          .select('id, aula_id')
-          .eq('fcp_id', fcp.id)
-          .eq('activo', true)
-
-        if (estudiantesError) throw estudiantesError
-
         // Obtener TODAS las asistencias del año para esta FCP
         const fechaInicio = new Date(selectedYear, 0, 1)
         const fechaFin = new Date(selectedYear, 11, 31, 23, 59, 59, 999)
         const fechaInicioStr = fechaInicio.toISOString().split('T')[0]
         const fechaFinStr = fechaFin.toISOString().split('T')[0]
 
-        const estudianteIds = estudiantesData?.map((e) => e.id) || []
-        
+        // IMPORTANTE: Incluir aula_id de la asistencia para preservar el aula histórica
+        // También incluir datos del estudiante para poder determinar estudiantes por mes
         const { data: todasAsistenciasData, error: todasAsistenciasError } = await supabase
           .from('asistencias')
-          .select('estudiante_id, fecha, estado')
+          .select(`
+            estudiante_id, 
+            fecha, 
+            estado,
+            aula_id,
+            aula:aulas(id, nombre),
+            estudiante:estudiantes(id, aula_id)
+          `)
           .eq('fcp_id', fcp.id)
-          .in('estudiante_id', estudianteIds)
           .gte('fecha', fechaInicioStr)
           .lte('fecha', fechaFinStr)
+
+        if (todasAsistenciasError) throw todasAsistenciasError
+
+        // Obtener estudiantes activos actuales de la FCP (para meses actuales/futuros)
+        const { data: estudiantesActualesData, error: estudiantesError } = await supabase
+          .from('estudiantes')
+          .select('id, aula_id')
+          .eq('fcp_id', fcp.id)
+          .eq('activo', true)
+
+        if (estudiantesError) throw estudiantesError
 
         if (todasAsistenciasError) throw todasAsistenciasError
 
@@ -280,23 +288,121 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
 
         const porcentajesPorMes: { [mes: number]: number } = {}
 
+        // Determinar el mes actual para comparar
+        const fechaActual = new Date()
+        const mesActual = fechaActual.getMonth()
+        const añoActual = fechaActual.getFullYear()
+
         // Para cada mes del año
         for (let mes = 0; mes < 12; mes++) {
+          // Determinar si este mes es anterior al actual
+          const esMesAnterior = selectedYear < añoActual || (selectedYear === añoActual && mes < mesActual)
+
           let totalAsistenPromed = 0
           let totalOportunidadesAsistencia = 0
 
-          // Procesar por aula (igual que ReporteMensual)
-          aulasData?.forEach((aula) => {
-            const estudiantesAula = estudiantesData?.filter(e => e.aula_id === aula.id) || []
+          // Obtener aulas según el mes consultado
+          let aulasParaMes: any[] = []
+
+          if (esMesAnterior) {
+            // Para meses anteriores, obtener aulas únicas de las asistencias de ese mes específico
+            const mesInicio = new Date(selectedYear, mes, 1)
+            const mesFin = new Date(selectedYear, mes + 1, 0)
+            const mesInicioStr = mesInicio.toISOString().split('T')[0]
+            const mesFinStr = mesFin.toISOString().split('T')[0]
+
+            const asistenciasDelMes = todasAsistenciasData?.filter((a: any) => {
+              const fechaAsistencia = new Date(a.fecha)
+              return fechaAsistencia >= mesInicio && fechaAsistencia <= mesFin
+            }) || []
+
+            const aulasMap = new Map<string, any>()
+            asistenciasDelMes.forEach((a: any) => {
+              if (a.aula_id && a.aula && !aulasMap.has(a.aula_id)) {
+                aulasMap.set(a.aula_id, {
+                  id: a.aula_id,
+                  nombre: a.aula.nombre || 'Sin aula'
+                })
+              }
+            })
+            aulasParaMes = Array.from(aulasMap.values())
+          } else {
+            // Para meses actuales/futuros, usar las aulas activas de la FCP
+            aulasParaMes = aulasData || []
+          }
+
+          // Obtener estudiantes según el mes consultado
+          let estudiantesParaMes: any[] = []
+
+          if (esMesAnterior) {
+            // Para meses anteriores, obtener estudiantes únicos de las asistencias de ese mes específico
+            const mesInicio = new Date(selectedYear, mes, 1)
+            const mesFin = new Date(selectedYear, mes + 1, 0)
+            const mesInicioStr = mesInicio.toISOString().split('T')[0]
+            const mesFinStr = mesFin.toISOString().split('T')[0]
+
+            const asistenciasDelMes = todasAsistenciasData?.filter((a: any) => {
+              const fechaAsistencia = new Date(a.fecha)
+              return fechaAsistencia >= mesInicio && fechaAsistencia <= mesFin
+            }) || []
+
+            const estudiantesMap = new Map<string, any>()
+            asistenciasDelMes.forEach((asist: any) => {
+              if (asist.estudiante && !estudiantesMap.has(asist.estudiante_id)) {
+                estudiantesMap.set(asist.estudiante_id, {
+                  id: asist.estudiante.id,
+                  aula_id: asist.aula_id // Usar aula_id de la asistencia (histórica)
+                })
+              }
+            })
+            estudiantesParaMes = Array.from(estudiantesMap.values())
+          } else {
+            // Para meses actuales/futuros, usar estudiantes activos actuales
+            estudiantesParaMes = estudiantesActualesData || []
+          }
+
+          // Procesar por aula usando aula_id de la asistencia
+          aulasParaMes.forEach((aula) => {
+            // IMPORTANTE: Agrupar estudiantes por aula según el mes consultado
+            // Para meses anteriores: usar aula_id de las asistencias (histórica)
+            // Para meses actuales/futuros: usar aula_id actual del estudiante
+            let estudiantesAula: any[] = []
+
+            if (esMesAnterior) {
+              // Para meses anteriores, filtrar asistencias que pertenecen a esta aula según aula_id de la asistencia
+              const mesInicio = new Date(selectedYear, mes, 1)
+              const mesFin = new Date(selectedYear, mes + 1, 0)
+
+              const asistenciasDeAula = todasAsistenciasData?.filter((a: any) => {
+                const fechaAsistencia = new Date(a.fecha)
+                return a.aula_id === aula.id && fechaAsistencia >= mesInicio && fechaAsistencia <= mesFin
+              }) || []
+
+              const estudiantesIdsEnAula = new Set(asistenciasDeAula.map((a: any) => a.estudiante_id))
+              estudiantesAula = estudiantesParaMes?.filter(e => estudiantesIdsEnAula.has(e.id)) || []
+            } else {
+              // Para meses actuales/futuros, filtrar estudiantes por su aula_id actual
+              estudiantesAula = estudiantesParaMes?.filter(e => e.aula_id === aula.id) || []
+            }
+
             const registrados = estudiantesAula.length
 
             if (registrados === 0) return
 
-            // Detectar días completos para esta aula (igual que ReporteMensual)
+            // IMPORTANTE: Filtrar asistencias de esta aula para este mes específico
+            const mesInicio = new Date(selectedYear, mes, 1)
+            const mesFin = new Date(selectedYear, mes + 1, 0)
+
+            const asistenciasDeAula = todasAsistenciasData?.filter((a: any) => {
+              const fechaAsistencia = new Date(a.fecha)
+              return a.aula_id === aula.id && fechaAsistencia >= mesInicio && fechaAsistencia <= mesFin
+            }) || []
+
+            // Detectar días completos para esta aula usando aula_id de la asistencia
             const estudiantesAulaIds = new Set(estudiantesAula.map(e => e.id))
             const asistenciasPorFecha = new Map<string, Set<string>>() // fecha -> Set<estudiante_id>
 
-            todasAsistenciasData?.forEach(asistencia => {
+            asistenciasDeAula.forEach((asistencia: any) => {
               if (estudiantesAulaIds.has(asistencia.estudiante_id)) {
                 const fecha = asistencia.fecha
                 if (!asistenciasPorFecha.has(fecha)) {
@@ -348,8 +454,11 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
               }
             })
 
-            // Contar asistencias "presente" para estudiantes de esta aula SOLO de días completos (igual que ReporteMensual)
-            const asistenciasAula = asistenciasPresente?.filter(a => {
+            // Contar asistencias "presente" para estudiantes de esta aula SOLO de días completos
+            // Usar aula_id de la asistencia para filtrar correctamente
+            const asistenciasAula = asistenciasPresente?.filter((a: any) => {
+              // Solo incluir asistencias que pertenecen a esta aula según aula_id de la asistencia
+              if (a.aula_id !== aula.id) return false
               if (!estudiantesAulaIds.has(a.estudiante_id)) return false
               const [year, monthNum, day] = a.fecha.split('-').map(Number)
               const fechaDate = new Date(year, monthNum - 1, day)

@@ -65,6 +65,17 @@ export function AsistenciaEditDialog({
       return
     }
 
+    // Validar inmutabilidad: no permitir editar asistencias de meses anteriores
+    const fechaAsistencia = new Date(asistencia.fecha)
+    const fechaActual = new Date()
+    const mesAsistencia = new Date(fechaAsistencia.getFullYear(), fechaAsistencia.getMonth(), 1)
+    const mesActual = new Date(fechaActual.getFullYear(), fechaActual.getMonth(), 1)
+    
+    if (mesAsistencia < mesActual) {
+      alert('No se pueden modificar asistencias de meses anteriores. Las asistencias quedan cerradas al finalizar cada mes.')
+      return
+    }
+
     try {
       setLoading(true)
 
@@ -88,12 +99,21 @@ export function AsistenciaEditDialog({
         })
         .eq('id', asistencia.id)
 
-      if (error) throw error
+      if (error) {
+        // Si el error es de inmutabilidad desde la BD, mostrar mensaje específico
+        if (error.message?.includes('meses anteriores') || error.message?.includes('mes cerrado')) {
+          alert('No se pueden modificar asistencias de meses anteriores. Las asistencias quedan cerradas al finalizar cada mes.')
+        } else {
+          throw error
+        }
+        setLoading(false)
+        return
+      }
 
       onSuccess()
     } catch (error: any) {
       console.error('Error updating asistencia:', error)
-      alert('Error al actualizar la asistencia. Por favor, intenta nuevamente.')
+      alert(error.message || 'Error al actualizar la asistencia. Por favor, intenta nuevamente.')
     } finally {
       setLoading(false)
     }

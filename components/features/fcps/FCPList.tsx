@@ -53,7 +53,61 @@ export function FCPList() {
         return
       }
 
-      // Solo mostrar la FCP del rol seleccionado
+      // Verificar si el usuario es facilitador (directamente en la BD, no solo desde selectedRole)
+      // Esto es necesario porque selectedRole puede ser null mientras se carga
+      const { data: facilitadorData, error: facilitadorError } = await supabase
+        .from('fcp_miembros')
+        .select('rol, fcp_id')
+        .eq('usuario_id', user.id)
+        .eq('rol', 'facilitador')
+        .eq('activo', true)
+        .limit(1)
+        .maybeSingle()
+
+      const esFacilitador = !facilitadorError && facilitadorData !== null
+      const esFacilitadorDesdeSelectedRole = selectedRole?.role === 'facilitador'
+      const usuarioEsFacilitador = esFacilitador || esFacilitadorDesdeSelectedRole
+
+      console.log('👤 [FCPList] Verificación de rol:', {
+        esFacilitadorDesdeBD: esFacilitador,
+        esFacilitadorDesdeSelectedRole,
+        usuarioEsFacilitador,
+        selectedRole: selectedRole ? { role: selectedRole.role, fcpId: selectedRole.fcpId } : null
+      })
+
+      // Si es facilitador, mostrar TODAS las FCPs donde tiene el rol de facilitador activo
+      if (usuarioEsFacilitador) {
+        console.log('👤 [FCPList] Usuario es facilitador, cargando FCPs a su cargo')
+        
+        // Obtener todas las FCPs donde el usuario tiene el rol de facilitador activo
+        const { data: fcpMiembrosData, error: fcpMiembrosError } = await supabase
+          .from('fcp_miembros')
+          .select(`
+            fcp_id,
+            fcp:fcps(*)
+          `)
+          .eq('usuario_id', user.id)
+          .eq('rol', 'facilitador')
+          .eq('activo', true)
+
+        if (fcpMiembrosError) {
+          console.error('Error obteniendo FCPs del facilitador:', fcpMiembrosError)
+          setFCPs([])
+          return
+        }
+
+        // Extraer las FCPs de los resultados
+        const fcpsDelFacilitador = (fcpMiembrosData || [])
+          .map((miembro: any) => miembro.fcp)
+          .filter((fcp: any) => fcp && fcp.activa) // Solo FCPs activas
+          .sort((a: any, b: any) => a.razon_social.localeCompare(b.razon_social))
+
+        console.log(`✅ [FCPList] Cargadas ${fcpsDelFacilitador.length} FCPs a cargo del facilitador`)
+        setFCPs(fcpsDelFacilitador)
+        return
+      }
+
+      // Para otros roles, solo mostrar la FCP del rol seleccionado
       if (!selectedRole?.fcpId) {
         console.log('No hay rol seleccionado o FCP asociada')
         setFCPs([])
@@ -96,11 +150,11 @@ export function FCPList() {
       <div className="mb-6 flex items-start justify-between">
         <div>
           <h2 className="text-xl font-semibold">
-            {isFacilitador ? 'FCPs del Sistema' : 'Mis FCPs'}
+            {isFacilitador ? 'FCPs a mi Cargo' : 'Mis FCPs'}
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
             {isFacilitador 
-              ? 'Como facilitador, puedes crear y gestionar FCPs del sistema.'
+              ? 'Como facilitador, puedes crear y gestionar las FCPs que están a tu cargo.'
               : 'Las FCPs a las que perteneces aparecen aquí.'}
           </p>
         </div>
