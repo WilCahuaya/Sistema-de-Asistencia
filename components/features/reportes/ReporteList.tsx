@@ -10,14 +10,7 @@ import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Building2 } from 'lucide-react'
+import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import {
   getExcelHeaderStyle,
   getExcelCellStyle,
@@ -91,21 +84,18 @@ interface DiaIncompleto {
 
 export function ReporteList() {
   const [loading, setLoading] = useState(false)
-  const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
   const [fechaInicio, setFechaInicio] = useState<string>('')
   const [fechaFin, setFechaFin] = useState<string>('')
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth())
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear())
-  const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
   const [reporteData, setReporteData] = useState<ReporteData | null>(null)
   const [responsable, setResponsable] = useState<{ nombre: string; email: string; rol: string } | null>(null)
-  const [isDirector, setIsDirector] = useState(false)
-  const [isFacilitador, setIsFacilitador] = useState(false)
   const router = useRouter()
-  const { canViewReports, loading: roleLoading } = useUserRole(selectedFCP)
+  const { selectedRole } = useSelectedRole()
+  const fcpIdParaReporte = selectedRole?.fcpId
+  const { canViewReports, loading: roleLoading } = useUserRole(fcpIdParaReporte || null)
 
   useEffect(() => {
-    loadUserFCPs()
     // Inicializar con el mes actual
     const now = new Date()
     setSelectedMonth(now.getMonth())
@@ -126,90 +116,18 @@ export function ReporteList() {
     setFechaFin(fin.toISOString().split('T')[0])
   }, [selectedMonth, selectedYear])
 
-  const loadUserFCPs = async () => {
-    try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-
-      // Verificar si el usuario es facilitador en alguna FCP
-      const { data: usuarioFcpData, error: usuarioFcpError } = await supabase
-        .from('fcp_miembros')
-        .select('rol')
-        .eq('usuario_id', user.id)
-        .eq('rol', 'facilitador')
-        .eq('activo', true)
-        .limit(1)
-
-      if (usuarioFcpError) throw usuarioFcpError
-
-      const isFacilitadorCheck = usuarioFcpData && usuarioFcpData.length > 0
-      setIsFacilitador(isFacilitadorCheck)
-
-      // Verificar si el usuario es director
-      const { data: directorData, error: directorError } = await supabase
-        .from('fcp_miembros')
-        .select('rol')
-        .eq('usuario_id', user.id)
-        .eq('rol', 'director')
-        .eq('activo', true)
-        .limit(1)
-
-      if (!directorError && directorData && directorData.length > 0) {
-        setIsDirector(true)
-      }
-
-      let fcps: Array<{ id: string; nombre: string }> = []
-
-      if (isFacilitadorCheck) {
-        // Facilitadores pueden ver todas las FCPs del sistema
-        const { data: todasLasFCPs, error: fcpsError } = await supabase
-          .from('fcps')
-          .select('id, razon_social')
-          .eq('activa', true)
-          .order('razon_social', { ascending: true })
-        
-        if (fcpsError) throw fcpsError
-        fcps = (todasLasFCPs || []).map((fcp: any) => ({
-          id: fcp.id,
-          nombre: fcp.razon_social || 'FCP',
-        }))
-      } else {
-        // Usuarios no facilitadores solo ven sus FCPs
-        const { data, error } = await supabase
-          .from('fcp_miembros')
-          .select(`
-            fcp_id,
-            fcp:fcps(id, razon_social, numero_identificacion)
-          `)
-          .eq('usuario_id', user.id)
-          .eq('activo', true)
-
-        if (error) throw error
-
-        fcps = data?.map((item: any) => ({
-          id: item.fcp.id,
-          nombre: item.fcp.razon_social || 'FCP',
-          numero_identificacion: item.fcp.numero_identificacion,
-          razon_social: item.fcp.razon_social,
-        })) || []
-      }
-
-      setUserFCPs(fcps)
-      // Solo auto-seleccionar FCP si NO es facilitador (facilitadores deben elegir manualmente)
-      if (fcps.length > 0 && !selectedFCP && !isFacilitadorCheck) {
-        setSelectedFCP(fcps[0].id)
-      }
-    } catch (error) {
-      console.error('Error loading FCPs:', error)
-    }
-  }
 
   const generarReporte = async () => {
-    if (!selectedFCP) {
-      alert('Por favor, selecciona una FCP')
+    if (!fcpIdParaReporte) {
+      alert('Por favor, asegúrate de tener un rol seleccionado')
       return
     }
+
+    console.log('📊 [ReporteList] Generando reporte con:', {
+      fcpIdParaReporte,
+      selectedRoleFcpId: selectedRole?.fcpId,
+      selectedRole: selectedRole?.role
+    })
 
     // Asegurar que las fechas estén configuradas según el mes seleccionado
     const inicio = new Date(selectedYear, selectedMonth, 1)
@@ -222,10 +140,46 @@ export function ReporteList() {
       setLoading(true)
       const supabase = createClient()
 
-      // Obtener datos del usuario actual (responsable)
+      // Obtener datos del usuario actual (responsable) usando el rol seleccionado
       const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        // Obtener rol y datos del usuario en la FCP
+      if (user && selectedRole) {
+        // Usar el rol seleccionado del contexto
+        const rolSeleccionado = selectedRole.role
+        
+        // Obtener datos del usuario desde la tabla usuarios
+        const { data: usuarioData, error: usuarioError } = await supabase
+          .from('usuarios')
+          .select('nombre_completo, email')
+          .eq('id', user.id)
+          .single()
+
+        // Si no está en usuarios, obtener desde auth.users metadata
+        let nombreCompleto = usuarioData?.nombre_completo || user.user_metadata?.full_name || user.user_metadata?.name || ''
+        let emailUsuario = usuarioData?.email || user.email || ''
+
+        // Mapear el rol a formato legible
+        const rolFormateado = rolSeleccionado === 'facilitador' ? 'Facilitador' 
+          : rolSeleccionado === 'director' ? 'Director' 
+          : rolSeleccionado === 'secretario' ? 'Secretario' 
+          : rolSeleccionado === 'tutor' ? 'Tutor' 
+          : rolSeleccionado.charAt(0).toUpperCase() + rolSeleccionado.slice(1)
+
+        console.log('👤 [ReporteList] Estableciendo responsable:', {
+          rolSeleccionado,
+          rolFormateado,
+          nombreCompleto,
+          emailUsuario,
+          selectedRole
+        })
+
+        setResponsable({
+          nombre: nombreCompleto || emailUsuario || 'Usuario',
+          email: emailUsuario,
+          rol: rolFormateado,
+        })
+      } else if (user && !selectedRole) {
+        console.warn('⚠️ [ReporteList] No hay rol seleccionado, intentando obtener desde fcp_miembros')
+        // Fallback: intentar obtener desde fcp_miembros si no hay rol seleccionado
         const { data: usuarioFcpData, error: usuarioFcpError } = await supabase
           .from('fcp_miembros')
           .select(`
@@ -233,13 +187,18 @@ export function ReporteList() {
             usuario:usuarios(nombre_completo, email)
           `)
           .eq('usuario_id', user.id)
-          .eq('fcp_id', selectedFCP)
+          .eq('fcp_id', fcpIdParaReporte)
           .eq('activo', true)
-          .single()
+          .limit(1)
 
-        if (!usuarioFcpError && usuarioFcpData) {
-          const usuario = usuarioFcpData.usuario as any
-          const rol = usuarioFcpData.rol === 'facilitador' ? 'Facilitador' : usuarioFcpData.rol === 'director' ? 'Director' : usuarioFcpData.rol === 'secretario' ? 'Secretario' : usuarioFcpData.rol === 'tutor' ? 'Tutor' : ''
+        if (!usuarioFcpError && usuarioFcpData && usuarioFcpData.length > 0) {
+          const usuarioFcp = usuarioFcpData[0]
+          const usuario = usuarioFcp.usuario as any
+          const rol = usuarioFcp.rol === 'facilitador' ? 'Facilitador' 
+            : usuarioFcp.rol === 'director' ? 'Director' 
+            : usuarioFcp.rol === 'secretario' ? 'Secretario' 
+            : usuarioFcp.rol === 'tutor' ? 'Tutor' 
+            : ''
           if (rol) {
             setResponsable({
               nombre: usuario?.nombre_completo || usuario?.email || user.email || '',
@@ -250,16 +209,19 @@ export function ReporteList() {
         }
       }
 
-      // Obtener datos de la FCP
+      // Obtener datos de la FCP usando el fcpId del rol seleccionado
       const { data: fcpData, error: fcpError } = await supabase
         .from('fcps')
         .select('id, razon_social, numero_identificacion')
-        .eq('id', selectedFCP)
+        .eq('id', fcpIdParaReporte)
         .single()
 
-      if (fcpError) throw fcpError
+      if (fcpError) {
+        console.error('❌ [ReporteList] Error obteniendo FCP:', fcpError)
+        throw fcpError
+      }
 
-      // Obtener estudiantes activos de la FCP
+      // Obtener estudiantes activos de la FCP (incluyendo created_at para filtrar por fecha) usando el fcpId del rol seleccionado
       const { data: estudiantesData, error: estudiantesError } = await supabase
         .from('estudiantes')
         .select(`
@@ -267,22 +229,29 @@ export function ReporteList() {
           codigo,
           nombre_completo,
           aula_id,
+          created_at,
           aula:aulas(id, nombre)
         `)
-        .eq('fcp_id', selectedFCP)
+        .eq('fcp_id', fcpIdParaReporte)
         .eq('activo', true)
 
-      if (estudiantesError) throw estudiantesError
+      if (estudiantesError) {
+        console.error('❌ [ReporteList] Error obteniendo estudiantes:', estudiantesError)
+        throw estudiantesError
+      }
 
-      // Obtener asistencias en el rango de fechas
+      // Obtener asistencias en el rango de fechas usando el fcpId del rol seleccionado
       const { data: asistenciasData, error: asistenciasError } = await supabase
         .from('asistencias')
         .select('estudiante_id, estado, fecha')
-        .eq('fcp_id', selectedFCP)
+        .eq('fcp_id', fcpIdParaReporte)
         .gte('fecha', fechaInicio)
         .lte('fecha', fechaFin)
 
-      if (asistenciasError) throw asistenciasError
+      if (asistenciasError) {
+        console.error('❌ [ReporteList] Error obteniendo asistencias:', asistenciasError)
+        throw asistenciasError
+      }
 
       // Calcular estadísticas
       const totalEstudiantes = estudiantesData?.length || 0
@@ -367,21 +336,33 @@ export function ReporteList() {
         const totalEstudiantes = aula.estudiantesIds.length
         const asistenciasPorFecha = new Map<string, Set<string>>() // fecha -> Set<estudiante_id>
 
-        // Agrupar asistencias por fecha para esta aula
+        // Agrupar TODAS las asistencias por fecha para esta aula (sin filtrar por created_at aquí)
+        // El filtrado por created_at se hará solo al verificar días completos
         asistenciasData?.forEach(asist => {
           if (aula.estudiantesIds.includes(asist.estudiante_id)) {
+            const estudiante = estudiantesData?.find(e => e.id === asist.estudiante_id)
+            if (!estudiante) return
+            
             const fecha = asist.fecha
+            
+            // Contar TODAS las asistencias registradas (sin filtrar por created_at aquí)
             if (!asistenciasPorFecha.has(fecha)) {
               asistenciasPorFecha.set(fecha, new Set())
             }
             asistenciasPorFecha.get(fecha)!.add(asist.estudiante_id)
           }
         })
+        
+        if (aulaId === Array.from(aulasMap.keys())[0]) {
+          console.log('📊 [ReporteList] Primera aula - asistenciasPorFecha:', {
+            aula: aula.aulaNombre,
+            totalFechas: asistenciasPorFecha.size,
+            fechas: Array.from(asistenciasPorFecha.keys()).sort().slice(0, 10)
+          })
+        }
 
         // Identificar días completos (solo dentro del rango de fechas)
         asistenciasPorFecha.forEach((estudiantesMarcados, fecha) => {
-          const marcados = estudiantesMarcados.size
-          
           // Verificar que la fecha esté en el rango seleccionado
           const [year, month, day] = fecha.split('-').map(Number)
           const fechaDate = new Date(year, month - 1, day)
@@ -391,8 +372,37 @@ export function ReporteList() {
           const fechaFinDate = new Date(yearFin, monthFin - 1, dayFin)
           const esDelRango = fechaDate >= fechaInicioDate && fechaDate <= fechaFinDate
           
-          // Si todos los estudiantes están marcados y está en el rango, es un día completo
-          if (marcados === totalEstudiantes && esDelRango) {
+          // IMPORTANTE: Filtrar estudiantes que existían en esta fecha específica
+          // Solo contar estudiantes que fueron creados ANTES o EN esta fecha
+          const fechaDateObj = new Date(fecha + 'T23:59:59') // Fin del día
+          const estudiantesActivosEnFecha = aula.estudiantesIds.filter(estId => {
+            const estudiante = estudiantesData?.find(e => e.id === estId)
+            if (!estudiante) return false
+            // Si el estudiante tiene created_at, verificar que fue creado antes o en esta fecha
+            if (estudiante.created_at) {
+              const fechaCreacion = new Date(estudiante.created_at)
+              return fechaCreacion <= fechaDateObj
+            }
+            // Si no tiene created_at, asumimos que existía (para compatibilidad con datos antiguos)
+            return true
+          })
+          
+          const totalEstudiantesEnFecha = estudiantesActivosEnFecha.length
+          
+          // Contar solo estudiantes que existían en esa fecha Y tienen asistencia registrada
+          const estudiantesActivosIdsSet = new Set(estudiantesActivosEnFecha)
+          const marcados = Array.from(estudiantesMarcados).filter(estId => 
+            estudiantesActivosIdsSet.has(estId)
+          ).length
+          
+          // Si todos los estudiantes que existían están marcados y está en el rango, es un día completo
+          if (marcados === totalEstudiantesEnFecha && totalEstudiantesEnFecha > 0 && esDelRango) {
+            console.log('✅ [ReporteList] Día completo detectado:', {
+              fecha,
+              aula: aula.aulaNombre,
+              marcados,
+              totalEstudiantesEnFecha
+            })
             if (!diasCompletosPorAula.has(aulaId)) {
               diasCompletosPorAula.set(aulaId, new Set())
             }
@@ -473,23 +483,45 @@ export function ReporteList() {
       let fechasUnicas: string[] | undefined = undefined
       const diasIncompletosGlobales: DiaIncompleto[] = []
 
-      // Obtener fechas únicas ordenadas (solo días completos)
+      // Obtener TODAS las fechas únicas donde hay asistencias registradas (no solo días completos)
         const fechasSet = new Set<string>()
-        // Solo incluir fechas que son días completos para alguna aula
-        diasCompletosPorAula.forEach((fechasCompletas) => {
-          fechasCompletas.forEach((fecha) => {
+        
+        // Incluir TODAS las fechas con asistencias registradas dentro del rango
+        asistenciasData?.forEach((asist) => {
+          const fecha = asist.fecha
+          // Verificar que la fecha esté en el rango seleccionado
+          const [year, month, day] = fecha.split('-').map(Number)
+          const fechaDate = new Date(year, month - 1, day)
+          const [yearInicio, monthInicio, dayInicio] = fechaInicio.split('-').map(Number)
+          const fechaInicioDate = new Date(yearInicio, monthInicio - 1, dayInicio)
+          const [yearFin, monthFin, dayFin] = fechaFin.split('-').map(Number)
+          const fechaFinDate = new Date(yearFin, monthFin - 1, dayFin)
+          
+          if (fechaDate >= fechaInicioDate && fechaDate <= fechaFinDate) {
             fechasSet.add(fecha)
-          })
+          }
         })
-        // Ordenar fechas cronológicamente (no alfabéticamente)
-        fechasUnicas = Array.from(fechasSet).sort((a, b) => {
-          const dateA = new Date(a)
-          const dateB = new Date(b)
-          return dateA.getTime() - dateB.getTime()
+        
+        console.log('📅 [ReporteList] Todas las fechas con asistencias:', {
+          totalFechas: fechasSet.size,
+          fechasEnSet: Array.from(fechasSet).sort()
+        })
+        
+        // Ordenar fechas cronológicamente
+        fechasUnicas = Array.from(fechasSet)
+          .sort((a, b) => {
+            const dateA = new Date(a)
+            const dateB = new Date(b)
+            return dateA.getTime() - dateB.getTime()
+          })
+        
+        console.log('📅 [ReporteList] Fechas únicas finales (todas las fechas con asistencias):', {
+          totalFechas: fechasUnicas.length,
+          fechasUnicas: fechasUnicas
         })
 
         // Detectar días incompletos por aula (reutilizar aulasMap ya creado arriba)
-        // Por cada aula, verificar días incompletos
+        // Por cada aula, verificar días incompletos en TODAS las fechas del rango
         aulasMap.forEach((aula, aulaId) => {
           const totalEstudiantes = aula.estudiantesIds.length
           const asistenciasPorFecha = new Map<string, Set<string>>() // fecha -> Set<estudiante_id>
@@ -498,26 +530,139 @@ export function ReporteList() {
           asistenciasData?.forEach(asist => {
             if (aula.estudiantesIds.includes(asist.estudiante_id)) {
               const fecha = asist.fecha
-              if (!asistenciasPorFecha.has(fecha)) {
-                asistenciasPorFecha.set(fecha, new Set())
+              // Verificar que la fecha esté en el rango
+              const [year, month, day] = fecha.split('-').map(Number)
+              const fechaDate = new Date(year, month - 1, day)
+              const [yearInicio, monthInicio, dayInicio] = fechaInicio.split('-').map(Number)
+              const fechaInicioDate = new Date(yearInicio, monthInicio - 1, dayInicio)
+              const [yearFin, monthFin, dayFin] = fechaFin.split('-').map(Number)
+              const fechaFinDate = new Date(yearFin, monthFin - 1, dayFin)
+              const esDelRango = fechaDate >= fechaInicioDate && fechaDate <= fechaFinDate
+              
+              if (esDelRango) {
+                if (!asistenciasPorFecha.has(fecha)) {
+                  asistenciasPorFecha.set(fecha, new Set())
+                }
+                asistenciasPorFecha.get(fecha)!.add(asist.estudiante_id)
               }
-              asistenciasPorFecha.get(fecha)!.add(asist.estudiante_id)
             }
           })
 
-          // Detectar días incompletos
-          asistenciasPorFecha.forEach((estudiantesMarcados, fecha) => {
-            const marcados = estudiantesMarcados.size
-            // Si hay al menos uno marcado pero no todos, es un día incompleto
-            if (marcados > 0 && marcados < totalEstudiantes) {
+          // Obtener todas las fechas únicas con asistencias registradas para esta aula
+          const fechasConAsistencias = new Set<string>()
+          asistenciasData?.forEach(asist => {
+            if (aula.estudiantesIds.includes(asist.estudiante_id)) {
+              const fecha = asist.fecha
+              // Verificar que la fecha esté en el rango seleccionado
+              const [year, month, day] = fecha.split('-').map(Number)
+              const fechaDate = new Date(year, month - 1, day)
+              const [yearInicio, monthInicio, dayInicio] = fechaInicio.split('-').map(Number)
+              const fechaInicioDate = new Date(yearInicio, monthInicio - 1, dayInicio)
+              const [yearFin, monthFin, dayFin] = fechaFin.split('-').map(Number)
+              const fechaFinDate = new Date(yearFin, monthFin - 1, dayFin)
+              
+              if (fechaDate >= fechaInicioDate && fechaDate <= fechaFinDate) {
+                fechasConAsistencias.add(fecha)
+              }
+            }
+          })
+          
+          console.log('')
+          console.log('🔍 [ReporteList] Detección de días incompletos para aula:', {
+            aula: aula.aulaNombre,
+            totalEstudiantes: aula.estudiantesIds.length,
+            fechasConAsistencias: Array.from(fechasConAsistencias).sort(),
+            totalFechas: fechasConAsistencias.size,
+            asistenciasPorFechaSize: asistenciasPorFecha.size
+          })
+          
+          // Mostrar el contenido de asistenciasPorFecha para diagnóstico
+          console.log('📋 [ReporteList] Contenido de asistenciasPorFecha:', {
+            totalFechas: asistenciasPorFecha.size,
+            fechas: Array.from(asistenciasPorFecha.keys()).sort(),
+            detallePorFecha: Array.from(asistenciasPorFecha.entries()).map(([fecha, estudiantes]) => ({
+              fecha,
+              totalMarcados: estudiantes.size,
+              estudiantesIds: Array.from(estudiantes).slice(0, 5).map(id => id.substring(0, 8))
+            }))
+          })
+
+          // Detectar días incompletos solo en fechas donde hay asistencias registradas
+          console.log('🔄 [ReporteList] Iniciando detección de días incompletos para aula:', aula.aulaNombre, {
+            totalFechasConAsistencias: fechasConAsistencias.size,
+            fechas: Array.from(fechasConAsistencias).sort()
+          })
+          
+          fechasConAsistencias.forEach(fecha => {
+            console.log(`\n📅 [ReporteList] Procesando fecha: ${fecha} para aula: ${aula.aulaNombre}`)
+            const estudiantesMarcados = asistenciasPorFecha.get(fecha) || new Set<string>()
+            console.log(`   📊 Estudiantes marcados en asistenciasPorFecha: ${estudiantesMarcados.size}`)
+            
+            // Para detectar días incompletos, usar TODOS los estudiantes del aula (como en la página de asistencias)
+            // NO filtrar por created_at porque los estudiantes pueden haber sido agregados después
+            // pero aún así deberían tener asistencia registrada para fechas anteriores
+            const totalEstudiantesEnFecha = aula.estudiantesIds.length
+            
+            // Contar estudiantes marcados que pertenecen a esta aula
+            const estudiantesAulaSet = new Set(aula.estudiantesIds)
+            const marcados = Array.from(estudiantesMarcados).filter(estId => 
+              estudiantesAulaSet.has(estId)
+            ).length
+            
+            // Debug: Log para TODAS las fechas para diagnóstico
+            const esIncompleto = totalEstudiantesEnFecha > 0 && marcados > 0 && marcados < totalEstudiantesEnFecha
+            console.log('🔍 [ReporteList] Verificando fecha:', {
+              fecha,
+              aula: aula.aulaNombre,
+              marcados,
+              totalEstudiantesEnFecha,
+              faltantes: totalEstudiantesEnFecha - marcados,
+              estudiantesMarcadosSize: estudiantesMarcados.size,
+              estudiantesAulaTotal: aula.estudiantesIds.length,
+              estudiantesMarcadosIds: Array.from(estudiantesMarcados).slice(0, 5).map(id => id.substring(0, 8)),
+              condicion1: totalEstudiantesEnFecha > 0,
+              condicion2: marcados > 0,
+              condicion3: marcados < totalEstudiantesEnFecha,
+              condicionFinal: esIncompleto,
+              esIncompleto: esIncompleto
+            })
+            
+            // Si hay al menos uno marcado pero no todos los que deberían tener asistencia, es un día incompleto
+            // Esta es la misma lógica que usa la página de asistencias: faltantes > 0 && total > 0 && marcados > 0
+            if (totalEstudiantesEnFecha > 0 && marcados > 0 && marcados < totalEstudiantesEnFecha) {
+              const faltantes = totalEstudiantesEnFecha - marcados
+              const porcentajeCompleto = ((marcados / totalEstudiantesEnFecha) * 100).toFixed(1)
+              
+              console.log('')
+              console.log('⚠️⚠️⚠️ DÍA INCOMPLETO DETECTADO ⚠️⚠️⚠️')
+              console.log(`📅 Fecha: ${fecha}`)
+              console.log(`🏫 Aula: ${aula.aulaNombre}`)
+              console.log(`👥 Marcados: ${marcados} / ${totalEstudiantesEnFecha} estudiantes`)
+              console.log(`❌ Faltantes: ${faltantes} estudiantes`)
+              console.log(`📊 Porcentaje completo: ${porcentajeCompleto}%`)
+              console.log('')
+              
+              console.log('📋 Detalle del día incompleto:', {
+                fecha,
+                aula: aula.aulaNombre,
+                marcados,
+                totalEstudiantesEnFecha,
+                faltantes,
+                porcentajeCompleto: porcentajeCompleto + '%',
+                estudiantesAulaTotal: aula.estudiantesIds.length,
+                estudiantesMarcadosSize: estudiantesMarcados.size
+              })
+              
               // Parsear fecha como fecha local para evitar problemas de zona horaria
               const [year, month, day] = fecha.split('-').map(Number)
               const fechaDate = new Date(year, month - 1, day)
+              
               // Verificar que la fecha esté en el rango seleccionado
               const [yearInicio, monthInicio, dayInicio] = fechaInicio.split('-').map(Number)
               const fechaInicioDate = new Date(yearInicio, monthInicio - 1, dayInicio)
               const [yearFin, monthFin, dayFin] = fechaFin.split('-').map(Number)
               const fechaFinDate = new Date(yearFin, monthFin - 1, dayFin)
+              
               if (fechaDate >= fechaInicioDate && fechaDate <= fechaFinDate) {
                 diasIncompletosGlobales.push({
                   fecha,
@@ -525,7 +670,7 @@ export function ReporteList() {
                   nivel: aula.aulaNombre,
                   aulaId: aula.aulaId,
                   marcados,
-                  total: totalEstudiantes,
+                  total: totalEstudiantesEnFecha, // Usar el total de estudiantes activos en esa fecha
                 })
               }
             }
@@ -536,7 +681,7 @@ export function ReporteList() {
         const aulasIds = Array.from(new Set(estudiantesData?.map(e => e.aula_id) || []))
         const aulaTutorMap = new Map<string, string>() // aula_id -> tutor_nombre
 
-        // Obtener todos los tutores asignados a aulas de una vez
+        // Obtener todos los tutores asignados a aulas de una vez usando el fcpId del rol seleccionado
         const { data: tutorAulasData } = await supabase
           .from('tutor_aula')
           .select(`
@@ -547,7 +692,7 @@ export function ReporteList() {
               usuario:usuarios(nombre_completo, email)
             )
           `)
-          .eq('fcp_id', selectedFCP)
+          .eq('fcp_id', fcpIdParaReporte)
           .eq('activo', true)
           .in('aula_id', aulasIds)
 
@@ -566,19 +711,26 @@ export function ReporteList() {
           }
         })
 
-        // Crear mapa de asistencias por estudiante y fecha (solo días completos)
+        // Crear mapa de asistencias por estudiante y fecha (TODAS las asistencias registradas)
         const asistenciasMap = new Map<string, Map<string, boolean>>() // estudiante_id -> fecha -> presente
 
         asistenciasData?.forEach((asist) => {
           const estudiante = estudiantesData?.find(e => e.id === asist.estudiante_id)
           if (!estudiante) return
           
-          const aulaId = estudiante.aula_id
           const fecha = asist.fecha
           
-          // Solo incluir si es un día completo para esta aula
-          const diasCompletosAula = diasCompletosPorAula.get(aulaId)
-          if (diasCompletosAula && diasCompletosAula.has(fecha) && asist.estado === 'presente') {
+          // Verificar que la fecha esté en el rango seleccionado
+          const [year, month, day] = fecha.split('-').map(Number)
+          const fechaDate = new Date(year, month - 1, day)
+          const [yearInicio, monthInicio, dayInicio] = fechaInicio.split('-').map(Number)
+          const fechaInicioDate = new Date(yearInicio, monthInicio - 1, dayInicio)
+          const [yearFin, monthFin, dayFin] = fechaFin.split('-').map(Number)
+          const fechaFinDate = new Date(yearFin, monthFin - 1, dayFin)
+          const esDelRango = fechaDate >= fechaInicioDate && fechaDate <= fechaFinDate
+          
+          // Incluir TODAS las asistencias "presente" dentro del rango (no solo días completos)
+          if (esDelRango && asist.estado === 'presente') {
             if (!asistenciasMap.has(asist.estudiante_id)) {
               asistenciasMap.set(asist.estudiante_id, new Map())
             }
@@ -632,8 +784,67 @@ export function ReporteList() {
         fechasUnicas,
         diasIncompletos: diasIncompletosGlobales.sort((a, b) => a.fecha.localeCompare(b.fecha)),
       }
+      
+      // Mostrar días incompletos de forma destacada en la consola
+      console.log('')
+      console.log('═══════════════════════════════════════════════════════════')
+      console.log('📊📊📊 RESUMEN DE DÍAS INCOMPLETOS 📊📊📊')
+      console.log('═══════════════════════════════════════════════════════════')
+      console.log(`Total de días incompletos detectados: ${diasIncompletosGlobales.length}`)
+      console.log('')
+      
+      if (diasIncompletosGlobales.length > 0) {
+        console.log('⚠️⚠️⚠️ LISTA DE DÍAS INCOMPLETOS ⚠️⚠️⚠️')
+        console.log('')
+        diasIncompletosGlobales.forEach((dia, index) => {
+          const faltantes = dia.total - dia.marcados
+          const porcentajeCompleto = ((dia.marcados / dia.total) * 100).toFixed(1)
+          console.log(`${index + 1}. ${dia.fechaFormateada} - ${dia.nivel}`)
+          console.log(`   📅 Fecha: ${dia.fecha}`)
+          console.log(`   👥 Marcados: ${dia.marcados} / ${dia.total} estudiantes`)
+          console.log(`   ❌ Faltantes: ${faltantes} estudiantes`)
+          console.log(`   📊 Porcentaje completo: ${porcentajeCompleto}%`)
+          console.log('')
+        })
+      } else {
+        console.log('✅ No se detectaron días incompletos')
+        console.log('   (Todos los días tienen asistencia completa)')
+        console.log('')
+      }
+      
+      console.log('═══════════════════════════════════════════════════════════')
+      console.log('')
+      
+      // También mostrar en formato objeto para depuración
+      console.log('📋 [ReporteList] Detalle completo (objeto):', {
+        total: diasIncompletosGlobales.length,
+        diasIncompletos: diasIncompletosGlobales.map(d => ({
+          fecha: d.fecha,
+          fechaFormateada: d.fechaFormateada,
+          nivel: d.nivel,
+          aulaId: d.aulaId,
+          marcados: d.marcados,
+          total: d.total,
+          faltantes: d.total - d.marcados,
+          porcentajeCompleto: ((d.marcados / d.total) * 100).toFixed(1) + '%'
+        }))
+      })
+      
+      console.log('📊 [ReporteList] Objeto reporte antes de setReporteData:', {
+        tieneDiasIncompletos: !!reporte.diasIncompletos,
+        esArray: Array.isArray(reporte.diasIncompletos),
+        longitud: reporte.diasIncompletos?.length || 0,
+        diasIncompletos: reporte.diasIncompletos
+      })
 
       setReporteData(reporte)
+      
+      // Verificar después de setReporteData
+      setTimeout(() => {
+        console.log('📊 [ReporteList] Estado después de setReporteData (en el siguiente render):', {
+          reporteData: reporte
+        })
+      }, 100)
     } catch (error) {
       console.error('Error generating report:', error)
       alert('Error al generar el reporte. Por favor, intenta nuevamente.')
@@ -994,16 +1205,16 @@ export function ReporteList() {
     }
   }
 
-  if (userFCPs.length === 0) {
+  if (!fcpIdParaReporte) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
           <BarChart3 className="h-12 w-12 text-muted-foreground mb-4" />
           <p className="text-muted-foreground mb-4">
-            No tienes FCPs asociadas. Primero crea o únete a una FCP.
+            No tienes un rol seleccionado. Por favor, selecciona un rol para continuar.
           </p>
-          <Button onClick={() => router.push('/fcps')}>
-            Ir a FCPs
+          <Button onClick={() => router.push('/seleccionar-rol')}>
+            Seleccionar Rol
           </Button>
         </CardContent>
       </Card>
@@ -1032,46 +1243,6 @@ export function ReporteList() {
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
-            {/* Selector de FCP para facilitadores */}
-            {isFacilitador && userFCPs.length > 0 && (
-              <div>
-                <label className="text-sm font-medium mb-2 block">Proyecto (FCP):</label>
-                <Select
-                  value={selectedFCP || ''}
-                  onValueChange={(value) => {
-                    setSelectedFCP(value)
-                    setReporteData(null) // Limpiar reporte anterior al cambiar FCP
-                  }}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Seleccionar proyecto">
-                      {selectedFCP ? (
-                        <div className="flex items-center gap-2">
-                          <Building2 className="h-4 w-4" />
-                          <span className="truncate">{userFCPs.find(fcp => fcp.id === selectedFCP)?.nombre || 'Seleccionar proyecto'}</span>
-                        </div>
-                      ) : (
-                        'Seleccionar proyecto'
-                      )}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {userFCPs.map((fcp) => (
-                      <SelectItem key={fcp.id} value={fcp.id}>
-                        <div className="flex items-center gap-2">
-                          <Building2 className="h-4 w-4 flex-shrink-0" />
-                          <span className="truncate">{fcp.nombre}</span>
-                          {fcp.numero_identificacion && (
-                            <span className="text-xs text-muted-foreground whitespace-nowrap">({fcp.numero_identificacion})</span>
-                          )}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
             <div>
               <label className="text-sm font-medium mb-2 block">Mes:</label>
               <MonthPicker
@@ -1086,9 +1257,9 @@ export function ReporteList() {
             </div>
           </div>
 
-          <RoleGuard fcpId={selectedFCP} allowedRoles={['facilitador', 'director', 'secretario']}>
+          <RoleGuard fcpId={fcpIdParaReporte || undefined} allowedRoles={['facilitador', 'director', 'secretario']}>
             <div className="mt-4">
-              <Button onClick={generarReporte} disabled={loading || !selectedFCP}>
+              <Button onClick={generarReporte} disabled={loading || !fcpIdParaReporte}>
                 {loading ? (
                   <>
                     <Calendar className="mr-2 h-4 w-4 animate-pulse" />
@@ -1101,9 +1272,9 @@ export function ReporteList() {
                   </>
                 )}
               </Button>
-              {isFacilitador && !selectedFCP && (
+              {!fcpIdParaReporte && (
                 <p className="text-sm text-muted-foreground mt-2">
-                  Por favor, selecciona un proyecto para generar el reporte.
+                  Por favor, asegúrate de tener un rol seleccionado.
                 </p>
               )}
             </div>
@@ -1116,7 +1287,7 @@ export function ReporteList() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>Reporte Generado</CardTitle>
-              <RoleGuard fcpId={selectedFCP} allowedRoles={['facilitador', 'director', 'secretario']}>
+              <RoleGuard fcpId={fcpIdParaReporte || undefined} allowedRoles={['facilitador', 'director', 'secretario']}>
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={exportarExcel}>
                     <FileSpreadsheet className="mr-2 h-4 w-4" />
@@ -1147,7 +1318,23 @@ export function ReporteList() {
                   )}
                 </div>
 
-                {reporteData.diasIncompletos && reporteData.diasIncompletos.length > 0 && (
+                {(() => {
+                  const diasIncompletos = reporteData.diasIncompletos
+                  const tieneDiasIncompletos = diasIncompletos && Array.isArray(diasIncompletos) && diasIncompletos.length > 0
+                  
+                  console.log('🔍 [ReporteList] Renderizado - Verificando días incompletos:', {
+                    tieneDiasIncompletos: !!diasIncompletos,
+                    esArray: Array.isArray(diasIncompletos),
+                    longitud: diasIncompletos?.length || 0,
+                    diasIncompletos: diasIncompletos,
+                    condicion: tieneDiasIncompletos
+                  })
+                  
+                  if (!tieneDiasIncompletos) {
+                    return null
+                  }
+                  
+                  return (
                   <div className="mb-4 rounded-md bg-warning/20 border border-warning/50 p-4">
                     <h4 className="font-semibold text-warning-foreground mb-2">
                       ⚠️ Días con asistencia incompleta
@@ -1184,7 +1371,8 @@ export function ReporteList() {
                       })}
                     </ul>
                   </div>
-                )}
+                  )
+                })()}
 
                 <div className="border border-border rounded-lg overflow-hidden">
                   <div className="overflow-x-auto">

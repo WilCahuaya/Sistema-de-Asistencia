@@ -3,6 +3,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server'
+import { getUserHighestRoleFromDB } from './get-user-highest-role'
 
 export type UserRole = 'facilitador' | 'director' | 'secretario' | 'tutor' | null
 
@@ -13,6 +14,10 @@ export interface UserRoleInfo {
 
 /**
  * Obtiene el rol del usuario autenticado
+ * Si el usuario tiene múltiples roles, retorna el de mayor jerarquía
+ * Jerarquía: facilitador (4) > director (3) > secretario (2) > tutor (1)
+ * 
+ * Esta función usa la lógica centralizada de getUserHighestRoleFromDB para asegurar consistencia
  * 
  * @param userId - ID del usuario (auth.users.id) - opcional, si no se proporciona se obtiene del contexto
  * @returns Objeto con role y hasRole
@@ -21,38 +26,12 @@ export async function getUserRole(userId?: string): Promise<UserRoleInfo> {
   try {
     const supabase = await createClient()
     
-    // Obtener el usuario del contexto de autenticación
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    // Usar la función centralizada para obtener el rol de mayor jerarquía
+    const roleFlags = await getUserHighestRoleFromDB(supabase, userId)
     
-    if (userError || !user) {
-      console.error('Error getting authenticated user:', userError)
-      return { role: null, hasRole: false }
-    }
-
-    // Usar el userId proporcionado o el del usuario autenticado
-    const actualUserId = userId || user.id
-    
-    // Obtener el primer rol activo del usuario
-    const { data, error } = await supabase
-      .from('fcp_miembros')
-      .select('rol')
-      .eq('usuario_id', actualUserId)
-      .eq('activo', true)
-      .limit(1)
-
-    if (error) {
-      console.error('Error getting user role:', error)
-      return { role: null, hasRole: false }
-    }
-
-    if (!data || data.length === 0) {
-      return { role: null, hasRole: false }
-    }
-
-    const role = data[0].rol as UserRole
     return {
-      role,
-      hasRole: true,
+      role: roleFlags.highestRole,
+      hasRole: roleFlags.highestRole !== null,
     }
   } catch (error) {
     console.error('Error in getUserRole:', error)

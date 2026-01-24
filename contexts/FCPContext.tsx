@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
+import { getRolPriority } from '@/lib/utils/roles'
 
 export interface FCPInfo {
   id: string
@@ -44,39 +45,25 @@ export function FCPProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
-      // Verificar si el usuario es facilitador del sistema
+      // Verificar si el usuario es facilitador en alguna FCP (excluyendo facilitadores del sistema)
       const { data: facilitadorData } = await supabase
         .from('fcp_miembros')
         .select('rol')
         .eq('usuario_id', user.id)
-        .is('fcp_id', null)
         .eq('rol', 'facilitador')
         .eq('activo', true)
+        .not('fcp_id', 'is', null)  // Excluir facilitadores del sistema
+        .limit(1)
         .maybeSingle()
 
       const isFacilitadorUser = !!facilitadorData
       setIsFacilitador(isFacilitadorUser)
 
-      if (isFacilitadorUser) {
-        // Facilitadores pueden ver todas las FCPs activas
-        const { data: todasLasFCPs, error } = await supabase
-          .from('fcps')
-          .select('id, razon_social, numero_identificacion')
-          .eq('activa', true)
-          .order('razon_social', { ascending: true })
+      let fcps: FCPInfo[] = []
 
-        if (error) throw error
-
-        fcps = (todasLasFCPs || []).map(fcp => ({
-          id: fcp.id,
-          nombre: fcp.razon_social || fcp.numero_identificacion || fcp.id,
-          razon_social: fcp.razon_social,
-          numero_identificacion: fcp.numero_identificacion,
-          rol: 'facilitador'
-        }))
-      } else {
-        // Usuarios normales solo ven sus FCPs
-        const { data: fcpMiembrosData, error } = await supabase
+      // Todos los usuarios (incluidos facilitadores) solo ven las FCPs donde tienen roles asignados
+      // Excluir facilitadores del sistema (fcp_id = null)
+      const { data: fcpMiembrosData, error } = await supabase
           .from('fcp_miembros')
           .select(`
             id,
@@ -89,20 +76,48 @@ export function FCPProvider({ children }: { children: React.ReactNode }) {
           `)
           .eq('usuario_id', user.id)
           .eq('activo', true)
+          .not('fcp_id', 'is', null)  // Excluir facilitadores del sistema
           .order('created_at', { ascending: true })
 
-        if (error) throw error
+      if (error) throw error
 
-        fcps = (fcpMiembrosData || [])
-          .filter((miembro: any) => miembro.fcp) // Filtrar FCPs eliminadas
-          .map((miembro: any) => ({
-            id: miembro.fcp.id,
-            nombre: miembro.fcp.razon_social || miembro.fcp.numero_identificacion || miembro.fcp.id,
+      // Mapear y deduplicar FCPs (si un usuario tiene múltiples roles en la misma FCP, solo mostrar una entrada)
+      const fcpMap = new Map<string, FCPInfo>()
+      
+      for (const miembro of fcpMiembrosData || []) {
+        if (!miembro.fcp) continue // Filtrar FCPs eliminadas
+        
+        const fcpId = miembro.fcp.id
+        
+        // Si la FCP ya existe en el mapa, usar el rol de mayor jerarquía
+        if (fcpMap.has(fcpId)) {
+          const existingFCP = fcpMap.get(fcpId)!
+          const existingRolPriority = getRolPriority(existingFCP.rol || null)
+          const newRolPriority = getRolPriority(miembro.rol)
+          
+          // Si el nuevo rol tiene mayor jerarquía, actualizar
+          if (newRolPriority > existingRolPriority) {
+            fcpMap.set(fcpId, {
+              id: fcpId,
+              nombre: miembro.fcp.razon_social || miembro.fcp.numero_identificacion || fcpId,
+              razon_social: miembro.fcp.razon_social,
+              numero_identificacion: miembro.fcp.numero_identificacion,
+              rol: miembro.rol
+            })
+          }
+        } else {
+          // Primera vez que vemos esta FCP
+          fcpMap.set(fcpId, {
+            id: fcpId,
+            nombre: miembro.fcp.razon_social || miembro.fcp.numero_identificacion || fcpId,
             razon_social: miembro.fcp.razon_social,
             numero_identificacion: miembro.fcp.numero_identificacion,
             rol: miembro.rol
-          }))
+          })
+        }
       }
+      
+      fcps = Array.from(fcpMap.values())
 
       setUserFCPs(fcps)
 

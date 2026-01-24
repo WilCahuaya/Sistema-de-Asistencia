@@ -37,12 +37,15 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // Permitir acceso a rutas de autenticación sin redirigir
+  // Permitir acceso a rutas de autenticación y páginas públicas sin redirigir
   const isAuthRoute = request.nextUrl.pathname.startsWith('/login') || 
-                      request.nextUrl.pathname.startsWith('/auth')
+                      request.nextUrl.pathname.startsWith('/auth') ||
+                      request.nextUrl.pathname.startsWith('/seleccionar-rol')
+  const isPublicRoute = request.nextUrl.pathname.startsWith('/terminos') ||
+                        request.nextUrl.pathname.startsWith('/privacidad')
   
-  // No redirigir si es la ruta de callback (necesita procesar el código)
-  if (!user && !isAuthRoute) {
+  // No redirigir si es la ruta de callback (necesita procesar el código) o ruta pública
+  if (!user && !isAuthRoute && !isPublicRoute) {
     // no user, potentially respond by redirecting the user to the login page
     const url = request.nextUrl.clone()
     url.pathname = '/login'
@@ -58,14 +61,16 @@ export async function updateSession(request: NextRequest) {
     const url = request.nextUrl.clone()
     
     if (accessCheck.hasAccess) {
-      // Obtener el rol del usuario para redirigir al dashboard correcto
-      const roleInfo = await getUserRole(user.id)
-      
-      // Redirigir según el rol (todos van a /dashboard pero el contenido se adapta)
-      // Facilitador → Dashboard Facilitador (solo reportes mensuales y perfil)
-      // Director/Secretario → Dashboard completo
-      // Tutor → Vista limitada
-      url.pathname = '/dashboard'
+      // Verificar cuántos roles tiene el usuario
+      const { data: rolesData } = await supabase
+        .from('fcp_miembros')
+        .select('id')
+        .eq('usuario_id', user.id)
+        .eq('activo', true)
+
+      // Si tiene múltiples roles, redirigir a selección de roles
+      // Si solo tiene un rol, redirigir directamente al dashboard
+      url.pathname = (rolesData && rolesData.length > 1) ? '/seleccionar-rol' : '/dashboard'
     } else {
       // Sin rol → /pendiente
       url.pathname = '/pendiente'

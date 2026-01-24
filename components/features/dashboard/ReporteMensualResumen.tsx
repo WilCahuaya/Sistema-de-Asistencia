@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 
 interface NivelData {
   nivel: string
@@ -21,17 +22,23 @@ interface ReporteData {
 export function ReporteMensualResumen() {
   const [loading, setLoading] = useState(true)
   const [reporteData, setReporteData] = useState<ReporteData | null>(null)
-  const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
+  const { selectedRole, loading: roleLoading } = useSelectedRole()
 
   useEffect(() => {
     const initialize = async () => {
-      await loadUserFCPs()
-      if (selectedFCP) {
-        await generarReporte()
+      // Esperar a que el rol seleccionado se cargue
+      if (roleLoading) return
+      
+      // Si hay un rol seleccionado con fcp_id, generar el reporte
+      if (selectedRole?.fcpId) {
+        await generarReporte(selectedRole.fcpId)
+      } else {
+        // Si no hay fcp_id (por ejemplo, facilitador del sistema), intentar obtener FCPs
+        await loadUserFCPs()
       }
     }
     initialize()
-  }, [selectedFCP])
+  }, [selectedRole, roleLoading])
 
   const loadUserFCPs = async () => {
     try {
@@ -39,6 +46,7 @@ export function ReporteMensualResumen() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
+      // Obtener la primera FCP activa del usuario
       const { data, error } = await supabase
         .from('fcp_miembros')
         .select(`
@@ -47,20 +55,27 @@ export function ReporteMensualResumen() {
         `)
         .eq('usuario_id', user.id)
         .eq('activo', true)
+        .not('fcp_id', 'is', null)
         .limit(1)
 
       if (error) throw error
 
-      if (data && data.length > 0) {
-        setSelectedFCP(data[0].fcp_id)
+      if (data && data.length > 0 && data[0].fcp_id) {
+        await generarReporte(data[0].fcp_id)
+      } else {
+        setLoading(false)
       }
     } catch (error) {
       console.error('Error loading FCPs:', error)
+      setLoading(false)
     }
   }
 
-  const generarReporte = async () => {
-    if (!selectedFCP) return
+  const generarReporte = async (fcpId: string) => {
+    if (!fcpId) {
+      setLoading(false)
+      return
+    }
 
     try {
       setLoading(true)
@@ -73,7 +88,7 @@ export function ReporteMensualResumen() {
       const { data: aulas, error: aulasError } = await supabase
         .from('aulas')
         .select('id, nombre')
-        .eq('fcp_id', selectedFCP)
+        .eq('fcp_id', fcpId)
         .eq('activa', true)
         .order('nombre', { ascending: true })
 
@@ -106,7 +121,7 @@ export function ReporteMensualResumen() {
       const { data: estudiantes, error: estudiantesError } = await supabase
         .from('estudiantes')
         .select('id, aula_id, codigo, nombre_completo')
-        .eq('fcp_id', selectedFCP)
+        .eq('fcp_id', fcpId)
         .eq('activo', true)
 
       if (estudiantesError) throw estudiantesError
@@ -126,7 +141,7 @@ export function ReporteMensualResumen() {
       const { data: asistencias, error: asistenciasError } = await supabase
         .from('asistencias')
         .select('id, estudiante_id, fecha, estado')
-        .eq('fcp_id', selectedFCP)
+        .eq('fcp_id', fcpId)
         .gte('fecha', fechaInicioStr)
         .lte('fecha', fechaFinStr)
 

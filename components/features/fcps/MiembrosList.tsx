@@ -158,8 +158,11 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
         const nombreCompleto = usuarioData?.nombre_completo || 
                               (miembro.usuario_id && !usuarioData ? 'Usuario no sincronizado' : 'Sin nombre')
         
-        // Si el miembro es tutor, cargar las aulas asignadas
+        // Cargar las aulas asignadas si el miembro tiene rol de tutor
+        // O si el usuario tiene otro registro como tutor en esta FCP
         let aulasAsignadas: Array<{ id: string; nombre: string }> = []
+        
+        // Primero intentar cargar aulas del registro actual si es tutor
         if (miembro.rol === 'tutor' && miembro.activo) {
           try {
             const { data: tutorAulas, error: tutorAulasError } = await supabase
@@ -184,6 +187,62 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
             }
           } catch (err) {
             console.error('Error en consulta de aulas del tutor:', err)
+          }
+        }
+        
+        // Si no se encontraron aulas y el usuario tiene usuario_id, buscar si tiene otro registro como tutor
+        if (aulasAsignadas.length === 0 && miembro.usuario_id && miembro.activo) {
+          try {
+            // Buscar TODOS los registros de tutor del usuario en esta FCP
+            const { data: tutorRecords, error: tutorRecordError } = await supabase
+              .from('fcp_miembros')
+              .select('id')
+              .eq('usuario_id', miembro.usuario_id)
+              .eq('fcp_id', fcpId)
+              .eq('rol', 'tutor')
+              .eq('activo', true)
+            
+            if (!tutorRecordError && tutorRecords && tutorRecords.length > 0) {
+              // Cargar aulas de todos los registros de tutor del usuario
+              const tutorIds = tutorRecords.map((tr: any) => tr.id)
+              
+              const { data: tutorAulas, error: tutorAulasError } = await supabase
+                .from('tutor_aula')
+                .select(`
+                  aula_id,
+                  aula:aulas!inner(
+                    id,
+                    nombre
+                  )
+                `)
+                .in('fcp_miembro_id', tutorIds)
+                .eq('activo', true)
+                .eq('fcp_id', fcpId)
+              
+              if (!tutorAulasError && tutorAulas) {
+                aulasAsignadas = tutorAulas
+                  .map((ta: any) => ta.aula)
+                  .filter((aula: any) => aula !== null && aula !== undefined)
+                
+                // Eliminar duplicados por ID de aula
+                const aulasUnicas = new Map<string, { id: string; nombre: string }>()
+                aulasAsignadas.forEach((aula: { id: string; nombre: string }) => {
+                  if (!aulasUnicas.has(aula.id)) {
+                    aulasUnicas.set(aula.id, aula)
+                  }
+                })
+                aulasAsignadas = Array.from(aulasUnicas.values())
+                
+                console.log('✅ Aulas cargadas desde registro de tutor del usuario:', {
+                  usuario_id: miembro.usuario_id,
+                  registro_actual_rol: miembro.rol,
+                  registros_tutor: tutorRecords.length,
+                  aulas_encontradas: aulasAsignadas.length
+                })
+              }
+            }
+          } catch (err) {
+            console.error('Error verificando aulas del tutor desde otro registro:', err)
           }
         }
         
@@ -345,7 +404,8 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                         {new Date(miembro.fecha_asignacion).toLocaleDateString('es-ES')}
                       </TableCell>
                       <TableCell>
-                        {miembro.rol === 'tutor' ? (
+                        {/* Mostrar aulas si el registro es tutor O si el usuario tiene aulas asignadas como tutor */}
+                        {(miembro.rol === 'tutor' || (miembro.aulas && miembro.aulas.length > 0)) ? (
                           miembro.aulas && miembro.aulas.length > 0 ? (
                             <div className="flex flex-wrap gap-1">
                               {miembro.aulas.map((aula) => (

@@ -14,18 +14,23 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Building2 } from 'lucide-react'
+import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 
 export default function AsistenciasPage() {
   const searchParams = useSearchParams()
   const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
   const [selectedAula, setSelectedAula] = useState<string | null>(null)
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
-  const [isDirector, setIsDirector] = useState(false)
-  const [isSecretario, setIsSecretario] = useState(false)
+  const { selectedRole } = useSelectedRole()
+  
+  // Determinar los flags basándose en el rol seleccionado
+  const isDirector = selectedRole?.role === 'director'
+  const isSecretario = selectedRole?.role === 'secretario'
+  const isFacilitador = selectedRole?.role === 'facilitador'
 
   useEffect(() => {
     loadUserFCPs()
-  }, [])
+  }, [selectedRole])
 
   useEffect(() => {
     if (userFCPs.length > 0 && !selectedFCP) {
@@ -53,84 +58,58 @@ export default function AsistenciasPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Verificar si el usuario es facilitador
-      const { data: facilitadorData, error: facilitadorError } = await supabase
-        .from('fcp_miembros')
-        .select('rol')
-        .eq('usuario_id', user.id)
-        .eq('rol', 'facilitador')
-        .eq('activo', true)
-        .limit(1)
-
-      if (facilitadorError) throw facilitadorError
-
-      const esFacilitador = facilitadorData && facilitadorData.length > 0
-
-      // Verificar si el usuario es director
-      const { data: directorData, error: directorError } = await supabase
-        .from('fcp_miembros')
-        .select('rol')
-        .eq('usuario_id', user.id)
-        .eq('rol', 'director')
-        .eq('activo', true)
-        .limit(1)
-
-      if (!directorError && directorData && directorData.length > 0) {
-        setIsDirector(true)
-      }
-
-      // Verificar si el usuario es secretario
-      const { data: secretarioData, error: secretarioError } = await supabase
-        .from('fcp_miembros')
-        .select('rol')
-        .eq('usuario_id', user.id)
-        .eq('rol', 'secretario')
-        .eq('activo', true)
-        .limit(1)
-
-      if (!secretarioError && secretarioData && secretarioData.length > 0) {
-        setIsSecretario(true)
-      }
+      // Usar el rol seleccionado para determinar si es facilitador
+      const esFacilitador = selectedRole?.role === 'facilitador'
 
       let fcps: Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }> = []
 
-      if (esFacilitador) {
-        // Facilitadores pueden ver todas las FCPs del sistema
-        const { data: todasLasFCPs, error: fcpsError } = await supabase
-          .from('fcps')
-          .select('id, razon_social, numero_identificacion')
-          .eq('activa', true)
-          .order('razon_social', { ascending: true })
-        
-        if (fcpsError) throw fcpsError
-        fcps = (todasLasFCPs || []).map((fcp: any) => ({
-          id: fcp.id,
-          nombre: fcp.razon_social || 'FCP',
-          numero_identificacion: fcp.numero_identificacion,
-          razon_social: fcp.razon_social,
-        }))
-      } else {
-        // Usuarios no facilitadores solo ven sus FCPs
-        const { data, error } = await supabase
-          .from('fcp_miembros')
-          .select(`
-            fcp_id,
-            fcp:fcps(id, razon_social, numero_identificacion)
-          `)
-          .eq('usuario_id', user.id)
-          .eq('activo', true)
+      // Todos los usuarios (incluidos facilitadores) solo ven las FCPs donde tienen roles asignados
+      // Excluir facilitadores del sistema (fcp_id = null)
+      // Si hay un rol seleccionado con fcpId, usar solo esa FCP
+      if (selectedRole?.fcpId) {
+          const { data: fcpData, error: fcpError } = await supabase
+            .from('fcps')
+            .select('id, razon_social, numero_identificacion')
+            .eq('id', selectedRole.fcpId)
+            .eq('activa', true)
+            .maybeSingle()
 
-        if (error) throw error
+          if (!fcpError && fcpData) {
+            fcps = [{
+              id: fcpData.id,
+              nombre: fcpData.razon_social || 'FCP',
+              numero_identificacion: fcpData.numero_identificacion,
+              razon_social: fcpData.razon_social,
+            }]
+          }
+        } else {
+          // Si no hay rol seleccionado o no tiene fcpId, obtener todas las FCPs del usuario
+          const { data, error } = await supabase
+            .from('fcp_miembros')
+            .select(`
+              fcp_id,
+              fcp:fcps(id, razon_social, numero_identificacion)
+            `)
+            .eq('usuario_id', user.id)
+            .eq('activo', true)
+            .not('fcp_id', 'is', null)  // Excluir facilitadores del sistema
 
-        fcps = data?.map((item: any) => ({
-          id: item.fcp?.id,
-          nombre: item.fcp?.razon_social || 'FCP',
-          numero_identificacion: item.fcp?.numero_identificacion,
-          razon_social: item.fcp?.razon_social,
-        })).filter((fcp: any) => fcp.id) || []
-      }
+          if (error) throw error
+
+          fcps = data?.map((item: any) => ({
+            id: item.fcp?.id,
+            nombre: item.fcp?.razon_social || 'FCP',
+            numero_identificacion: item.fcp?.numero_identificacion,
+            razon_social: item.fcp?.razon_social,
+          })).filter((fcp: any) => fcp.id && fcp.id !== null) || []
+        }
 
       setUserFCPs(fcps)
+      
+      // Si hay un rol seleccionado con fcpId, establecerlo como FCP seleccionada
+      if (selectedRole?.fcpId && !selectedFCP) {
+        setSelectedFCP(selectedRole.fcpId)
+      }
     } catch (error) {
       console.error('Error loading FCPs:', error)
     }

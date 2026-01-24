@@ -1,43 +1,129 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { UserX, LogOut, Mail, MessageCircle, AlertCircle, CheckCircle2, UserCheck } from 'lucide-react'
+import { UserX, LogOut, Mail, MessageCircle, AlertCircle, CheckCircle2, UserCheck, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { useAuth } from '@/contexts/AuthContext'
 
-export default async function SinRolPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+export default function SinRolPage() {
+  const router = useRouter()
+  const { user } = useAuth()
+  const [isChecking, setIsChecking] = useState(false)
+  const [usuarioData, setUsuarioData] = useState<{ nombre_completo?: string; email?: string } | null>(null)
+  const [checkInterval, setCheckInterval] = useState<NodeJS.Timeout | null>(null)
 
-  // Si no está autenticado, redirigir al login
-  if (!user) {
-    redirect('/login')
+  // Cargar datos del usuario
+  useEffect(() => {
+    const loadUserData = async () => {
+      if (!user) return
+      
+      const supabase = createClient()
+      try {
+        const { data } = await supabase
+          .from('usuarios')
+          .select('id, email, nombre_completo')
+          .eq('id', user.id)
+          .single()
+        setUsuarioData(data)
+      } catch (error: any) {
+        console.warn('Error getting usuario data:', error?.message)
+        setUsuarioData(null)
+      }
+    }
+
+    loadUserData()
+  }, [user])
+
+  // Función para verificar si el usuario tiene roles
+  const checkForRoles = async () => {
+    if (!user) return false
+
+    setIsChecking(true)
+    const supabase = createClient()
+
+    try {
+      // Verificar si tiene roles activos
+      const { data, error } = await supabase
+        .from('fcp_miembros')
+        .select('id, activo, rol, fcp_id', { count: 'exact' })
+        .eq('usuario_id', user.id)
+        .eq('activo', true)
+
+      if (error) {
+        console.error('Error checking roles:', error)
+        setIsChecking(false)
+        return false
+      }
+
+      const roleCount = data?.length || 0
+
+      if (roleCount > 0) {
+        console.log(`✅ Usuario ahora tiene ${roleCount} rol(es) asignado(s)`)
+        
+        // Detener el polling
+        if (checkInterval) {
+          clearInterval(checkInterval)
+          setCheckInterval(null)
+        }
+
+        // Redirigir según la cantidad de roles
+        if (roleCount === 1) {
+          router.push('/dashboard')
+        } else {
+          router.push('/seleccionar-rol')
+        }
+        
+        return true
+      }
+
+      setIsChecking(false)
+      return false
+    } catch (error) {
+      console.error('Error in checkForRoles:', error)
+      setIsChecking(false)
+      return false
+    }
   }
 
-  // NO verificar roles aquí para evitar recursión infinita
-  // El middleware ya maneja la redirección a esta página
-  // Si el usuario llega aquí, es porque no tiene roles o hay un error de RLS
+  // Verificación automática cada 10 segundos
+  useEffect(() => {
+    if (!user) return
 
-  // Obtener información del usuario (esta consulta no debería causar recursión)
-  let usuarioData: any = null
-  try {
-    const { data } = await supabase
-      .from('usuarios')
-      .select('id, email, nombre_completo')
-      .eq('id', user.id)
-      .single()
-    usuarioData = data
-  } catch (error: any) {
-    // Si hay error obteniendo datos del usuario, continuar con los datos de auth
-    console.warn('Error getting usuario data:', error?.message)
-    usuarioData = null
-  }
+    // Verificar inmediatamente al cargar
+    checkForRoles()
+
+    // Configurar polling cada 10 segundos
+    const interval = setInterval(() => {
+      checkForRoles()
+    }, 10000) // 10 segundos
+
+    setCheckInterval(interval)
+
+    // Limpiar intervalo al desmontar
+    return () => {
+      if (interval) {
+        clearInterval(interval)
+      }
+    }
+  }, [user])
 
   const handleSignOut = async () => {
-    'use server'
-    const supabase = await createClient()
+    const supabase = createClient()
     await supabase.auth.signOut()
-    redirect('/login?logout=true')
+    router.push('/login?logout=true')
+  }
+
+  const handleManualCheck = async () => {
+    await checkForRoles()
+  }
+
+  if (!user) {
+    router.push('/login')
+    return null
   }
 
   // Obtener el nombre del usuario para personalizar el mensaje
@@ -64,6 +150,10 @@ export default async function SinRolPage() {
               <p className="text-lg text-gray-700 dark:text-gray-300 mt-3 font-medium">
                 Por favor, <span className="text-blue-600 dark:text-blue-400 font-semibold">contáctese con la administración</span> para obtener acceso al sistema.
               </p>
+              <div className="mt-4 flex items-center justify-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                <RefreshCw className={`h-4 w-4 ${isChecking ? 'animate-spin' : ''}`} />
+                <span>Verificando automáticamente cada 10 segundos...</span>
+              </div>
             </div>
           </div>
         </div>
@@ -149,7 +239,7 @@ export default async function SinRolPage() {
                           <CheckCircle2 className="h-4 w-4" />
                         </Badge>
                         <p className="text-sm text-gray-700 dark:text-gray-300 pt-0.5">
-                          Una vez asignado el rol, podrás acceder a todas las funcionalidades del sistema
+                          Una vez asignado el rol, <strong className="text-green-600 dark:text-green-400">serás redirigido automáticamente</strong> a todas las funcionalidades del sistema
                         </p>
                       </div>
                     </div>
@@ -186,18 +276,24 @@ export default async function SinRolPage() {
               </div>
             </div>
 
-            {/* Botón de cerrar sesión */}
+            {/* Botones de acción */}
             <div className="flex flex-col sm:flex-row gap-3 justify-center pt-4 border-t">
-              <form action={handleSignOut}>
-                <Button 
-                  type="submit" 
-                  variant="outline" 
-                  className="w-full sm:w-auto border-2 hover:bg-gray-100 dark:hover:bg-gray-800"
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Cerrar Sesión
-                </Button>
-              </form>
+              <Button 
+                onClick={handleManualCheck}
+                disabled={isChecking}
+                className="w-full sm:w-auto"
+              >
+                <RefreshCw className={`mr-2 h-4 w-4 ${isChecking ? 'animate-spin' : ''}`} />
+                {isChecking ? 'Verificando...' : 'Verificar Ahora'}
+              </Button>
+              <Button 
+                onClick={handleSignOut}
+                variant="outline" 
+                className="w-full sm:w-auto border-2 hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Cerrar Sesión
+              </Button>
             </div>
 
             {/* Footer */}
@@ -212,4 +308,3 @@ export default async function SinRolPage() {
     </div>
   )
 }
-

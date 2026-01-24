@@ -3,6 +3,7 @@ import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { FCPProvider } from "@/contexts/FCPContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { SelectedRoleProvider } from "@/contexts/SelectedRoleContext";
 import { Suspense } from "react";
 
 export const metadata: Metadata = {
@@ -31,18 +32,20 @@ export default function RootLayout({
                   document.documentElement.classList.add('theme-blue');
                 }
               })();
-            `,
+            `.trim(),
           }}
         />
       </head>
       <body>
         <ThemeProvider>
         <AuthProvider>
-          <Suspense fallback={<div>Cargando...</div>}>
-            <FCPProvider>
-              {children}
-            </FCPProvider>
-          </Suspense>
+          <SelectedRoleProvider>
+            <Suspense fallback={<div>Cargando...</div>}>
+              <FCPProvider>
+                {children}
+              </FCPProvider>
+            </Suspense>
+          </SelectedRoleProvider>
         </AuthProvider>
         </ThemeProvider>
       </body>

@@ -21,7 +21,7 @@
 /* Tema Azul (Default) - Profesional y Educativo */
 :root:not(.theme-dark-blue):not(.theme-dark-green):not(.theme-dark-purple):not(.theme-green):not(.theme-purple):not(.theme-gray),
 html.theme-blue {
-  --background: 217 100% 97%;
+  --background: 217 100% 99%;
   --foreground: 217 91% 15%;
   --card: 0 0% 100%;
   --card-foreground: 217 91% 15%;
@@ -29,11 +29,11 @@ html.theme-blue {
   --popover-foreground: 217 91% 15%;
   --primary: 217 91% 60%;
   --primary-foreground: 0 0% 98%;
-  --secondary: 217 33% 96%;
+  --secondary: 217 33% 98%;
   --secondary-foreground: 217 91% 40%;
-  --muted: 217 50% 92%;
+  --muted: 217 50% 96%;
   --muted-foreground: 217 10% 45%;
-  --accent: 217 91% 90%;
+  --accent: 217 91% 94%;
   --accent-foreground: 217 91% 40%;
   --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 0 0% 98%;
@@ -52,7 +52,7 @@ html.theme-blue {
 
 /* Tema Verde - Natural y Crecimiento */
 html.theme-green {
-  --background: 142 50% 95%;
+  --background: 142 50% 98%;
   --foreground: 142 76% 15%;
   --card: 0 0% 100%;
   --card-foreground: 142 76% 15%;
@@ -60,11 +60,11 @@ html.theme-green {
   --popover-foreground: 142 76% 15%;
   --primary: 142 71% 45%;
   --primary-foreground: 0 0% 98%;
-  --secondary: 142 33% 96%;
+  --secondary: 142 33% 98%;
   --secondary-foreground: 142 71% 35%;
-  --muted: 142 50% 90%;
+  --muted: 142 50% 96%;
   --muted-foreground: 142 10% 45%;
-  --accent: 142 71% 88%;
+  --accent: 142 71% 94%;
   --accent-foreground: 142 71% 35%;
   --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 0 0% 98%;
@@ -82,7 +82,7 @@ html.theme-green {
 
 /* Tema Púrpura - Creativo e Innovador */
 html.theme-purple {
-  --background: 262 50% 95%;
+  --background: 262 50% 98%;
   --foreground: 262 83% 15%;
   --card: 0 0% 100%;
   --card-foreground: 262 83% 15%;
@@ -90,11 +90,11 @@ html.theme-purple {
   --popover-foreground: 262 83% 15%;
   --primary: 262 83% 58%;
   --primary-foreground: 0 0% 98%;
-  --secondary: 262 33% 96%;
+  --secondary: 262 33% 98%;
   --secondary-foreground: 262 83% 40%;
-  --muted: 262 50% 90%;
+  --muted: 262 50% 96%;
   --muted-foreground: 262 10% 45%;
-  --accent: 262 83% 88%;
+  --accent: 262 83% 94%;
   --accent-foreground: 262 83% 40%;
   --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 0 0% 98%;
@@ -112,7 +112,7 @@ html.theme-purple {
 
 /* Tema Gris - Neutro y Elegante */
 html.theme-gray {
-  --background: 0 0% 95%;
+  --background: 0 0% 98%;
   --foreground: 0 0% 15%;
     --card: 0 0% 100%;
   --card-foreground: 0 0% 15%;
@@ -120,11 +120,11 @@ html.theme-gray {
   --popover-foreground: 0 0% 15%;
   --primary: 0 0% 50%;
     --primary-foreground: 0 0% 98%;
-  --secondary: 0 0% 96%;
+  --secondary: 0 0% 98%;
   --secondary-foreground: 0 0% 25%;
-  --muted: 0 0% 88%;
+  --muted: 0 0% 96%;
   --muted-foreground: 0 0% 50%;
-  --accent: 0 0% 85%;
+  --accent: 0 0% 94%;
   --accent-foreground: 0 0% 25%;
     --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 0 0% 98%;

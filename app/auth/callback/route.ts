@@ -86,12 +86,30 @@ export async function GET(request: NextRequest) {
     // Verificar si el usuario tiene algún rol asignado
     const roleInfo = await getUserRole(user.id)
     
-    // Redirigir según el rol
-    // Facilitador → Dashboard Facilitador
-    // Director/Secretario → Dashboard completo
-    // Tutor → Vista limitada
-    // Sin rol → /pendiente
-    const redirectPath = roleInfo.hasRole ? '/dashboard' : '/pendiente'
+    if (!roleInfo.hasRole) {
+      // Si no tiene roles, redirigir a pendiente
+      const redirectResponse = NextResponse.redirect(`${origin}/pendiente`)
+      response.cookies.getAll().forEach(cookie => {
+        redirectResponse.cookies.set(cookie.name, cookie.value, {
+          sameSite: 'lax',
+          path: '/',
+          secure: process.env.NODE_ENV === 'production',
+          httpOnly: false,
+        })
+      })
+      return redirectResponse
+    }
+
+    // Verificar cuántos roles tiene el usuario
+    const { data: rolesData } = await supabase
+      .from('fcp_miembros')
+      .select('id')
+      .eq('usuario_id', user.id)
+      .eq('activo', true)
+
+    // Si tiene múltiples roles, redirigir a la página de selección
+    // Si solo tiene un rol, redirigir directamente al dashboard
+    const redirectPath = (rolesData && rolesData.length > 1) ? '/seleccionar-rol' : '/dashboard'
 
     // Crear respuesta de redirección con las cookies establecidas
     const redirectResponse = NextResponse.redirect(`${origin}${redirectPath}`)

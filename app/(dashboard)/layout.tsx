@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { DashboardNav } from '@/components/layout/DashboardNav'
+import { RoleLogger } from '@/components/debug/RoleLogger'
 
 export default async function DashboardLayout({
   children,
@@ -50,8 +51,27 @@ export default async function DashboardLayout({
   // Esto permite que /pendiente se renderice correctamente
   // Incluso si hay errores de RLS, siempre renderizamos el layout
 
+  // Log del rol del usuario en cada navegación
+  if (user && rolesData && rolesData.length > 0) {
+    const { getSelectedRoleOrHighest } = await import('@/lib/utils/get-selected-role')
+    const selectedRoleInfo = await getSelectedRoleOrHighest(user.id)
+    
+    console.log('🧭 [DashboardLayout] Navegación detectada:', {
+      ruta: 'layout',
+      usuario: user.email,
+      userId: user.id,
+      rolSeleccionado: selectedRoleInfo?.role || 'N/A',
+      roleId: selectedRoleInfo?.roleId || 'N/A',
+      fcpId: selectedRoleInfo?.fcpId || 'N/A',
+      fcpNombre: selectedRoleInfo?.fcp?.razon_social || 'N/A',
+      todosLosRoles: rolesData.map(r => r.rol)
+    })
+  }
+
   return (
     <div className="min-h-screen bg-background">
+      {/* Componente para loggear el rol en cada navegación */}
+      <RoleLogger />
       {/* Solo mostrar navegación si el usuario tiene rol Y no hay error */}
       {/* Si hay error, no mostramos navegación para evitar problemas */}
       {!hasError && rolesData && rolesData.length > 0 && <DashboardNav />}

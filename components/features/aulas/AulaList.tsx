@@ -18,6 +18,7 @@ import { AulaEditDialog } from './AulaEditDialog'
 import { useRouter } from 'next/navigation'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
+import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 
 interface TutorInfo {
   id: string
@@ -48,21 +49,34 @@ export function AulaList() {
   const [editingAula, setEditingAula] = useState<Aula | null>(null)
   const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
-  const [isDirector, setIsDirector] = useState(false)
-  const [isSecretario, setIsSecretario] = useState(false)
-  const [isTutorState, setIsTutorState] = useState(false)
   const router = useRouter()
-  const { isTutor, isFacilitador } = useUserRole(selectedFCP)
+  const { selectedRole } = useSelectedRole()
+  
+  // Usar el rol seleccionado para determinar los flags
+  const isDirector = selectedRole?.role === 'director'
+  const isSecretario = selectedRole?.role === 'secretario'
+  const isTutorState = selectedRole?.role === 'tutor'
+  const isFacilitador = selectedRole?.role === 'facilitador'
+  
+  // Usar el fcpId del rol seleccionado si está disponible
+  const fcpIdFromRole = selectedRole?.fcpId
+  
+  const { isTutor, isFacilitador: isFacilitadorFromHook } = useUserRole(selectedFCP || fcpIdFromRole)
 
   useEffect(() => {
     loadUserFCPs()
   }, [])
 
   useEffect(() => {
-    if (userFCPs.length > 0 && !selectedFCP) {
+    // Si hay un rol seleccionado con fcpId, usarlo
+    if (fcpIdFromRole && !selectedFCP) {
+      console.log('📚 [AulaList] Usando fcpId del rol seleccionado:', fcpIdFromRole)
+      setSelectedFCP(fcpIdFromRole)
+    } else if (userFCPs.length > 0 && !selectedFCP && !fcpIdFromRole) {
+      // Si no hay rol seleccionado, usar la primera FCP disponible
       setSelectedFCP(userFCPs[0].id)
     }
-  }, [userFCPs])
+  }, [userFCPs, fcpIdFromRole, selectedFCP])
 
   useEffect(() => {
     if (selectedFCP || isTutorState) {
@@ -76,68 +90,8 @@ export function AulaList() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Verificar si el usuario es facilitador
-      const { data: facilitadorData, error: facilitadorError } = await supabase
-        .from('fcp_miembros')
-        .select('rol')
-        .eq('usuario_id', user.id)
-        .eq('rol', 'facilitador')
-        .eq('activo', true)
-        .limit(1)
-
-      if (facilitadorError) throw facilitadorError
-
-      const esFacilitador = facilitadorData && facilitadorData.length > 0
-
-      // Verificar si el usuario es director
-      const { data: directorData, error: directorError } = await supabase
-        .from('fcp_miembros')
-        .select('rol')
-        .eq('usuario_id', user.id)
-        .eq('rol', 'director')
-        .eq('activo', true)
-        .limit(1)
-
-      if (!directorError && directorData && directorData.length > 0) {
-        setIsDirector(true)
-      }
-
-      // Verificar si el usuario es secretario
-      const { data: secretarioData, error: secretarioError } = await supabase
-        .from('fcp_miembros')
-        .select('rol')
-        .eq('usuario_id', user.id)
-        .eq('rol', 'secretario')
-        .eq('activo', true)
-        .limit(1)
-
-      if (!secretarioError && secretarioData && secretarioData.length > 0) {
-        setIsSecretario(true)
-      }
-
-      // Verificar si el usuario es tutor (guardar para usar después)
-      let tutorData: any = null
-      const { data: tutorDataResult, error: tutorError } = await supabase
-        .from('fcp_miembros')
-        .select(`
-          rol,
-          fcp_id,
-          fcp:fcps(id, razon_social, numero_identificacion)
-        `)
-        .eq('usuario_id', user.id)
-        .eq('rol', 'tutor')
-        .eq('activo', true)
-        .limit(1)
-
-      if (!tutorError && tutorDataResult && tutorDataResult.length > 0) {
-        tutorData = tutorDataResult
-        setIsTutorState(true)
-        // Si es tutor, establecer la FCP automáticamente
-        if (tutorData[0].fcp_id && tutorData[0].fcp && !selectedFCP) {
-          setSelectedFCP(tutorData[0].fcp.id)
-        }
-      }
-
+      // Usar el rol seleccionado para determinar qué FCPs mostrar
+      const esFacilitador = isFacilitador
       let fcps: Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }> = []
 
       if (esFacilitador) {
@@ -176,20 +130,27 @@ export function AulaList() {
         })).filter((fcp: any) => fcp.id) || []
       }
 
-      // Si es tutor, agregar su FCP a la lista si no está ya
-      if (tutorData && tutorData.length > 0 && tutorData[0].fcp) {
-        const tutorFcp = tutorData[0].fcp
-        if (!fcps.find(fcp => fcp.id === tutorFcp.id)) {
-          fcps.push({
-            id: tutorFcp.id,
-            nombre: tutorFcp.razon_social || 'FCP',
-            numero_identificacion: tutorFcp.numero_identificacion,
-            razon_social: tutorFcp.razon_social,
-          })
+      // Si hay un rol seleccionado con fcpId, asegurarse de que esté en la lista
+      if (fcpIdFromRole && selectedRole?.fcp) {
+        const fcpFromRole = {
+          id: fcpIdFromRole,
+          nombre: selectedRole.fcp.razon_social || 'FCP',
+          numero_identificacion: selectedRole.fcp.numero_identificacion,
+          razon_social: selectedRole.fcp.razon_social,
+        }
+        if (!fcps.find(fcp => fcp.id === fcpIdFromRole)) {
+          fcps.push(fcpFromRole)
         }
       }
 
       setUserFCPs(fcps)
+      
+      console.log('📚 [AulaList] FCPs cargadas:', {
+        fcps: fcps.length,
+        fcpIdFromRole,
+        selectedFCP,
+        rolSeleccionado: selectedRole?.role
+      })
     } catch (error) {
       console.error('Error loading FCPs:', error)
     }
@@ -259,12 +220,28 @@ export function AulaList() {
         }
       } else {
         // Para otros roles, cargar todas las aulas de la FCP
-        console.log('Cargando aulas para FCP:', selectedFCP, 'Usuario:', user.email)
+        // Usar el fcpId del rol seleccionado si está disponible, de lo contrario usar selectedFCP
+        const fcpIdToUse = fcpIdFromRole || selectedFCP
+        
+        console.log('📚 [AulaList] Cargando aulas para FCP:', {
+          fcpIdToUse,
+          fcpIdFromRole,
+          selectedFCP,
+          usuario: user.email,
+          rolSeleccionado: selectedRole?.role
+        })
+        
+        if (!fcpIdToUse) {
+          console.error('❌ [AulaList] No hay fcpId disponible para cargar aulas')
+          setError('No se pudo determinar la FCP para cargar las aulas')
+          setLoading(false)
+          return
+        }
         
         const { data: aulasData, error: aulasError } = await supabase
           .from('aulas')
           .select('*')
-          .eq('fcp_id', selectedFCP)
+          .eq('fcp_id', fcpIdToUse)
           .eq('activa', true)
           .order('nombre', { ascending: true })
 
@@ -306,42 +283,48 @@ export function AulaList() {
       if (aulasBase.length > 0) {
         // Cargar todos los tutores asignados a las aulas de una vez
         const aulaIds = aulasBase.map(a => a.id)
-        const { data: tutoresData, error: tutoresError } = await supabase
-          .from('tutor_aula')
-          .select(`
-            aula_id,
-            fcp_miembro:fcp_miembros!inner(
-              usuario:usuarios!inner(id, email, nombre_completo)
-            )
-          `)
-          .in('aula_id', aulaIds)
-          .eq('activo', true)
-          .eq('fcp_id', selectedFCP)
+        const fcpIdForTutores = fcpIdFromRole || selectedFCP
         
-        if (tutoresError) {
-          console.error('Error cargando tutores:', tutoresError)
-        }
+        if (!fcpIdForTutores) {
+          console.warn('⚠️ [AulaList] No hay fcpId para cargar tutores')
+        } else {
+          const { data: tutoresData, error: tutoresError } = await supabase
+            .from('tutor_aula')
+            .select(`
+              aula_id,
+              fcp_miembro:fcp_miembros!inner(
+                usuario:usuarios!inner(id, email, nombre_completo)
+              )
+            `)
+            .in('aula_id', aulaIds)
+            .eq('activo', true)
+            .eq('fcp_id', fcpIdForTutores)
         
-        // Crear un mapa de aula_id -> tutor para acceso rápido
-        const tutoresMap = new Map<string, TutorInfo>()
-        if (tutoresData) {
-          tutoresData.forEach((tutorData: any) => {
-            if (tutorData.fcp_miembro?.usuario && !tutoresMap.has(tutorData.aula_id)) {
-              const usuario = tutorData.fcp_miembro.usuario
-              tutoresMap.set(tutorData.aula_id, {
-                id: usuario.id,
-                email: usuario.email,
-                nombre_completo: usuario.nombre_completo
+          if (tutoresError) {
+            console.error('Error cargando tutores:', tutoresError)
+          } else {
+            // Crear un mapa de aula_id -> tutor para acceso rápido
+            const tutoresMap = new Map<string, TutorInfo>()
+            if (tutoresData) {
+              tutoresData.forEach((tutorData: any) => {
+                if (tutorData.fcp_miembro?.usuario && !tutoresMap.has(tutorData.aula_id)) {
+                  const usuario = tutorData.fcp_miembro.usuario
+                  tutoresMap.set(tutorData.aula_id, {
+                    id: usuario.id,
+                    email: usuario.email,
+                    nombre_completo: usuario.nombre_completo
+                  })
+                }
               })
             }
-          })
+            
+            // Agregar información de tutor a cada aula
+            aulasWithTutors = aulasBase.map(aula => ({
+              ...aula,
+              tutor: tutoresMap.get(aula.id)
+            }))
+          }
         }
-        
-        // Agregar información de tutor a cada aula
-        aulasWithTutors = aulasBase.map(aula => ({
-          ...aula,
-          tutor: tutoresMap.get(aula.id)
-        }))
       }
       
       setAulas(aulasWithTutors)

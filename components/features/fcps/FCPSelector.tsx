@@ -67,8 +67,8 @@ export function FCPSelector() {
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
-          {userFCPs.map((fcp) => (
-            <SelectItem key={fcp.id} value={fcp.id}>
+          {userFCPs.map((fcp, index) => (
+            <SelectItem key={`${fcp.id}-${fcp.rol || 'no-rol'}-${index}`} value={fcp.id}>
               <div className="flex items-center justify-between w-full gap-2">
                 <span className="flex-1">{fcp.nombre}</span>
                 {fcp.rol && (

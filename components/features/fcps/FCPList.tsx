@@ -10,6 +10,7 @@ import { FCPEditDialog } from './FCPEditDialog'
 import { FCPDialog } from './FCPDialog'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
+import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 
 interface FCP {
   id: string
@@ -29,39 +30,15 @@ export function FCPList() {
   const [editingFCP, setEditingFCP] = useState<FCP | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const [isFacilitador, setIsFacilitador] = useState(false)
   const router = useRouter()
+  const { selectedRole } = useSelectedRole()
+  
+  // Usar el rol seleccionado para determinar si es facilitador
+  const isFacilitador = selectedRole?.role === 'facilitador'
 
   useEffect(() => {
     loadFCPs()
-    checkIfFacilitador()
-  }, [])
-
-  const checkIfFacilitador = async () => {
-    try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-
-      // Verificar si el usuario es facilitador en alguna FCP
-      const { data: fcpMiembrosData, error: fcpMiembrosError } = await supabase
-        .from('fcp_miembros')
-        .select('rol')
-        .eq('usuario_id', user.id)
-        .eq('rol', 'facilitador')
-        .eq('activo', true)
-        .limit(1)
-
-      if (fcpMiembrosError) {
-        console.error('Error checking facilitador:', fcpMiembrosError)
-        return
-      }
-
-      setIsFacilitador(fcpMiembrosData && fcpMiembrosData.length > 0)
-    } catch (error) {
-      console.error('Error checking facilitador:', error)
-    }
-  }
+  }, [selectedRole])
 
   const loadFCPs = async () => {
     try {
@@ -76,56 +53,35 @@ export function FCPList() {
         return
       }
 
-      // Verificar si el usuario es facilitador
-      const { data: fcpMiembrosData, error: fcpMiembrosError } = await supabase
-        .from('fcp_miembros')
-        .select('rol')
-        .eq('usuario_id', user.id)
-        .eq('rol', 'facilitador')
-        .eq('activo', true)
-        .limit(1)
-
-      const isFacilitadorUser = fcpMiembrosData && fcpMiembrosData.length > 0
-
-      let fcpsList: FCP[] = []
-
-      if (isFacilitadorUser) {
-        // Facilitadores pueden ver todas las FCPs del sistema
-        const { data: todasLasFCPs, error: fcpsError } = await supabase
-          .from('fcps')
-          .select('*')
-          .eq('activa', true)
-          .order('razon_social', { ascending: true })
-        
-        if (fcpsError) throw fcpsError
-        fcpsList = todasLasFCPs || []
-      } else {
-        // Usuarios no facilitadores solo ven sus FCPs
-        const { data, error } = await supabase
-          .from('fcp_miembros')
-          .select(`
-            *,
-            fcp:fcps(*)
-          `)
-          .eq('usuario_id', user.id)
-          .eq('activo', true)
-
-        if (error) throw error
-
-        // Filtrar y mapear FCPs, eliminando duplicados por ID
-        const fcpsMap = new Map<string, FCP>()
-        data?.forEach((item: any) => {
-          if (item.fcp && item.fcp.id) {
-            fcpsMap.set(item.fcp.id, item.fcp)
-          }
-        })
-        
-        fcpsList = Array.from(fcpsMap.values())
+      // Solo mostrar la FCP del rol seleccionado
+      if (!selectedRole?.fcpId) {
+        console.log('No hay rol seleccionado o FCP asociada')
+        setFCPs([])
+        return
       }
-      
-      setFCPs(fcpsList)
+
+      // Obtener solo la FCP del rol seleccionado
+      const { data: fcpData, error: fcpError } = await supabase
+        .from('fcps')
+        .select('*')
+        .eq('id', selectedRole.fcpId)
+        .eq('activa', true)
+        .single()
+
+      if (fcpError) {
+        console.error('Error obteniendo FCP:', fcpError)
+        setFCPs([])
+        return
+      }
+
+      if (fcpData) {
+        setFCPs([fcpData])
+      } else {
+        setFCPs([])
+      }
     } catch (error) {
       console.error('Error loading FCPs:', error)
+      setFCPs([])
     } finally {
       setLoading(false)
     }
@@ -266,7 +222,6 @@ export function FCPList() {
         onSuccess={() => {
           setIsCreateDialogOpen(false)
           loadFCPs()
-          checkIfFacilitador()
         }}
       />
     </div>

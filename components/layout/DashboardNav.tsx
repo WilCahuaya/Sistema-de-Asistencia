@@ -1,13 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useAuth } from '@/contexts/AuthContext'
-import { useFCP } from '@/contexts/FCPContext'
-import { createClient } from '@/lib/supabase/client'
-import { Button } from '@/components/ui/button'
-import { FCPSelector } from '@/components/features/fcps/FCPSelector'
+import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import { UserMenu } from '@/components/layout/UserMenu'
 import {
   Home,
@@ -29,37 +24,29 @@ const allNavigation = [
 
 export function DashboardNav() {
   const pathname = usePathname()
-  const { userFCPs } = useFCP()
-  const [isTutor, setIsTutor] = useState(false)
+  const { selectedRole, loading: roleLoading } = useSelectedRole()
+  
+  // Usar el rol seleccionado para determinar qué opciones mostrar
+  const isTutor = selectedRole?.role === 'tutor'
+  const isDirector = selectedRole?.role === 'director'
+  const isSecretario = selectedRole?.role === 'secretario'
+  const isFacilitador = selectedRole?.role === 'facilitador'
+  
+  console.log('🧭 [DashboardNav] Navegación actualizada:', {
+    rolSeleccionado: selectedRole?.role,
+    roleLoading,
+    isTutor,
+    isDirector,
+    isSecretario,
+    isFacilitador,
+    mostrarReportes: !isTutor,
+    selectedRoleCompleto: selectedRole
+  })
 
-  useEffect(() => {
-    checkIfTutor()
-  }, [])
-
-  const checkIfTutor = async () => {
-    try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-
-      const { data: tutorData, error: tutorError } = await supabase
-        .from('fcp_miembros')
-        .select('rol')
-        .eq('usuario_id', user.id)
-        .eq('rol', 'tutor')
-        .eq('activo', true)
-        .limit(1)
-
-      if (!tutorError && tutorData && tutorData.length > 0) {
-        setIsTutor(true)
-      }
-    } catch (error) {
-      console.error('Error checking tutor role:', error)
-    }
-  }
-
-  // Filtrar navegación: ocultar "Reportes" para tutores
-  const navigation = isTutor
+  // Filtrar navegación: ocultar "Reportes" solo para tutores
+  // Directores, Secretarios y Facilitadores pueden ver reportes
+  // Si el rol aún se está cargando, mostrar todas las opciones por defecto
+  const navigation = (!roleLoading && isTutor)
     ? allNavigation.filter(item => item.name !== 'Reportes')
     : allNavigation
 
@@ -94,7 +81,6 @@ export function DashboardNav() {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            {userFCPs.length > 1 && <FCPSelector />}
             <UserMenu />
           </div>
         </div>

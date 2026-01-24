@@ -118,6 +118,30 @@ export function FCPEditDialog({ open, onOpenChange, onSuccess, fcpId, initialDat
 
         if (rpcResult && (rpcResult as any).success) {
           console.log('Director asociado correctamente usando RPC:', (rpcResult as any).usuario_id)
+          
+          // Obtener el ID del nuevo director para manejar el cambio
+          const { data: nuevoDirector } = await supabase
+            .from('fcp_miembros')
+            .select('id, usuario_id')
+            .eq('fcp_id', fcpId)
+            .eq('rol', 'director')
+            .eq('activo', true)
+            .eq('usuario_id', (rpcResult as any).usuario_id)
+            .maybeSingle()
+
+          if (nuevoDirector) {
+            // Manejar el cambio del director anterior (eliminar otros directores)
+            const { error: directorChangeError } = await supabase.rpc('manejar_cambio_director', {
+              p_fcp_id: fcpId,
+              p_nuevo_director_id: nuevoDirector.id,
+              p_nuevo_director_usuario_id: nuevoDirector.usuario_id
+            })
+
+            if (directorChangeError) {
+              console.error('Error al manejar cambio de director:', directorChangeError)
+              // No fallar la actualización de la FCP si esto falla, solo loguear el error
+            }
+          }
         } else {
           // Si la función RPC no encontró el usuario en auth.users,
           // crear una invitación pendiente

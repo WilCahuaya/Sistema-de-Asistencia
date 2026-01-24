@@ -5,6 +5,7 @@ import { Building2, Users, GraduationCap, ClipboardList } from 'lucide-react'
 import Link from 'next/link'
 import { ReportesMensualesResumen } from '@/components/features/dashboard/ReportesMensualesResumen'
 import { ReporteMensualResumen } from '@/components/features/dashboard/ReporteMensualResumen'
+import { getUserHighestRoleFromDB } from '@/lib/utils/get-user-highest-role'
 import {
   Table,
   TableBody,
@@ -34,88 +35,148 @@ export default async function DashboardPage() {
     console.log('Usuario no encontrado en tabla usuarios (se creará automáticamente):', usuarioError)
   }
 
-  // Verificar el rol del usuario (primero verificar si es facilitador del sistema)
-  const { data: facilitadorData } = await supabase
-    .from('fcp_miembros')
-    .select('rol')
-    .eq('usuario_id', user.id)
-    .is('fcp_id', null)
-    .eq('rol', 'facilitador')
-    .eq('activo', true)
-    .limit(1)
-
-  const isFacilitador = facilitadorData && facilitadorData.length > 0
-
-  // Si no es facilitador, obtener su rol en las FCPs
-  let userRole: string | null = null
-  let isDirector = false
-  let isSecretario = false
-  let isTutor = false
+  // Obtener el rol seleccionado desde cookies o usar el de mayor jerarquía como fallback
+  const { getSelectedRoleOrHighest, getSelectedRoleFromCookies } = await import('@/lib/utils/get-selected-role')
   
-  if (!isFacilitador) {
-    const { data: fcpMiembrosData } = await supabase
-      .from('fcp_miembros')
-      .select('rol')
-      .eq('usuario_id', user.id)
-      .eq('activo', true)
-      .limit(1)
-
-    userRole = fcpMiembrosData && fcpMiembrosData.length > 0 ? fcpMiembrosData[0].rol : null
-    isDirector = userRole === 'director'
-    isSecretario = userRole === 'secretario'
-    isTutor = userRole === 'tutor'
+  // PRIMERO intentar obtener el rol desde cookies (sin fallback)
+  const selectedRoleFromCookies = await getSelectedRoleFromCookies(user.id)
+  
+  let selectedRoleInfo
+  if (selectedRoleFromCookies) {
+    // Si hay rol en cookies, usarlo directamente
+    selectedRoleInfo = selectedRoleFromCookies
+    console.log('✅ Dashboard - Usando rol desde cookies:', {
+      roleId: selectedRoleInfo.roleId,
+      role: selectedRoleInfo.role,
+      fcpId: selectedRoleInfo.fcpId
+    })
+  } else {
+    // Si no hay cookies, usar el fallback (solo para casos donde el usuario no viene de /seleccionar-rol)
+    console.warn('⚠️ Dashboard - No hay rol en cookies, usando fallback. El usuario debería venir de /seleccionar-rol')
+    selectedRoleInfo = await getSelectedRoleOrHighest(user.id)
   }
+  
+  if (!selectedRoleInfo) {
+    console.error('❌ Dashboard - No se pudo obtener ningún rol, redirigiendo a /seleccionar-rol')
+    redirect('/seleccionar-rol')
+  }
+
+  // Determinar los flags basándose en el rol seleccionado
+  const userRole = selectedRoleInfo.role
+  const isFacilitador = userRole === 'facilitador'
+  const isDirector = userRole === 'director'
+  const isSecretario = userRole === 'secretario'
+  // IMPORTANTE: isTutor solo debe ser true si el rol es tutor Y no es ningún otro rol de mayor jerarquía
+  const isTutor = userRole === 'tutor' && !isDirector && !isSecretario && !isFacilitador
+  const allRoles: string[] = [userRole] // Solo el rol seleccionado
+  
+  // Debug: Verificar que los flags se establezcan correctamente
+  console.log('🧭 [Dashboard] Navegación a dashboard:', {
+    usuario: user.email,
+    userId: user.id,
+    rolSeleccionado: selectedRoleInfo.role,
+    roleId: selectedRoleInfo.roleId,
+    fcpId: selectedRoleInfo.fcpId,
+    fcpNombre: selectedRoleInfo.fcp?.razon_social || 'N/A',
+    flags: {
+      isFacilitador,
+      isDirector,
+      isSecretario,
+      isTutor
+    },
+    'shouldShowReports': isDirector || isSecretario,
+    'shouldShowTutorView': isTutor && !isDirector && !isSecretario && !isFacilitador,
+    'fromCookies': !!selectedRoleFromCookies
+  })
+  
+  // Validación adicional: Si el rol seleccionado es director pero isDirector es false, hay un problema
+  if (userRole === 'director' && !isDirector) {
+    console.error('❌ ERROR CRÍTICO: Rol seleccionado es director pero isDirector es false!', {
+      userRole,
+      isDirector,
+      isSecretario,
+      isFacilitador,
+      isTutor,
+      selectedRoleInfo
+    })
+  }
+  
+  // Validación: Si el rol seleccionado es tutor pero debería ser director, hay un problema
+  if (userRole === 'tutor' && (isDirector || isSecretario)) {
+    console.error('❌ ERROR CRÍTICO: Rol seleccionado es tutor pero tiene flags de director/secretario!', {
+      userRole,
+      isDirector,
+      isSecretario,
+      isFacilitador,
+      isTutor,
+      selectedRoleInfo
+    })
+  }
+  
+  // Log para debugging - SIEMPRE mostrar cuando hay múltiples roles
+  if (allRoles.length > 1) {
+    console.log('✅ Usuario con múltiples roles detectado en dashboard:', {
+      todosLosRoles: allRoles,
+      rolSeleccionado: userRole,
+      flags: {
+        isFacilitador,
+        isDirector,
+        isSecretario,
+        isTutor
+      },
+      'Verificación de condiciones de renderizado': {
+        'isFacilitador': isFacilitador,
+        'isDirector': isDirector,
+        'isSecretario': isSecretario,
+        'isTutor': isTutor,
+        'isDirector || isSecretario': isDirector || isSecretario,
+        'isTutor && !isDirector && !isSecretario && !isFacilitador': isTutor && !isDirector && !isSecretario && !isFacilitador
+      }
+    })
+  }
+  
+  // Log adicional para verificar siempre los valores
+  console.log('🔍 Dashboard - Valores finales de flags:', {
+    userId: user.id,
+    userEmail: user.email,
+    allRoles,
+    highestRole: userRole,
+    isFacilitador,
+    isDirector,
+    isSecretario,
+    isTutor
+  })
 
   let fcps: any[] = []
   let fcpsError: any = null
 
-  if (isFacilitador) {
-    // Facilitadores pueden ver todas las FCPs del sistema
-    const { data: todasLasFCPs, error: fcpsErrorFacilitador } = await supabase
-      .from('fcps')
-      .select('*')
-      .eq('activa', true)
-      .order('razon_social', { ascending: true })
-    
-    if (fcpsErrorFacilitador) {
-      console.error('Error loading FCPs:', fcpsErrorFacilitador)
-      fcpsError = fcpsErrorFacilitador
-    } else {
-      // Mapear a formato similar para mantener compatibilidad
-      fcps = todasLasFCPs?.map((fcp: any) => ({
-        id: `facilitador-${fcp.id}`,
-        fcp_id: fcp.id,
-        usuario_id: user.id,
-        rol: 'facilitador',
-        activo: true,
-        fcp: fcp
-      })) || []
-    }
-  } else {
-    // Usuarios no facilitadores solo ven sus FCPs
-    const { data: fcpsData, error: fcpsErrorUsuario } = await supabase
-      .from('fcp_miembros')
-      .select(`
-        *,
-        fcp:fcps(*)
-      `)
-      .eq('usuario_id', user.id)
-      .eq('activo', true)
+  // Todos los usuarios (incluidos facilitadores) solo ven las FCPs donde tienen roles asignados
+  // Excluir facilitadores del sistema (fcp_id = null)
+  const { data: fcpsData, error: fcpsErrorUsuario } = await supabase
+    .from('fcp_miembros')
+    .select(`
+      *,
+      fcp:fcps(*)
+    `)
+    .eq('usuario_id', user.id)
+    .eq('activo', true)
+    .not('fcp_id', 'is', null)  // Excluir facilitadores del sistema
 
-    if (fcpsErrorUsuario) {
-      console.error('Error loading FCPs:', fcpsErrorUsuario)
-      fcpsError = fcpsErrorUsuario
-    } else {
-      fcps = fcpsData || []
-    }
+  if (fcpsErrorUsuario) {
+    console.error('Error loading FCPs:', fcpsErrorUsuario)
+    fcpsError = fcpsErrorUsuario
+  } else {
+    // Filtrar también en el código por si acaso
+    fcps = (fcpsData || []).filter((fcp: any) => fcp.fcp_id !== null && fcp.fcp !== null)
   }
 
-  // Verificar si el usuario tiene algún rol asignado
+  // Verificar si el usuario tiene algún rol asignado (excluyendo facilitadores del sistema)
   const { data: rolesCheck } = await supabase
     .from('fcp_miembros')
     .select('id, activo, rol, fcp_id')
     .eq('usuario_id', user.id)
     .eq('activo', true)
+    .not('fcp_id', 'is', null)  // Excluir facilitadores del sistema
     .limit(1)
 
   // Si no tiene ningún rol activo, redirigir a la página pendiente
@@ -123,48 +184,139 @@ export default async function DashboardPage() {
     redirect('/pendiente')
   }
 
-  // Bloquear acceso si el usuario no tiene FCPs asignadas (solo para no facilitadores)
-  if (!isFacilitador && (!fcps || fcps.length === 0)) {
+  // Bloquear acceso si el usuario no tiene FCPs asignadas
+  // Todos los usuarios (facilitadores, directores, secretarios, tutores) deben tener al menos una FCP asignada
+  if (!fcps || fcps.length === 0) {
     redirect('/pendiente')
   }
 
-  // Obtener estadísticas básicas usando función RPC que respeta RLS
+  // Obtener estadísticas básicas usando queries directas que respetan RLS
   // Esto asegura que las políticas se apliquen correctamente para todos los roles
   let estadisticas = null
   if (fcps && fcps.length > 0) {
     let totalAulas = 0
     let totalEstudiantes = 0
 
-    // Usar función RPC que respeta explícitamente las políticas RLS
-    // Llamar sin parámetros para obtener stats de todas las FCPs del usuario
-    const { data: statsData, error: statsError } = await supabase.rpc('get_dashboard_stats', { p_fcp_id: null })
-
-    if (statsError) {
-      console.error('Error obteniendo estadísticas del dashboard:', statsError)
-      // Fallback a método anterior si la función RPC no está disponible
-      for (const fcpMiembro of fcps) {
-        if (fcpMiembro.fcp) {
+    // Usar el fcpId del rol seleccionado si está disponible, de lo contrario usar todas las FCPs
+    const fcpIdForStats = selectedRoleInfo?.fcpId
+    
+    // Si hay un rol seleccionado con fcpId específico, obtener stats solo de esa FCP
+    if (fcpIdForStats) {
+      const fcpMiembro = fcps.find(f => f.fcp?.id === fcpIdForStats)
+      if (fcpMiembro?.fcp) {
+        // Obtener estadísticas según el rol
+        if (isFacilitador || isDirector || isSecretario) {
+          // Facilitadores, Directores y Secretarios ven todas las aulas y estudiantes de la FCP
           const { count: countAulas } = await supabase
             .from('aulas')
             .select('id', { count: 'exact' })
-            .eq('fcp_id', fcpMiembro.fcp.id)
+            .eq('fcp_id', fcpIdForStats)
             .eq('activa', true)
 
           const { count: countEstudiantes } = await supabase
             .from('estudiantes')
             .select('id', { count: 'exact' })
-            .eq('fcp_id', fcpMiembro.fcp.id)
+            .eq('fcp_id', fcpIdForStats)
             .eq('activo', true)
 
-          totalAulas += countAulas || 0
-          totalEstudiantes += countEstudiantes || 0
+          totalAulas = countAulas || 0
+          totalEstudiantes = countEstudiantes || 0
+        } else if (isTutor) {
+          // Tutores solo ven sus aulas asignadas
+          // Obtener el fcp_miembro_id del rol seleccionado (que es el roleId)
+          const fcpMiembroId = selectedRoleInfo?.roleId
+          
+          if (fcpMiembroId) {
+            const { data: tutorAulas } = await supabase
+              .from('tutor_aula')
+              .select('aula_id')
+              .eq('fcp_id', fcpIdForStats)
+              .eq('activo', true)
+              .eq('fcp_miembro_id', fcpMiembroId)
+
+            if (tutorAulas && tutorAulas.length > 0) {
+              const aulaIds = tutorAulas.map(ta => ta.aula_id)
+              
+              const { count: countAulas } = await supabase
+                .from('aulas')
+                .select('id', { count: 'exact' })
+                .in('id', aulaIds)
+                .eq('activa', true)
+
+              const { count: countEstudiantes } = await supabase
+                .from('estudiantes')
+                .select('id', { count: 'exact' })
+                .in('aula_id', aulaIds)
+                .eq('activo', true)
+
+              totalAulas = countAulas || 0
+              totalEstudiantes = countEstudiantes || 0
+            }
+          }
         }
       }
-    } else if (statsData && statsData.length > 0) {
-      // Sumar estadísticas de todas las FCPs
-      for (const stat of statsData) {
-        totalAulas += stat.total_aulas || 0
-        totalEstudiantes += stat.total_estudiantes || 0
+    } else {
+      // Si no hay fcpId específico, obtener stats de todas las FCPs del usuario
+      for (const fcpMiembro of fcps) {
+        if (fcpMiembro.fcp) {
+          if (isFacilitador || isDirector || isSecretario) {
+            // Facilitadores, Directores y Secretarios ven todas las aulas y estudiantes
+            const { count: countAulas } = await supabase
+              .from('aulas')
+              .select('id', { count: 'exact' })
+              .eq('fcp_id', fcpMiembro.fcp.id)
+              .eq('activa', true)
+
+            const { count: countEstudiantes } = await supabase
+              .from('estudiantes')
+              .select('id', { count: 'exact' })
+              .eq('fcp_id', fcpMiembro.fcp.id)
+              .eq('activo', true)
+
+            totalAulas += countAulas || 0
+            totalEstudiantes += countEstudiantes || 0
+          } else if (isTutor) {
+            // Tutores solo ven sus aulas asignadas
+            // Obtener todos los fcp_miembro_id del usuario que sean tutores en esta FCP
+            const { data: tutorMiembros } = await supabase
+              .from('fcp_miembros')
+              .select('id')
+              .eq('usuario_id', user.id)
+              .eq('fcp_id', fcpMiembro.fcp.id)
+              .eq('rol', 'tutor')
+              .eq('activo', true)
+
+            if (tutorMiembros && tutorMiembros.length > 0) {
+              const tutorMiembroIds = tutorMiembros.map(tm => tm.id)
+              
+              const { data: tutorAulas } = await supabase
+                .from('tutor_aula')
+                .select('aula_id')
+                .eq('fcp_id', fcpMiembro.fcp.id)
+                .eq('activo', true)
+                .in('fcp_miembro_id', tutorMiembroIds)
+
+              if (tutorAulas && tutorAulas.length > 0) {
+                const aulaIds = tutorAulas.map(ta => ta.aula_id)
+                
+                const { count: countAulas } = await supabase
+                  .from('aulas')
+                  .select('id', { count: 'exact' })
+                  .in('id', aulaIds)
+                  .eq('activa', true)
+
+                const { count: countEstudiantes } = await supabase
+                  .from('estudiantes')
+                  .select('id', { count: 'exact' })
+                  .in('aula_id', aulaIds)
+                  .eq('activo', true)
+
+                totalAulas += countAulas || 0
+                totalEstudiantes += countEstudiantes || 0
+              }
+            }
+          }
+        }
       }
     }
 
@@ -174,8 +326,97 @@ export default async function DashboardPage() {
     }
   }
 
-  // Si es tutor, mostrar solo sus aulas, cantidad de estudiantes y perfil
-  if (isTutor) {
+  // ORDEN CRÍTICO: Verificar primero Facilitador, luego Director/Secretario, finalmente Tutor
+  // La función getUserHighestRoleFromDB ya asegura que los flags estén correctamente establecidos
+  // basándose en el rol de mayor jerarquía
+  
+  // IMPORTANTE: Verificar primero Facilitador antes de cualquier otra condición
+  // Si es facilitador, mostrar solo reportes mensuales y perfil
+  if (isFacilitador) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-foreground">
+            Dashboard
+          </h1>
+          <p className="mt-2 text-foreground/80">
+            Bienvenido, {usuario?.nombre_completo || user.user_metadata?.full_name || user.user_metadata?.name || user.email}
+          </p>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          {/* Reportes Mensuales del Mes Actual */}
+          <div>
+            <ReportesMensualesResumen />
+          </div>
+
+          {/* Información del usuario */}
+          <div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Mi Perfil</CardTitle>
+                <CardDescription>Información de tu cuenta</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  <p className="text-sm">
+                    <span className="font-medium">Email:</span> {user.email}
+                  </p>
+                  {(usuario?.nombre_completo || user.user_metadata?.full_name || user.user_metadata?.name) && (
+                    <p className="text-sm">
+                      <span className="font-medium">Nombre:</span>{' '}
+                      {usuario?.nombre_completo || user.user_metadata?.full_name || user.user_metadata?.name}
+                    </p>
+                  )}
+                  {user.user_metadata?.avatar_url && (
+                    <div className="mt-2">
+                      <img
+                        src={user.user_metadata.avatar_url}
+                        alt="Avatar"
+                        className="h-16 w-16 rounded-full"
+                      />
+                    </div>
+                  )}
+                  {fcps && fcps.length > 0 && (
+                    <div className="mt-4">
+                      <p className="text-sm font-medium mb-2">FCPs del Sistema:</p>
+                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                        {fcps.map((fcpMiembro: any) => (
+                          <div
+                            key={fcpMiembro.id || fcpMiembro.fcp_id}
+                            className="rounded border border-border p-3"
+                          >
+                            <p className="font-medium text-sm">{fcpMiembro.fcp?.razon_social}</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {fcpMiembro.fcp?.numero_identificacion || 'N/A'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {fcpMiembro.fcp?.nombre_completo_contacto || 'N/A'}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  
+  // Si es tutor (y NO es director ni secretario ni facilitador), mostrar solo sus aulas, cantidad de estudiantes y perfil
+  // IMPORTANTE: Esta verificación debe estar DESPUÉS de verificar facilitador
+  if (isTutor && !isDirector && !isSecretario && !isFacilitador) {
+    console.log('🔍 Dashboard - Mostrando vista de Tutor (verificación de condiciones):', {
+      isTutor,
+      isDirector,
+      isSecretario,
+      isFacilitador,
+      'Condición completa': isTutor && !isDirector && !isSecretario && !isFacilitador
+    })
     // Obtener las aulas asignadas al tutor
     // Primero obtener los fcp_miembros del tutor
     const { data: tutorMiembrosData, error: tutorMiembrosError } = await supabase
@@ -419,83 +660,17 @@ export default async function DashboardPage() {
     )
   }
 
-  // Si es facilitador, mostrar solo reportes mensuales y perfil
-  if (isFacilitador) {
-    return (
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground">
-            Dashboard
-          </h1>
-          <p className="mt-2 text-foreground/80">
-            Bienvenido, {usuario?.nombre_completo || user.user_metadata?.full_name || user.user_metadata?.name || user.email}
-          </p>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* Reportes Mensuales del Mes Actual */}
-          <div>
-            <ReportesMensualesResumen />
-          </div>
-
-          {/* Información del usuario */}
-          <div>
-            <Card>
-              <CardHeader>
-                <CardTitle>Mi Perfil</CardTitle>
-                <CardDescription>Información de tu cuenta</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  <p className="text-sm">
-                    <span className="font-medium">Email:</span> {user.email}
-                  </p>
-                  {(usuario?.nombre_completo || user.user_metadata?.full_name || user.user_metadata?.name) && (
-                    <p className="text-sm">
-                      <span className="font-medium">Nombre:</span>{' '}
-                      {usuario?.nombre_completo || user.user_metadata?.full_name || user.user_metadata?.name}
-                    </p>
-                  )}
-                  {user.user_metadata?.avatar_url && (
-                    <div className="mt-2">
-                      <img
-                        src={user.user_metadata.avatar_url}
-                        alt="Avatar"
-                        className="h-16 w-16 rounded-full"
-                      />
-                    </div>
-                  )}
-                  {fcps && fcps.length > 0 && (
-                    <div className="mt-4">
-                      <p className="text-sm font-medium mb-2">FCPs del Sistema:</p>
-                      <div className="space-y-2 max-h-64 overflow-y-auto">
-                        {fcps.map((fcpMiembro: any) => (
-                          <div
-                            key={fcpMiembro.id || fcpMiembro.fcp_id}
-                            className="rounded border border-border p-3"
-                          >
-                            <p className="font-medium text-sm">{fcpMiembro.fcp?.razon_social}</p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {fcpMiembro.fcp?.numero_identificacion || 'N/A'}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {fcpMiembro.fcp?.nombre_completo_contacto || 'N/A'}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // Dashboard normal para no facilitadores
+  // Dashboard normal para Director/Secretario (o cualquier otro rol que no sea Facilitador ni Tutor puro)
+  // Si llegamos aquí, significa que el usuario es Director, Secretario, o tiene un rol de mayor jerarquía
+  console.log('🔍 Dashboard - Mostrando vista de Director/Secretario (verificación de condiciones):', {
+    isFacilitador,
+    isDirector,
+    isSecretario,
+    isTutor,
+    highestRole: userRole,
+    'Condición Director/Secretario': isDirector || isSecretario,
+    'Condición Tutor': isTutor && !isDirector && !isSecretario && !isFacilitador
+  })
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="mb-8">

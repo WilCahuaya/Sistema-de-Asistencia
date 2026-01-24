@@ -55,11 +55,31 @@ export function MiembroEditDialog({
   const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
   const [selectedAulas, setSelectedAulas] = useState<string[]>([])
   const [loadingAulas, setLoadingAulas] = useState(false)
+  // Nuevo estado para roles múltiples (solo para directores)
+  const [selectedRoles, setSelectedRoles] = useState<Array<'secretario' | 'tutor'>>([])
+  const [existingRoles, setExistingRoles] = useState<Array<{ id: string; rol: string; activo: boolean }>>([])
   const supabase = createClient()
   const { isSecretario, isDirector, isFacilitador } = useUserRole(miembro.fcp_id)
   
   // Verificar si el usuario actual puede editar este miembro
   const canEditThisMember = isFacilitador || isDirector || (isSecretario && miembro.rol === 'tutor')
+  
+  // Si es director (pero no facilitador), permitir asignar múltiples roles
+  // IMPORTANTE: Un director puede tener también el rol de tutor, pero debe poder gestionar todas las aulas
+  const canAssignMultipleRoles = isDirector && !isFacilitador
+  
+  // Debug: Log cuando el componente se monta o cuando cambian los roles
+  useEffect(() => {
+    if (open && miembro) {
+      console.log('🔍 MiembroEditDialog - Roles del usuario actual:', {
+        isDirector,
+        isFacilitador,
+        isSecretario,
+        canAssignMultipleRoles,
+        fcpId: miembro.fcp_id
+      })
+    }
+  }, [open, miembro, isDirector, isFacilitador, isSecretario, canAssignMultipleRoles])
 
   useEffect(() => {
     if (miembro) {
@@ -72,22 +92,62 @@ export function MiembroEditDialog({
       } else {
         setError(null)
       }
+      
+      // Si es director, cargar todos los roles existentes del usuario en esta FCP
+      if (canAssignMultipleRoles && miembro.usuario_id) {
+        loadExistingRoles()
+      }
     }
-  }, [miembro, isSecretario])
+  }, [miembro, isSecretario, canAssignMultipleRoles])
+  
+  const loadExistingRoles = async () => {
+    if (!miembro?.usuario_id) return
+    
+    try {
+      const { data, error } = await supabase
+        .from('fcp_miembros')
+        .select('id, rol, activo')
+        .eq('usuario_id', miembro.usuario_id)
+        .eq('fcp_id', miembro.fcp_id)
+        .eq('activo', true)
+        .in('rol', ['secretario', 'tutor'])
+      
+      if (error) {
+        console.error('Error loading existing roles:', error)
+        return
+      }
+      
+      setExistingRoles(data || [])
+      
+      // Inicializar selectedRoles con los roles existentes
+      const roles = (data || [])
+        .filter(r => r.rol === 'secretario' || r.rol === 'tutor')
+        .map(r => r.rol as 'secretario' | 'tutor')
+      setSelectedRoles(roles)
+    } catch (err) {
+      console.error('Error loading existing roles:', err)
+    }
+  }
 
   useEffect(() => {
-    if (open && miembro && rol === 'tutor') {
+    // Si es director y puede asignar múltiples roles, cargar aulas si tutor está seleccionado
+    if (open && miembro && canAssignMultipleRoles && selectedRoles.includes('tutor')) {
+      loadAulas()
+      loadAulasAsignadas()
+    } else if (open && miembro && rol === 'tutor') {
       loadAulas()
       loadAulasAsignadas()
     } else if (!open) {
       // Limpiar cuando se cierra el diálogo
       setAulas([])
       setSelectedAulas([])
-    } else if (rol !== 'tutor') {
+      setSelectedRoles([])
+      setExistingRoles([])
+    } else if (rol !== 'tutor' && !selectedRoles.includes('tutor')) {
       // Limpiar aulas si el rol no es tutor
       setSelectedAulas([])
     }
-  }, [open, miembro, rol])
+  }, [open, miembro, rol, selectedRoles, canAssignMultipleRoles])
 
   const loadAulas = async () => {
     if (!miembro) return
@@ -104,7 +164,25 @@ export function MiembroEditDialog({
 
       if (aulasError) throw aulasError
 
-      // 2. Obtener aulas que ya tienen tutor asignado (excluyendo las asignadas al tutor actual)
+      // Si el usuario es director (pero no facilitador), mostrar TODAS las aulas
+      // Esto permite que el director pueda reasignar aulas incluso si ya tienen tutor
+      // IMPORTANTE: Un director puede tener también el rol de tutor, pero debe ver todas las aulas
+      if (isDirector && !isFacilitador) {
+        console.log('🔍 Director detectado, mostrando todas las aulas:', {
+          totalAulas: todasLasAulas?.length || 0,
+          canAssignMultipleRoles,
+          isDirector,
+          isFacilitador
+        })
+        setAulas(todasLasAulas || [])
+        return
+      }
+
+      // Para otros roles (secretario, facilitador), mantener la lógica original
+      // que excluye aulas que ya tienen tutor asignado
+      // 2. Obtener aulas que ya tienen tutor asignado
+      let tutorIdsToExclude: string[] = [miembro.id]
+
       const { data: aulasConTutor, error: tutorError } = await supabase
         .from('tutor_aula')
         .select('aula_id, fcp_miembro_id')
@@ -118,7 +196,7 @@ export function MiembroEditDialog({
       // 3. Filtrar aulas sin tutor O aulas asignadas al tutor actual
       const aulasIdsConOtroTutor = new Set(
         (aulasConTutor || [])
-          .filter(ta => ta.fcp_miembro_id !== miembro.id)
+          .filter(ta => !tutorIdsToExclude.includes(ta.fcp_miembro_id))
           .map(ta => ta.aula_id)
       )
       
@@ -136,22 +214,66 @@ export function MiembroEditDialog({
   }
 
   const loadAulasAsignadas = async () => {
-    if (!miembro || rol !== 'tutor') return
+    if (!miembro) return
+    
+    // Si es director con múltiples roles, buscar todas las aulas asignadas a cualquier rol tutor del usuario
+    if (canAssignMultipleRoles && miembro.usuario_id) {
+      try {
+        // Buscar todos los registros de tutor activos del usuario en esta FCP
+        const { data: tutorRecords, error: tutorRecordsError } = await supabase
+          .from('fcp_miembros')
+          .select('id')
+          .eq('usuario_id', miembro.usuario_id)
+          .eq('fcp_id', miembro.fcp_id)
+          .eq('rol', 'tutor')
+          .eq('activo', true)
 
-    try {
-      const { data, error } = await supabase
-        .from('tutor_aula')
-        .select('aula_id')
-        .eq('fcp_miembro_id', miembro.id)
-        .eq('activo', true)
+        if (tutorRecordsError) {
+          console.error('Error loading tutor records:', tutorRecordsError)
+          return
+        }
 
-      if (error) throw error
+        if (tutorRecords && tutorRecords.length > 0) {
+          // Obtener todas las aulas asignadas a estos registros de tutor
+          const tutorIds = tutorRecords.map(tr => tr.id)
+          const { data, error } = await supabase
+            .from('tutor_aula')
+            .select('aula_id')
+            .in('fcp_miembro_id', tutorIds)
+            .eq('activo', true)
 
-      const aulaIds = (data || []).map(ta => ta.aula_id)
-      setSelectedAulas(aulaIds)
-    } catch (err) {
-      console.error('Error loading aulas asignadas:', err)
-      setSelectedAulas([])
+          if (error) {
+            console.error('Error loading aulas asignadas:', error)
+            return
+          }
+
+          const aulaIds = (data || []).map(ta => ta.aula_id)
+          setSelectedAulas(aulaIds)
+        } else {
+          // Si no hay registros de tutor, limpiar las aulas seleccionadas
+          setSelectedAulas([])
+        }
+      } catch (err) {
+        console.error('Error loading aulas asignadas:', err)
+        setSelectedAulas([])
+      }
+    } else if (rol === 'tutor') {
+      // Lógica original para un solo rol tutor
+      try {
+        const { data, error } = await supabase
+          .from('tutor_aula')
+          .select('aula_id')
+          .eq('fcp_miembro_id', miembro.id)
+          .eq('activo', true)
+
+        if (error) throw error
+
+        const aulaIds = (data || []).map(ta => ta.aula_id)
+        setSelectedAulas(aulaIds)
+      } catch (err) {
+        console.error('Error loading aulas asignadas:', err)
+        setSelectedAulas([])
+      }
     }
   }
 
@@ -167,11 +289,97 @@ export function MiembroEditDialog({
         return
       }
 
+      // Si es director y puede asignar múltiples roles, manejar la lógica de múltiples roles
+      if (canAssignMultipleRoles) {
+        await handleMultipleRolesUpdate()
+        return
+      }
+
       // Validar que si es tutor, tenga al menos una aula asignada
       if (rol === 'tutor' && selectedAulas.length === 0) {
         setError('Debes asignar al menos una aula al tutor.')
         setLoading(false)
         return
+      }
+
+      // Si se está cambiando a director, verificar si el usuario ya tiene otro rol (como tutor)
+      // Si tiene otro rol, crear un nuevo registro como director en lugar de actualizar el existente
+      if (rol === 'director' && miembro.rol !== 'director') {
+        // Verificar si el usuario ya tiene otro registro activo en esta FCP con un rol diferente
+        const { data: otrosRoles, error: otrosRolesError } = await supabase
+          .from('fcp_miembros')
+          .select('id, rol')
+          .eq('usuario_id', miembro.usuario_id)
+          .eq('fcp_id', miembro.fcp_id)
+          .eq('activo', true)
+          .neq('id', miembro.id)
+        
+        if (otrosRolesError) {
+          console.error('Error verificando otros roles:', otrosRolesError)
+          setError('Error al verificar otros roles del usuario.')
+          setLoading(false)
+          return
+        }
+
+        // Si el usuario tiene otros roles activos, crear un nuevo registro como director
+        // en lugar de actualizar el registro existente (para preservar el otro rol)
+        if (otrosRoles && otrosRoles.length > 0) {
+          console.log('Usuario tiene otros roles activos, creando nuevo registro como director:', otrosRoles)
+          
+          // Crear nuevo registro como director
+          const { data: nuevoDirector, error: insertError } = await supabase
+            .from('fcp_miembros')
+            .insert({
+              usuario_id: miembro.usuario_id,
+              fcp_id: miembro.fcp_id,
+              rol: 'director',
+              activo: true,
+            })
+            .select('id')
+            .single()
+
+          if (insertError) {
+            console.error('Error creando nuevo registro como director:', insertError)
+            setError('Error al crear el registro de director. Por favor, intenta nuevamente.')
+            setLoading(false)
+            return
+          }
+
+          // Manejar el cambio del director anterior
+          const { error: directorChangeError } = await supabase.rpc('manejar_cambio_director', {
+            p_fcp_id: miembro.fcp_id,
+            p_nuevo_director_id: nuevoDirector.id,
+            p_nuevo_director_usuario_id: miembro.usuario_id
+          })
+
+          if (directorChangeError) {
+            console.error('Error al manejar cambio de director:', directorChangeError)
+            // Intentar eliminar el registro que acabamos de crear
+            await supabase.from('fcp_miembros').delete().eq('id', nuevoDirector.id)
+            setError('Error al cambiar el director. Por favor, intenta nuevamente.')
+            setLoading(false)
+            return
+          }
+
+          // No actualizar el registro existente, solo refrescar la lista
+          setError(null)
+          onSuccess()
+          return
+        } else {
+          // Si no tiene otros roles, actualizar el registro existente normalmente
+          const { error: directorChangeError } = await supabase.rpc('manejar_cambio_director', {
+            p_fcp_id: miembro.fcp_id,
+            p_nuevo_director_id: miembro.id,
+            p_nuevo_director_usuario_id: miembro.usuario_id
+          })
+
+          if (directorChangeError) {
+            console.error('Error al manejar cambio de director:', directorChangeError)
+            setError('Error al cambiar el director. Por favor, intenta nuevamente.')
+            setLoading(false)
+            return
+          }
+        }
       }
 
       const { error: updateError } = await supabase
@@ -255,6 +463,243 @@ export function MiembroEditDialog({
       setLoading(false)
     }
   }
+  
+  const handleMultipleRolesUpdate = async () => {
+    if (!miembro.usuario_id) {
+      setError('El miembro debe tener un usuario asociado.')
+      setLoading(false)
+      return
+    }
+
+    // Validar que si tutor está seleccionado, tenga al menos una aula asignada
+    if (selectedRoles.includes('tutor') && selectedAulas.length === 0) {
+      setError('Si asignas el rol de tutor, debes asignar al menos una aula.')
+      setLoading(false)
+      return
+    }
+
+    // Función auxiliar para asignar aulas a un tutor
+    const assignAulasToTutor = async (tutorMemberId: string) => {
+      // Primero, obtener las aulas actualmente asignadas a este tutor
+      const { data: existingAssignments, error: fetchError } = await supabase
+        .from('tutor_aula')
+        .select('aula_id')
+        .eq('fcp_miembro_id', tutorMemberId)
+        .eq('activo', true)
+
+      if (fetchError) {
+        console.error('Error obteniendo asignaciones existentes:', fetchError)
+        throw fetchError
+      }
+
+      const existingAulaIds = new Set((existingAssignments || []).map(a => a.aula_id))
+      const selectedAulaIds = new Set(selectedAulas)
+
+      // Identificar aulas a eliminar (están asignadas pero no están en la selección)
+      const aulasToRemove = Array.from(existingAulaIds).filter(id => !selectedAulaIds.has(id))
+      
+      // Identificar aulas a agregar (están en la selección pero no están asignadas)
+      const aulasToAdd = Array.from(selectedAulaIds).filter(id => !existingAulaIds.has(id))
+
+      // Eliminar cualquier tutor previo de las aulas seleccionadas (excepto el tutor actual)
+      for (const aulaId of selectedAulas) {
+        const { error: deleteOldTutorError } = await supabase
+          .from('tutor_aula')
+          .delete()
+          .eq('aula_id', aulaId)
+          .eq('activo', true)
+          .neq('fcp_miembro_id', tutorMemberId)
+
+        if (deleteOldTutorError) {
+          console.error(`Error eliminando tutor previo del aula ${aulaId}:`, deleteOldTutorError)
+          throw deleteOldTutorError
+        }
+      }
+
+      // Eliminar asignaciones que ya no están seleccionadas
+      if (aulasToRemove.length > 0) {
+        const { error: deleteError } = await supabase
+          .from('tutor_aula')
+          .delete()
+          .eq('fcp_miembro_id', tutorMemberId)
+          .in('aula_id', aulasToRemove)
+
+        if (deleteError) {
+          console.error('Error eliminando asignaciones antiguas:', deleteError)
+          throw deleteError
+        }
+      }
+
+      // Insertar solo las nuevas asignaciones que no existen
+      if (aulasToAdd.length > 0) {
+        const assignments = aulasToAdd.map(aulaId => ({
+          fcp_miembro_id: tutorMemberId,
+          aula_id: aulaId,
+          fcp_id: miembro.fcp_id,
+          activo: true,
+        }))
+
+        const { error: assignError } = await supabase
+          .from('tutor_aula')
+          .insert(assignments)
+
+        if (assignError) {
+          console.error('Error asignando aulas:', assignError)
+          throw assignError
+        }
+      }
+    }
+
+    // Obtener los roles que deben existir y los que deben eliminarse
+    const rolesToKeep = selectedRoles
+    const existingRoleNames = existingRoles.map(r => r.rol as 'secretario' | 'tutor')
+
+    // Crear o actualizar roles seleccionados
+    for (const roleToAssign of rolesToKeep) {
+      const existingRole = existingRoles.find(r => r.rol === roleToAssign)
+      
+      if (existingRole) {
+        // El rol ya existe, asegurar que esté activo
+        if (!existingRole.activo) {
+          const { error: updateError } = await supabase
+            .from('fcp_miembros')
+            .update({ activo: true })
+            .eq('id', existingRole.id)
+          
+          if (updateError) {
+            console.error(`Error activando rol ${roleToAssign}:`, updateError)
+            throw updateError
+          }
+        }
+        
+        // Si es tutor y ya existe, actualizar las aulas asignadas
+        if (roleToAssign === 'tutor' && selectedAulas.length > 0) {
+          await assignAulasToTutor(existingRole.id)
+        }
+      } else {
+        // Verificar si hay un registro inactivo antes de crear uno nuevo
+        const { data: inactiveRole, error: checkInactiveError } = await supabase
+          .from('fcp_miembros')
+          .select('id')
+          .eq('usuario_id', miembro.usuario_id)
+          .eq('fcp_id', miembro.fcp_id)
+          .eq('rol', roleToAssign)
+          .eq('activo', false)
+          .maybeSingle()
+
+        if (checkInactiveError && checkInactiveError.code !== 'PGRST116') {
+          console.error(`Error verificando rol inactivo ${roleToAssign}:`, checkInactiveError)
+          throw checkInactiveError
+        }
+
+        if (inactiveRole) {
+          // Reactivar el rol inactivo
+          const { error: reactivateError } = await supabase
+            .from('fcp_miembros')
+            .update({ activo: true })
+            .eq('id', inactiveRole.id)
+
+          if (reactivateError) {
+            console.error(`Error reactivando rol ${roleToAssign}:`, reactivateError)
+            throw reactivateError
+          }
+          
+          // Si es tutor, asignar aulas
+          if (roleToAssign === 'tutor' && selectedAulas.length > 0) {
+            await assignAulasToTutor(inactiveRole.id)
+          }
+        } else {
+          // El rol no existe, crear uno nuevo
+          const { data: newRole, error: insertError } = await supabase
+            .from('fcp_miembros')
+            .insert({
+              usuario_id: miembro.usuario_id,
+              fcp_id: miembro.fcp_id,
+              rol: roleToAssign,
+              activo: true,
+            })
+            .select('id')
+            .single()
+
+          if (insertError) {
+            // Si el error es de duplicado, verificar si se creó en otro proceso
+            if (insertError.code === '23505') {
+              console.warn(`Rol ${roleToAssign} ya existe (posible condición de carrera), verificando...`)
+              
+              // Verificar si el rol se creó en otro proceso
+              const { data: newlyCreatedRole } = await supabase
+                .from('fcp_miembros')
+                .select('id')
+                .eq('usuario_id', miembro.usuario_id)
+                .eq('fcp_id', miembro.fcp_id)
+                .eq('rol', roleToAssign)
+                .eq('activo', true)
+                .maybeSingle()
+
+              if (!newlyCreatedRole) {
+                // Si realmente no existe, lanzar el error original
+                console.error(`Error creando rol ${roleToAssign}:`, insertError)
+                throw insertError
+              }
+              
+              // Si existe, usar ese rol para asignar aulas
+              if (roleToAssign === 'tutor' && selectedAulas.length > 0) {
+                await assignAulasToTutor(newlyCreatedRole.id)
+              }
+              // Continuar con el siguiente rol
+              continue
+            } else {
+              console.error(`Error creando rol ${roleToAssign}:`, insertError)
+              throw insertError
+            }
+          }
+
+          // Si es tutor, asignar aulas
+          if (roleToAssign === 'tutor' && newRole && selectedAulas.length > 0) {
+            await assignAulasToTutor(newRole.id)
+          }
+        }
+      }
+    }
+
+    // Desactivar roles que ya no están seleccionados
+    const rolesToDeactivate = existingRoleNames.filter(r => !rolesToKeep.includes(r))
+    for (const roleToDeactivate of rolesToDeactivate) {
+      const roleToDeactivateRecord = existingRoles.find(r => r.rol === roleToDeactivate)
+      if (roleToDeactivateRecord) {
+        const { error: deactivateError } = await supabase
+          .from('fcp_miembros')
+          .update({ activo: false })
+          .eq('id', roleToDeactivateRecord.id)
+
+        if (deactivateError) {
+          console.error(`Error desactivando rol ${roleToDeactivate}:`, deactivateError)
+          throw deactivateError
+        }
+
+        // Si se desactiva tutor, eliminar asignaciones de aulas
+        if (roleToDeactivate === 'tutor') {
+          const { error: deleteAssignmentsError } = await supabase
+            .from('tutor_aula')
+            .delete()
+            .eq('fcp_miembro_id', roleToDeactivateRecord.id)
+
+          if (deleteAssignmentsError) {
+            console.error('Error eliminando asignaciones de aulas:', deleteAssignmentsError)
+            throw deleteAssignmentsError
+          }
+        }
+      }
+    }
+
+    // NOTA: La actualización de aulas del tutor ya se maneja en el bucle anterior
+    // cuando se procesa cada rol (líneas 539-540, 572, 610, 622, 659).
+    // No es necesario hacerlo nuevamente aquí para evitar duplicados.
+
+    setError(null)
+    onSuccess()
+    setLoading(false)
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -282,40 +727,113 @@ export function MiembroEditDialog({
               {miembro.usuario?.email || 'Sin email'}
             </p>
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="rol">Rol *</Label>
-            <Select 
-              value={rol} 
-              onValueChange={(value) => {
-                // Si el usuario es secretario, solo permitir mantener el rol como tutor
-                if (isSecretario && value !== 'tutor') {
-                  setError('Como secretario, solo puedes editar miembros con rol tutor.')
-                  return
-                }
-                setRol(value as 'facilitador' | 'director' | 'secretario' | 'tutor')
-              }}
-              disabled={!canEditThisMember || (isSecretario && miembro.rol === 'tutor')}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Selecciona un rol" />
-              </SelectTrigger>
-              <SelectContent>
-                {!isSecretario && (
-                  <>
-                <SelectItem value="facilitador">{getRolDisplayName('facilitador')}</SelectItem>
-                <SelectItem value="director">{getRolDisplayName('director')}</SelectItem>
-                <SelectItem value="secretario">{getRolDisplayName('secretario')}</SelectItem>
-                  </>
-                )}
-                <SelectItem value="tutor">{getRolDisplayName('tutor')}</SelectItem>
-              </SelectContent>
-            </Select>
-            {isSecretario && (
+          {/* Si es director (pero no facilitador), mostrar selector de múltiples roles */}
+          {canAssignMultipleRoles ? (
+            <div className="grid gap-2">
+              <Label>Roles *</Label>
+              <div className="space-y-3 border rounded-md p-4">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="rol-secretario"
+                    checked={selectedRoles.includes('secretario')}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setSelectedRoles([...selectedRoles, 'secretario'])
+                      } else {
+                        setSelectedRoles(selectedRoles.filter(r => r !== 'secretario'))
+                      }
+                    }}
+                  />
+                  <label
+                    htmlFor="rol-secretario"
+                    className="text-sm font-medium leading-none cursor-pointer"
+                  >
+                    {getRolDisplayName('secretario')}
+                  </label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="rol-tutor"
+                    checked={selectedRoles.includes('tutor')}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setSelectedRoles([...selectedRoles, 'tutor'])
+                      } else {
+                        setSelectedRoles(selectedRoles.filter(r => r !== 'tutor'))
+                        setSelectedAulas([]) // Limpiar aulas si se desmarca tutor
+                      }
+                    }}
+                  />
+                  <label
+                    htmlFor="rol-tutor"
+                    className="text-sm font-medium leading-none cursor-pointer"
+                  >
+                    {getRolDisplayName('tutor')}
+                  </label>
+                </div>
+              </div>
+              {selectedRoles.length === 0 && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Debes seleccionar al menos un rol (Secretario y/o Tutor).
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
-                Como secretario, solo puedes editar miembros con rol tutor.
+                Como director, puedes asignar uno o ambos roles al miembro.
               </p>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              <Label htmlFor="rol">Rol *</Label>
+              <Select 
+                value={rol} 
+                onValueChange={(value) => {
+                  // Si el usuario es secretario, solo permitir mantener el rol como tutor
+                  if (isSecretario && value !== 'tutor') {
+                    setError('Como secretario, solo puedes editar miembros con rol tutor.')
+                    return
+                  }
+                  // Si el usuario es director (pero no facilitador), no permitir asignar facilitador o director
+                  if (isDirector && !isFacilitador && (value === 'facilitador' || value === 'director')) {
+                    setError('Como director, no puedes asignar los roles de facilitador o director.')
+                    return
+                  }
+                  setRol(value as 'facilitador' | 'director' | 'secretario' | 'tutor')
+                }}
+                disabled={!canEditThisMember || (isSecretario && miembro.rol === 'tutor')}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona un rol" />
+                </SelectTrigger>
+                <SelectContent>
+                  {/* Facilitadores pueden asignar todos los roles */}
+                  {isFacilitador && (
+                    <>
+                      <SelectItem value="facilitador">{getRolDisplayName('facilitador')}</SelectItem>
+                      <SelectItem value="director">{getRolDisplayName('director')}</SelectItem>
+                      <SelectItem value="secretario">{getRolDisplayName('secretario')}</SelectItem>
+                      <SelectItem value="tutor">{getRolDisplayName('tutor')}</SelectItem>
+                    </>
+                  )}
+                  {/* Directores solo pueden asignar secretario y tutor (NO facilitador ni director) */}
+                  {isDirector && !isFacilitador && (
+                    <>
+                      <SelectItem value="secretario">{getRolDisplayName('secretario')}</SelectItem>
+                      <SelectItem value="tutor">{getRolDisplayName('tutor')}</SelectItem>
+                    </>
+                  )}
+                  {/* Secretarios solo pueden asignar tutor */}
+                  {isSecretario && !isDirector && !isFacilitador && (
+                    <SelectItem value="tutor">{getRolDisplayName('tutor')}</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+              {isSecretario && (
+                <p className="text-xs text-muted-foreground">
+                  Como secretario, solo puedes editar miembros con rol tutor.
+                </p>
+              )}
+            </div>
+          )}
           <div className="grid gap-2">
             <Label htmlFor="activo">Estado</Label>
             <Select
@@ -334,7 +852,7 @@ export function MiembroEditDialog({
           </div>
 
           {/* Selector de aulas (solo para tutores) */}
-          {rol === 'tutor' && (
+          {((canAssignMultipleRoles && selectedRoles.includes('tutor')) || rol === 'tutor') && (
             <div className="grid gap-2">
               <Label htmlFor="aulas">Aulas Asignadas *</Label>
               {loadingAulas ? (
@@ -370,7 +888,7 @@ export function MiembroEditDialog({
                   ))}
                 </div>
               )}
-              {rol === 'tutor' && selectedAulas.length === 0 && (
+              {((canAssignMultipleRoles && selectedRoles.includes('tutor')) || rol === 'tutor') && selectedAulas.length === 0 && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
                   Debes asignar al menos una aula al tutor.
                 </p>
@@ -392,7 +910,12 @@ export function MiembroEditDialog({
           <Button 
             type="button" 
             onClick={onSubmit} 
-            disabled={loading || !canEditThisMember || (rol === 'tutor' && selectedAulas.length === 0)}
+            disabled={
+              loading || 
+              !canEditThisMember || 
+              (canAssignMultipleRoles && (selectedRoles.length === 0 || (selectedRoles.includes('tutor') && selectedAulas.length === 0))) ||
+              (!canAssignMultipleRoles && rol === 'tutor' && selectedAulas.length === 0)
+            }
           >
             {loading ? 'Actualizando...' : 'Guardar Cambios'}
           </Button>

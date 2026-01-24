@@ -19,6 +19,10 @@ DECLARE
   v_auth_user_id UUID;
   v_usuario_id UUID;
   v_result JSONB;
+  v_existing_director_id UUID;
+  v_existing_invitation_id UUID;
+  v_has_other_roles BOOLEAN;
+  v_director_registro_id UUID;
 BEGIN
   -- Buscar el usuario en auth.users por email
   SELECT id INTO v_auth_user_id
@@ -60,25 +64,55 @@ BEGIN
 
   v_usuario_id := v_auth_user_id;
 
-  -- Verificar si ya existe un registro en fcp_miembros para este usuario y FCP
-  -- Si existe una invitación pendiente (usuario_id IS NULL), actualizarla
-  UPDATE public.fcp_miembros
-  SET 
-    usuario_id = v_usuario_id,
-    email_pendiente = NULL,
-    rol = 'director',
-    activo = true,
-    fecha_asignacion = COALESCE(fecha_asignacion, NOW()),
-    updated_at = NOW()
+  -- Buscar registro existente como director
+  SELECT id INTO v_existing_director_id
+  FROM public.fcp_miembros
   WHERE fcp_id = p_fcp_id
-    AND (
-      (usuario_id IS NULL AND email_pendiente = LOWER(p_email))
-      OR usuario_id = v_usuario_id
-    )
-  RETURNING id INTO v_result;
+    AND usuario_id = v_usuario_id
+    AND rol = 'director'
+  LIMIT 1;
 
-  -- Si no se actualizó ningún registro, crear uno nuevo
-  IF NOT FOUND THEN
+  -- Buscar invitación pendiente con este email
+  SELECT id INTO v_existing_invitation_id
+  FROM public.fcp_miembros
+  WHERE fcp_id = p_fcp_id
+    AND usuario_id IS NULL
+    AND email_pendiente = LOWER(p_email)
+    AND rol = 'director'
+  LIMIT 1;
+
+  -- Verificar si el usuario tiene otros roles activos en esta FCP
+  SELECT EXISTS(
+    SELECT 1 FROM public.fcp_miembros
+    WHERE fcp_id = p_fcp_id
+      AND usuario_id = v_usuario_id
+      AND rol != 'director'
+      AND activo = true
+  ) INTO v_has_other_roles;
+
+  -- Si existe una invitación pendiente, actualizarla
+  IF v_existing_invitation_id IS NOT NULL THEN
+    UPDATE public.fcp_miembros
+    SET 
+      usuario_id = v_usuario_id,
+      email_pendiente = NULL,
+      rol = 'director',
+      activo = true,
+      fecha_asignacion = COALESCE(fecha_asignacion, NOW()),
+      updated_at = NOW()
+    WHERE id = v_existing_invitation_id
+    RETURNING jsonb_build_object('id', id) INTO v_result;
+  -- Si ya existe un registro como director, actualizarlo
+  ELSIF v_existing_director_id IS NOT NULL THEN
+    UPDATE public.fcp_miembros
+    SET 
+      activo = true,
+      updated_at = NOW()
+    WHERE id = v_existing_director_id
+    RETURNING jsonb_build_object('id', id) INTO v_result;
+  -- Si el usuario tiene otros roles, crear un nuevo registro como director
+  -- para preservar los otros roles
+  ELSIF v_has_other_roles THEN
     INSERT INTO public.fcp_miembros (
       usuario_id,
       fcp_id,
@@ -94,6 +128,70 @@ BEGIN
       NOW()
     )
     RETURNING jsonb_build_object('id', id) INTO v_result;
+  -- Si no tiene otros roles, verificar si hay algún registro inactivo para reactivar
+  ELSE
+    -- Buscar registro inactivo del usuario en esta FCP
+    SELECT id INTO v_existing_director_id
+    FROM public.fcp_miembros
+    WHERE fcp_id = p_fcp_id
+      AND usuario_id = v_usuario_id
+      AND activo = false
+    LIMIT 1;
+
+    IF v_existing_director_id IS NOT NULL THEN
+      -- Reactivar y actualizar a director
+      UPDATE public.fcp_miembros
+      SET 
+        rol = 'director',
+        activo = true,
+        updated_at = NOW()
+      WHERE id = v_existing_director_id
+      RETURNING jsonb_build_object('id', id) INTO v_result;
+    ELSE
+      -- Crear nuevo registro como director
+      INSERT INTO public.fcp_miembros (
+        usuario_id,
+        fcp_id,
+        rol,
+        activo,
+        fecha_asignacion
+      )
+      VALUES (
+        v_usuario_id,
+        p_fcp_id,
+        'director',
+        true,
+        NOW()
+      )
+      RETURNING jsonb_build_object('id', id) INTO v_result;
+    END IF;
+  END IF;
+
+  -- IMPORTANTE: Después de crear o actualizar el director, asegurar que solo haya uno activo
+  -- Llamar a manejar_cambio_director para eliminar otros directores de OTROS usuarios
+  -- Obtener el ID del registro de director que acabamos de crear/actualizar
+  -- Primero intentar obtenerlo del resultado si está disponible
+  IF v_result IS NOT NULL AND v_result->>'id' IS NOT NULL THEN
+    v_director_registro_id := (v_result->>'id')::UUID;
+  ELSE
+    -- Si no está en el resultado, buscarlo en la base de datos
+    SELECT id INTO v_director_registro_id
+    FROM public.fcp_miembros
+    WHERE fcp_id = p_fcp_id
+      AND usuario_id = v_usuario_id
+      AND rol = 'director'
+      AND activo = true
+    ORDER BY fecha_asignacion DESC, created_at DESC
+    LIMIT 1;
+  END IF;
+  
+  -- Si encontramos el registro, llamar a manejar_cambio_director
+  IF v_director_registro_id IS NOT NULL THEN
+    PERFORM public.manejar_cambio_director(
+      p_fcp_id,
+      v_director_registro_id,
+      v_usuario_id
+    );
   END IF;
 
   RETURN jsonb_build_object(
@@ -115,5 +213,5 @@ $$;
 GRANT EXECUTE ON FUNCTION public.asociar_director_por_email(UUID, TEXT) TO authenticated;
 
 COMMENT ON FUNCTION public.asociar_director_por_email(UUID, TEXT) IS 
-'Función para asociar un usuario existente en auth.users a una FCP como director. Busca el usuario por email en auth.users y crea/actualiza el registro en fcp_miembros.';
+'Función para asociar un usuario existente en auth.users a una FCP como director. Busca el usuario por email en auth.users y crea/actualiza el registro en fcp_miembros. Si el usuario tiene otros roles activos en la FCP, crea un nuevo registro como director para preservar los otros roles.';
 

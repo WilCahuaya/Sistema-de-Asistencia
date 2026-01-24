@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getHighestPriorityRole, type RolType as RolTypeUtil } from '@/lib/utils/roles'
+import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 
 export type RolType = 'facilitador' | 'director' | 'secretario' | 'tutor' | null
 
@@ -35,6 +36,7 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
   const [role, setRole] = useState<RolType>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
+  const { selectedRole, loading: roleContextLoading } = useSelectedRole()
 
   useEffect(() => {
     let cancelled = false
@@ -43,6 +45,28 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
       try {
         setLoading(true)
         setError(null)
+
+        // Si el contexto de rol seleccionado está cargando, esperar
+        if (roleContextLoading) {
+          return
+        }
+
+        // PRIMERO: Intentar usar el rol seleccionado desde el contexto
+        if (selectedRole) {
+          // Si hay un rol seleccionado y coincide con la FCP actual (o es facilitador del sistema)
+          if (selectedRole.fcpId === fcpId || selectedRole.fcpId === null || !fcpId) {
+            console.log('✅ useUserRole - Usando rol seleccionado desde contexto:', {
+              selectedRole: selectedRole.role,
+              fcpId: selectedRole.fcpId,
+              requestedFcpId: fcpId
+            })
+            if (!cancelled) {
+              setRole(selectedRole.role)
+              setLoading(false)
+            }
+            return
+          }
+        }
 
         const supabase = createClient()
         const { data: { user } } = await supabase.auth.getUser()
@@ -110,72 +134,77 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
           return
         }
 
-        // Si no es facilitador del sistema, obtener el rol en la FCP específica
-        // Obtener el rol del usuario usando la función RPC
-        const { data: rolData, error: rpcError } = await supabase.rpc(
-          'obtener_rol_fcp',
-          {
-            p_fcp_id: fcpId,
-            p_usuario_id: user.id,
+        // Si hay un rol seleccionado pero es para otra FCP, verificar si el usuario tiene roles en esta FCP
+        // Si el rol seleccionado es para esta FCP, usarlo directamente
+        if (selectedRole && selectedRole.fcpId === fcpId) {
+          console.log('✅ useUserRole - Usando rol seleccionado para esta FCP:', {
+            selectedRole: selectedRole.role,
+            fcpId: selectedRole.fcpId
+          })
+          if (!cancelled) {
+            setRole(selectedRole.role)
+            setLoading(false)
           }
-        )
+          return
+        }
 
+        // Si no hay rol seleccionado o es para otra FCP, obtener el rol en la FCP específica
+        // Usar el rol seleccionado si está disponible, de lo contrario usar el de mayor jerarquía
+        const { data: fcpMiembrosData, error: queryError } = await supabase
+          .from('fcp_miembros')
+          .select('rol')
+          .eq('usuario_id', user.id)
+          .eq('fcp_id', fcpId)
+          .eq('activo', true)
+        
         if (cancelled) return
 
-        if (rpcError) {
-          // Ignorar errores de aborto (son esperados cuando cambian las dependencias)
-          if (rpcError.message?.includes('AbortError') || rpcError.message?.includes('aborted')) {
+        if (queryError) {
+          // Ignorar errores de aborto
+          if (queryError.message?.includes('AbortError') || queryError.message?.includes('aborted')) {
             return
           }
+          console.error('Error fetching user role:', queryError)
+          if (!cancelled) {
+            setError(new Error('No se pudo obtener el rol del usuario'))
+            setRole(null)
+          }
+          return
+        }
 
-          // Si falla la RPC, intentar consulta directa con prioridad de roles
-          const { data: fcpMiembrosData, error: queryError } = await supabase
-            .from('fcp_miembros')
-            .select('rol')
-            .eq('usuario_id', user.id)
-            .eq('fcp_id', fcpId)
-            .eq('activo', true)
+        // Si hay múltiples roles, usar el rol seleccionado si está disponible para esta FCP
+        // De lo contrario, seleccionar el de mayor jerarquía
+        if (fcpMiembrosData && fcpMiembrosData.length > 0) {
+          const roles = fcpMiembrosData.map((m: { rol: RolType }) => m.rol) as RolTypeUtil[]
           
-          if (cancelled) return
-
-          if (queryError) {
-            // Ignorar errores de aborto
-            if (queryError.message?.includes('AbortError') || queryError.message?.includes('aborted')) {
-              return
-            }
-            console.error('Error fetching user role:', queryError)
+          // Si hay un rol seleccionado para esta FCP, usarlo
+          if (selectedRole && selectedRole.fcpId === fcpId && roles.includes(selectedRole.role)) {
+            console.log('✅ useUserRole - Usando rol seleccionado para esta FCP:', {
+              selectedRole: selectedRole.role,
+              fcpId: selectedRole.fcpId
+            })
             if (!cancelled) {
-              setError(new Error('No se pudo obtener el rol del usuario'))
-              setRole(null)
+              setRole(selectedRole.role)
             }
-            return
-          }
-
-          // Si hay múltiples roles, seleccionar el de mayor jerarquía
-          if (fcpMiembrosData && fcpMiembrosData.length > 0) {
-            const roles = fcpMiembrosData.map((m: { rol: RolType }) => m.rol) as RolTypeUtil[]
+          } else {
+            // Usar el de mayor jerarquía como fallback
             const highestRole = getHighestPriorityRole(roles)
             
             if (fcpMiembrosData.length > 1) {
-              console.log('⚠️ Usuario tiene múltiples roles, seleccionando el de mayor jerarquía:', {
+              console.log('⚠️ useUserRole - Usando rol de mayor jerarquía como fallback (no hay rol seleccionado para esta FCP):', {
                 roles: roles,
-                rolSeleccionado: highestRole
+                rolSeleccionado: highestRole,
+                selectedRoleFromContext: selectedRole
               })
             }
 
             if (!cancelled) {
               setRole(highestRole)
             }
-          } else {
-            if (!cancelled) {
-              setRole(null)
-            }
           }
-
-          if (cancelled) return
         } else {
           if (!cancelled) {
-            setRole(rolData || null)
+            setRole(null)
           }
         }
       } catch (err) {
@@ -201,7 +230,7 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
     return () => {
       cancelled = true
     }
-  }, [fcpId])
+  }, [fcpId, selectedRole, roleContextLoading])
 
   const isFacilitador = role === 'facilitador'
   const isDirector = role === 'director'

@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { CheckCircle2, XCircle, Clock, CheckCheck, X } from 'lucide-react'
+import { CheckCircle2, XCircle, Clock, CheckCheck, X, Info } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import {
@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { MonthPicker } from '@/components/ui/month-picker'
+import { AsistenciaHistorialDialog } from './AsistenciaHistorialDialog'
 
 interface Estudiante {
   id: string
@@ -29,6 +30,29 @@ interface Asistencia {
   fecha: string
   estado: 'presente' | 'falto' | 'permiso'
   observaciones?: string
+  fcp_id?: string
+  created_by?: string | null
+  updated_by?: string | null
+  created_at?: string
+  updated_at?: string
+  // Campos de auditoría directos (guardados en la BD)
+  created_by_nombre?: string | null
+  created_by_email?: string | null
+  created_by_rol?: string | null
+  updated_by_nombre?: string | null
+  updated_by_email?: string | null
+  updated_by_rol?: string | null
+  // Campos legacy (para compatibilidad con código antiguo)
+  creador?: {
+    email?: string
+    nombre_completo?: string
+    rol?: string | null
+  }
+  editor?: {
+    email?: string
+    nombre_completo?: string
+    rol?: string | null
+  }
 }
 
 interface AsistenciaCalendarViewProps {
@@ -59,6 +83,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const [isResizingTable, setIsResizingTable] = useState(false)
   const [resizeStartX, setResizeStartX] = useState(0)
   const [resizeStartWidth, setResizeStartWidth] = useState(0)
+  const [historialDialogOpen, setHistorialDialogOpen] = useState(false)
+  const [selectedAsistenciaForHistorial, setSelectedAsistenciaForHistorial] = useState<Asistencia | null>(null)
   const tableContainerRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const defaultWidthRef = useRef<number | null>(null) // Ancho por defecto del contenedor
@@ -376,7 +402,23 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       // En ese caso, dividir en lotes
       let query = supabase
         .from('asistencias')
-        .select('id, estudiante_id, fecha, estado, fcp_id')
+        .select(`
+          id, 
+          estudiante_id, 
+          fecha, 
+          estado, 
+          fcp_id,
+          created_by,
+          updated_by,
+          created_at,
+          updated_at,
+          created_by_nombre,
+          created_by_email,
+          created_by_rol,
+          updated_by_nombre,
+          updated_by_email,
+          updated_by_rol
+        `)
         .eq('fcp_id', fcpId)
         .in('estudiante_id', estudianteIds)
         .gte('fecha', firstDay)
@@ -505,6 +547,9 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       setSaving((prev) => new Set(prev).add(key))
       const supabase = createClient()
 
+      // Obtener el usuario actual para auditoría
+      const { data: { user } } = await supabase.auth.getUser()
+      
       if (existingAsistencia) {
         // Actualizar asistencia existente
         const { data, error } = await supabase
@@ -512,6 +557,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
           .update({
             estado,
             updated_at: new Date().toISOString(),
+            updated_by: user?.id || null,
           })
           .eq('id', existingAsistencia.id)
           .select()
@@ -527,14 +573,22 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         })
       } else {
         // Intentar insertar, si existe (409), actualizar por estudiante_id y fecha
+        const insertData: any = {
+          estudiante_id: estudianteId,
+          fecha: fechaStr,
+          estado,
+          fcp_id: fcpId,
+        }
+        
+        // Agregar campos de auditoría si hay usuario
+        if (user) {
+          insertData.created_by = user.id
+          insertData.updated_by = user.id
+        }
+        
         const { data, error } = await supabase
           .from('asistencias')
-          .insert({
-            estudiante_id: estudianteId,
-            fecha: fechaStr,
-            estado,
-            fcp_id: fcpId,
-          })
+          .insert(insertData)
           .select()
           .single()
 
@@ -558,6 +612,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
               .update({
                 estado,
                 updated_at: new Date().toISOString(),
+                updated_by: user?.id || null,
               })
               .eq('id', existingData.id)
               .select()
@@ -703,9 +758,12 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     // Guardar en la BD en background
     const supabase = createClient()
     
+    // Obtener el usuario actual para auditoría
+    const { data: { user } } = await supabase.auth.getUser()
+    
     // Separar actualizaciones e inserciones para mayor eficiencia
     const toUpdate: Array<{ id: string; estudiante_id: string }> = []
-    const toInsert: Array<{ estudiante_id: string; fecha: string; estado: string; fcp_id: string }> = []
+    const toInsert: Array<{ estudiante_id: string; fecha: string; estado: string; fcp_id: string; created_by?: string | null; updated_by?: string | null }> = []
 
     estudiantes.forEach((estudiante) => {
       const key = `${estudiante.id}_${fechaStr}`
@@ -714,12 +772,20 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       if (existingAsistencia?.id && !existingAsistencia.id.startsWith('temp-')) {
         toUpdate.push({ id: existingAsistencia.id, estudiante_id: estudiante.id })
       } else {
-        toInsert.push({
+        const insertItem: any = {
           estudiante_id: estudiante.id,
           fecha: fechaStr,
           estado: 'presente',
           fcp_id: fcpId,
-        })
+        }
+        
+        // Agregar campos de auditoría si hay usuario
+        if (user) {
+          insertItem.created_by = user.id
+          insertItem.updated_by = user.id
+        }
+        
+        toInsert.push(insertItem)
       }
     })
 
@@ -745,7 +811,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         setToast(null)
       }, 3000)
     }
-
+    
     // Ejecutar actualizaciones en batch si hay alguna
     const updatePromises = toUpdate.length > 0 
       ? Promise.all(
@@ -755,6 +821,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
               .update({
                 estado: 'presente',
                 updated_at: new Date().toISOString(),
+                updated_by: user?.id || null,
               })
               .eq('id', id)
               .select()
@@ -974,11 +1041,11 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {aulas.map((aula) => (
+              {aulas.map((aula) => (
                   <SelectItem key={aula.id} value={aula.id}>
-                    {aula.nombre}
+                  {aula.nombre}
                   </SelectItem>
-                ))}
+              ))}
               </SelectContent>
             </Select>
           )}
@@ -1048,11 +1115,11 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {aulas.map((aula) => (
+              {aulas.map((aula) => (
                   <SelectItem key={aula.id} value={aula.id}>
-                    {aula.nombre}
+                  {aula.nombre}
                   </SelectItem>
-                ))}
+              ))}
               </SelectContent>
             </Select>
 
@@ -1080,11 +1147,11 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
             ref={tableContainerRef}
             className="overflow-x-auto select-none"
             style={{ 
-              cursor: isDragging ? 'grabbing' : (role === 'director' || role === 'secretario') ? 'grab' : 'default'
+              cursor: isDragging ? 'grabbing' : (role === 'facilitador' || role === 'director' || role === 'secretario') ? 'grab' : 'default'
             }}
             onWheel={(e) => {
-              // Solo permitir scroll horizontal para directores y secretarios
-              if (role !== 'director' && role !== 'secretario') {
+              // Permitir scroll horizontal para facilitadores, directores y secretarios
+              if (role !== 'facilitador' && role !== 'director' && role !== 'secretario') {
                 return
               }
               
@@ -1104,8 +1171,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
               }
             }}
             onMouseDown={(e) => {
-              // Solo permitir drag scroll para directores y secretarios
-              if (role !== 'director' && role !== 'secretario') {
+              // Permitir drag scroll para facilitadores, directores y secretarios
+              if (role !== 'facilitador' && role !== 'director' && role !== 'secretario') {
                 return
               }
               
@@ -1126,7 +1193,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
               }
             }}
             onMouseMove={(e) => {
-              if (isDragging && tableContainerRef.current && (role === 'director' || role === 'secretario')) {
+              if (isDragging && tableContainerRef.current && (role === 'facilitador' || role === 'director' || role === 'secretario')) {
                 e.preventDefault()
                 e.stopPropagation()
                 const rect = tableContainerRef.current.getBoundingClientRect()
@@ -1295,7 +1362,29 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                               : 'Solo lectura'
                           }
                         >
-                          {getEstadoIcon(estado, isSaving)}
+                          <div className="flex items-center justify-center gap-1 relative group">
+                            {getEstadoIcon(estado, isSaving)}
+                            {estado !== null && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  const asistencia = asistencias.get(key)
+                                  if (asistencia) {
+                                    // Los datos de auditoría ya están en la asistencia (guardados por los triggers)
+                                    // Solo necesitamos preparar el objeto para el diálogo
+                                    setSelectedAsistenciaForHistorial(asistencia)
+                                    setHistorialDialogOpen(true)
+                                  }
+                                }}
+                                className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent z-10"
+                                title="Ver historial de esta asistencia"
+                                onMouseEnter={(e) => e.stopPropagation()}
+                                onMouseLeave={(e) => e.stopPropagation()}
+                              >
+                                <Info className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       )
                     })}
@@ -1315,6 +1404,19 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
           <span className="font-medium">{toast.message}</span>
         </div>
       )}
+
+      {/* Diálogo de historial */}
+      <AsistenciaHistorialDialog
+        open={historialDialogOpen}
+        onOpenChange={setHistorialDialogOpen}
+        asistencia={selectedAsistenciaForHistorial ? {
+          ...selectedAsistenciaForHistorial,
+          estudiante: {
+            codigo: estudiantes.find(e => e.id === selectedAsistenciaForHistorial.estudiante_id)?.codigo || '',
+            nombre_completo: estudiantes.find(e => e.id === selectedAsistenciaForHistorial.estudiante_id)?.nombre_completo || '',
+          }
+        } : null}
+      />
     </Card>
   )
 }

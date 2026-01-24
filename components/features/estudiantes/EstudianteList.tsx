@@ -20,6 +20,7 @@ import { EstudianteUploadDialog } from './EstudianteUploadDialog'
 import { EstudianteMovimientoDialog } from './EstudianteMovimientoDialog'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
+import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import {
   Pagination,
   PaginationContent,
@@ -63,9 +64,6 @@ export function EstudianteList() {
   const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
   const [selectedAula, setSelectedAula] = useState<string | null>(null)
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
-  const [isDirector, setIsDirector] = useState(false)
-  const [isSecretario, setIsSecretario] = useState(false)
-  const [isTutorState, setIsTutorState] = useState(false)
   const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
@@ -76,7 +74,18 @@ export function EstudianteList() {
   const [resizeStartWidth, setResizeStartWidth] = useState(0)
   const itemsPerPage = 15
   const router = useRouter()
-  const { canEdit } = useUserRole(selectedFCP)
+  const { selectedRole } = useSelectedRole()
+  
+  // Usar el rol seleccionado para determinar los flags
+  const isDirector = selectedRole?.role === 'director'
+  const isSecretario = selectedRole?.role === 'secretario'
+  const isTutorState = selectedRole?.role === 'tutor'
+  const isFacilitador = selectedRole?.role === 'facilitador'
+  
+  // Usar el fcpId del rol seleccionado si está disponible
+  const fcpIdFromRole = selectedRole?.fcpId
+  
+  const { canEdit } = useUserRole(selectedFCP || fcpIdFromRole)
   const cardRef = useRef<HTMLDivElement>(null)
   const defaultWidthRef = useRef<number | null>(null) // Ancho por defecto del contenedor
 
@@ -176,21 +185,19 @@ export function EstudianteList() {
 
   useEffect(() => {
     // Si es tutor, cargar aulas inmediatamente cuando se detecta
+    // También cargar si hay un fcpId del rol seleccionado o selectedFCP
+    const fcpIdToUse = fcpIdFromRole || selectedFCP
+    
     if (isTutorState) {
       loadAulas()
-    } else if (selectedFCP) {
+    } else if (fcpIdToUse) {
       loadAulas()
     } else {
       setAulas([])
     }
-  }, [selectedFCP, isTutorState])
+  }, [selectedFCP, isTutorState, fcpIdFromRole])
 
-  // Cargar aulas cuando se detecta que es tutor
-  useEffect(() => {
-    if (isTutorState) {
-      loadAulas()
-    }
-  }, [isTutorState])
+  // Este useEffect es redundante, ya está cubierto por el anterior
 
   useEffect(() => {
     if (selectedFCP || isTutorState) {
@@ -214,74 +221,8 @@ export function EstudianteList() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Verificar si el usuario es facilitador
-      const { data: facilitadorData, error: facilitadorError } = await supabase
-        .from('fcp_miembros')
-        .select('rol')
-        .eq('usuario_id', user.id)
-        .eq('rol', 'facilitador')
-        .eq('activo', true)
-        .limit(1)
-
-      if (facilitadorError) throw facilitadorError
-
-      const esFacilitador = facilitadorData && facilitadorData.length > 0
-
-      // Verificar si el usuario es director
-      const { data: directorData, error: directorError } = await supabase
-        .from('fcp_miembros')
-        .select('rol, fcp_id')
-        .eq('usuario_id', user.id)
-        .eq('rol', 'director')
-        .eq('activo', true)
-        .limit(1)
-
-      if (!directorError && directorData && directorData.length > 0) {
-        setIsDirector(true)
-        // Si es director y no hay FCP seleccionada, establecer la primera FCP del director
-        if (!selectedFCP && directorData[0].fcp_id) {
-          setSelectedFCP(directorData[0].fcp_id)
-        }
-      }
-
-      // Verificar si el usuario es secretario
-      const { data: secretarioData, error: secretarioError } = await supabase
-        .from('fcp_miembros')
-        .select('rol, fcp_id')
-        .eq('usuario_id', user.id)
-        .eq('rol', 'secretario')
-        .eq('activo', true)
-        .limit(1)
-
-      if (!secretarioError && secretarioData && secretarioData.length > 0) {
-        setIsSecretario(true)
-        // Si es secretario y no hay FCP seleccionada, establecer la primera FCP del secretario
-        if (!selectedFCP && secretarioData[0].fcp_id) {
-          setSelectedFCP(secretarioData[0].fcp_id)
-        }
-      }
-
-      // Verificar si el usuario es tutor
-      const { data: tutorData, error: tutorError } = await supabase
-        .from('fcp_miembros')
-        .select(`
-          rol,
-          fcp_id,
-          fcp:fcps(id, razon_social, numero_identificacion)
-        `)
-        .eq('usuario_id', user.id)
-        .eq('rol', 'tutor')
-        .eq('activo', true)
-        .limit(1)
-
-      if (!tutorError && tutorData && tutorData.length > 0) {
-        setIsTutorState(true)
-        // Si es tutor, establecer la FCP automáticamente
-        if (tutorData[0].fcp_id && tutorData[0].fcp && !selectedFCP) {
-          setSelectedFCP(tutorData[0].fcp.id)
-        }
-      }
-
+      // Usar el rol seleccionado para determinar qué FCPs mostrar
+      const esFacilitador = isFacilitador
       let fcps: Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }> = []
 
       if (esFacilitador) {
@@ -320,20 +261,27 @@ export function EstudianteList() {
         })).filter((fcp: any) => fcp.id) || []
       }
 
-      // Si es tutor, agregar su FCP a la lista si no está ya
-      if (tutorData && tutorData.length > 0 && tutorData[0].fcp) {
-        const tutorFcp = tutorData[0].fcp
-        if (!fcps.find(fcp => fcp.id === tutorFcp.id)) {
-          fcps.push({
-            id: tutorFcp.id,
-            nombre: tutorFcp.razon_social || 'FCP',
-            numero_identificacion: tutorFcp.numero_identificacion,
-            razon_social: tutorFcp.razon_social,
-          })
+      // Si hay un rol seleccionado con fcpId, asegurarse de que esté en la lista
+      if (fcpIdFromRole && selectedRole?.fcp) {
+        const fcpFromRole = {
+          id: fcpIdFromRole,
+          nombre: selectedRole.fcp.razon_social || 'FCP',
+          numero_identificacion: selectedRole.fcp.numero_identificacion,
+          razon_social: selectedRole.fcp.razon_social,
+        }
+        if (!fcps.find(fcp => fcp.id === fcpIdFromRole)) {
+          fcps.push(fcpFromRole)
         }
       }
 
       setUserFCPs(fcps)
+      
+      console.log('👥 [EstudianteList] FCPs cargadas:', {
+        fcps: fcps.length,
+        fcpIdFromRole,
+        selectedFCP,
+        rolSeleccionado: selectedRole?.role
+      })
     } catch (error) {
       console.error('Error loading FCPs:', error)
     }
@@ -416,18 +364,45 @@ export function EstudianteList() {
         }
       } else {
         // Para otros roles, cargar todas las aulas de la FCP
+        // Usar el fcpId del rol seleccionado si está disponible
+        const fcpIdForAulas = fcpIdFromRole || selectedFCP
+        
+        console.log('👥 [EstudianteList] Cargando aulas para FCP:', {
+          fcpIdForAulas,
+          fcpIdFromRole,
+          selectedFCP,
+          usuario: user.email,
+          rolSeleccionado: selectedRole?.role
+        })
+        
+        if (!fcpIdForAulas) {
+          console.error('❌ [EstudianteList] No hay fcpId disponible para cargar aulas')
+          setAulas([])
+          return
+        }
+        
         const { data: aulasData, error: aulasError } = await supabase
           .from('aulas')
           .select('id, nombre')
-          .eq('fcp_id', selectedFCP)
+          .eq('fcp_id', fcpIdForAulas)
           .eq('activa', true)
           .order('nombre', { ascending: true })
 
         data = aulasData || []
         error = aulasError
+        
+        console.log('👥 [EstudianteList] Aulas encontradas:', {
+          cantidad: data?.length || 0,
+          aulas: data,
+          fcpIdUsado: fcpIdForAulas
+        })
       }
 
-      if (error) throw error
+      if (error) {
+        console.error('❌ [EstudianteList] Error cargando aulas:', error)
+        throw error
+      }
+      
       setAulas(data || [])
     } catch (error) {
       console.error('Error loading aulas:', error)
@@ -890,14 +865,14 @@ export function EstudianteList() {
           />
           <CardHeader>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-              <CardTitle>
-                Estudiantes ({displayTotal} {displayTotal === 1 ? 'estudiante' : 'estudiantes'})
-                {searchTerm && (
-                  <span className="text-sm font-normal text-muted-foreground ml-2">
-                    (filtrado de {totalEstudiantes} total)
-                  </span>
-                )}
-              </CardTitle>
+            <CardTitle>
+              Estudiantes ({displayTotal} {displayTotal === 1 ? 'estudiante' : 'estudiantes'})
+              {searchTerm && (
+                <span className="text-sm font-normal text-muted-foreground ml-2">
+                  (filtrado de {totalEstudiantes} total)
+                </span>
+              )}
+            </CardTitle>
               {tableWidth && (
                 <span className="text-xs text-muted-foreground">
                   Ancho tabla: {tableWidth}px | Arrastra el borde derecho para ajustar

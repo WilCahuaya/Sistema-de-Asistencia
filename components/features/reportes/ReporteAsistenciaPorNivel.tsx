@@ -9,6 +9,7 @@ import { FileSpreadsheet, FileText, Calendar, Download } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useRouter } from 'next/navigation'
+import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import {
   Select,
   SelectContent,
@@ -106,6 +107,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
   const [isFacilitador, setIsFacilitador] = useState(false)
   const { canViewReports, loading: roleLoading } = useUserRole(selectedFCP)
   const router = useRouter()
+  const { selectedRole } = useSelectedRole()
 
   useEffect(() => {
     const initialize = async () => {
@@ -212,19 +214,65 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
   }
 
   const generarReporte = async () => {
-    if (!selectedFCP) {
-      alert('Por favor, selecciona una FCP')
+    // Usar el fcpId del rol seleccionado si está disponible, de lo contrario usar selectedFCP
+    const fcpIdParaReporte = selectedRole?.fcpId || selectedFCP
+    
+    if (!fcpIdParaReporte) {
+      alert('Por favor, selecciona una FCP o asegúrate de tener un rol seleccionado')
       return
     }
+
+    console.log('📊 [ReporteAsistenciaPorNivel] Generando reporte con:', {
+      fcpIdParaReporte,
+      selectedFCP,
+      selectedRoleFcpId: selectedRole?.fcpId,
+      selectedRole: selectedRole?.role
+    })
 
     try {
       setLoading(true)
       const supabase = createClient()
 
-      // Obtener datos del usuario actual (responsable)
+      // Obtener datos del usuario actual (responsable) usando el rol seleccionado
       const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        // Obtener rol y datos del usuario en la FCP
+      if (user && selectedRole) {
+        // Usar el rol seleccionado del contexto
+        const rolSeleccionado = selectedRole.role
+        
+        // Obtener datos del usuario desde la tabla usuarios
+        const { data: usuarioData, error: usuarioError } = await supabase
+          .from('usuarios')
+          .select('nombre_completo, email')
+          .eq('id', user.id)
+          .single()
+
+        // Si no está en usuarios, obtener desde auth.users metadata
+        let nombreCompleto = usuarioData?.nombre_completo || user.user_metadata?.full_name || user.user_metadata?.name || ''
+        let emailUsuario = usuarioData?.email || user.email || ''
+
+        // Mapear el rol a formato legible
+        const rolFormateado = rolSeleccionado === 'facilitador' ? 'Facilitador' 
+          : rolSeleccionado === 'director' ? 'Director' 
+          : rolSeleccionado === 'secretario' ? 'Secretario' 
+          : rolSeleccionado === 'tutor' ? 'Tutor' 
+          : rolSeleccionado.charAt(0).toUpperCase() + rolSeleccionado.slice(1)
+
+        console.log('👤 [ReporteAsistenciaPorNivel] Estableciendo responsable:', {
+          rolSeleccionado,
+          rolFormateado,
+          nombreCompleto,
+          emailUsuario,
+          selectedRole
+        })
+
+        setResponsable({
+          nombre: nombreCompleto || emailUsuario || 'Usuario',
+          email: emailUsuario,
+          rol: rolFormateado,
+        })
+      } else if (user && !selectedRole) {
+        console.warn('⚠️ [ReporteAsistenciaPorNivel] No hay rol seleccionado, intentando obtener desde fcp_miembros')
+        // Fallback: intentar obtener desde fcp_miembros si no hay rol seleccionado
         const { data: usuarioFcpData, error: usuarioFcpError } = await supabase
           .from('fcp_miembros')
           .select(`
@@ -232,13 +280,18 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
             usuario:usuarios(nombre_completo, email)
           `)
           .eq('usuario_id', user.id)
-          .eq('fcp_id', selectedFCP)
+          .eq('fcp_id', fcpIdParaReporte)
           .eq('activo', true)
-          .single()
+          .limit(1)
 
-        if (!usuarioFcpError && usuarioFcpData) {
-          const usuario = usuarioFcpData.usuario as any
-          const rol = usuarioFcpData.rol === 'facilitador' ? 'Facilitador' : usuarioFcpData.rol === 'director' ? 'Director' : usuarioFcpData.rol === 'secretario' ? 'Secretario' : usuarioFcpData.rol === 'tutor' ? 'Tutor' : ''
+        if (!usuarioFcpError && usuarioFcpData && usuarioFcpData.length > 0) {
+          const usuarioFcp = usuarioFcpData[0]
+          const usuario = usuarioFcp.usuario as any
+          const rol = usuarioFcp.rol === 'facilitador' ? 'Facilitador' 
+            : usuarioFcp.rol === 'director' ? 'Director' 
+            : usuarioFcp.rol === 'secretario' ? 'Secretario' 
+            : usuarioFcp.rol === 'tutor' ? 'Tutor' 
+            : ''
           if (rol) {
             setResponsable({
               nombre: usuario?.nombre_completo || usuario?.email || user.email || '',
@@ -249,16 +302,19 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         }
       }
 
-      // Obtener datos de la FCP
+      // Obtener datos de la FCP usando el fcpId del rol seleccionado
       const { data: fcpData, error: fcpError } = await supabase
         .from('fcps')
         .select('id, razon_social, numero_identificacion')
-        .eq('id', selectedFCP)
+        .eq('id', fcpIdParaReporte)
         .single()
 
-      if (fcpError) throw fcpError
+      if (fcpError) {
+        console.error('❌ [ReporteAsistenciaPorNivel] Error obteniendo FCP:', fcpError)
+        throw fcpError
+      }
 
-      // Obtener todas las aulas de la FCP con sus tutores
+      // Obtener todas las aulas de la FCP con sus tutores usando el fcpId del rol seleccionado
       const { data: aulasData, error: aulasError } = await supabase
         .from('aulas')
         .select(`
@@ -271,7 +327,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
             )
           )
         `)
-        .eq('fcp_id', selectedFCP)
+        .eq('fcp_id', fcpIdParaReporte)
         .eq('activa', true)
         .eq('tutor_aula.activo', true)
 
@@ -279,14 +335,17 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         throw aulasError
       }
 
-      // Obtener TODAS las aulas de la FCP (con o sin tutores)
+      // Obtener TODAS las aulas de la FCP (con o sin tutores) usando el fcpId del rol seleccionado
       const { data: todasLasAulas, error: todasLasAulasError } = await supabase
         .from('aulas')
         .select('id, nombre')
-        .eq('fcp_id', selectedFCP)
+        .eq('fcp_id', fcpIdParaReporte)
         .eq('activa', true)
 
-      if (todasLasAulasError) throw todasLasAulasError
+      if (todasLasAulasError) {
+        console.error('❌ [ReporteAsistenciaPorNivel] Error obteniendo todas las aulas:', todasLasAulasError)
+        throw todasLasAulasError
+      }
 
       // Crear un mapa de aulas con tutores desde la consulta inicial
       const aulasConTutorMap = new Map<string, AulaData>()
@@ -350,11 +409,11 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
       const fechaInicio = firstDay.toISOString().split('T')[0]
       const fechaFin = lastDay.toISOString().split('T')[0]
 
-      // Obtener estudiantes por aula
+      // Obtener estudiantes por aula (incluyendo created_at para filtrar por fecha) usando el fcpId del rol seleccionado
       const { data: estudiantesData, error: estudiantesError } = await supabase
         .from('estudiantes')
-        .select('id, codigo, nombre_completo, aula_id')
-        .eq('fcp_id', selectedFCP)
+        .select('id, codigo, nombre_completo, aula_id, created_at')
+        .eq('fcp_id', fcpIdParaReporte)
         .eq('activo', true)
         .in('aula_id', aulas.map(a => a.id))
 
@@ -363,8 +422,10 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
       // Obtener asistencias del mes
       const estudianteIds = estudiantesData?.map(e => e.id) || []
       
-      console.log('🔍 Debug ReporteAsistenciaPorNivel:', {
-        fcpId: selectedFCP,
+      console.log('🔍 [ReporteAsistenciaPorNivel] Debug:', {
+        fcpIdParaReporte,
+        selectedFCP,
+        selectedRoleFcpId: selectedRole?.fcpId,
         estudiantesCount: estudiantesData?.length || 0,
         estudianteIds: estudianteIds.slice(0, 3), // Primeros 3 IDs
         fechaInicio,
@@ -376,7 +437,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
       const { data: asistenciasData, error: asistenciasError } = await supabase
         .from('asistencias')
         .select('estudiante_id, fecha, estado')
-        .eq('fcp_id', selectedFCP)
+        .eq('fcp_id', fcpIdParaReporte)
         .in('estudiante_id', estudianteIds)
         .gte('fecha', fechaInicio)
         .lte('fecha', fechaFin)
@@ -399,13 +460,32 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         })),
       })
 
-      if (asistenciasError) throw asistenciasError
+      if (asistenciasError) {
+        console.error('❌ [ReporteAsistenciaPorNivel] Error obteniendo asistencias:', asistenciasError)
+        throw asistenciasError
+      }
 
       // Agrupar asistencias por aula y tutor
       const nivelesMap = new Map<string, NivelGroup>()
+      // Incluir TODAS las fechas con asistencias registradas (no solo días completos)
       const fechasSet = new Set<string>()
 
       const diasIncompletosGlobales: DiaIncompleto[] = []
+      
+      // Primero, agregar TODAS las fechas con asistencias registradas al fechasSet
+      asistenciasData?.forEach(asist => {
+        const fecha = asist.fecha
+        // Verificar que la fecha esté en el rango del mes seleccionado
+        const [year, month, day] = fecha.split('-').map(Number)
+        if (year === selectedYear && month - 1 === selectedMonth) {
+          fechasSet.add(fecha)
+        }
+      })
+      
+      console.log('📅 [ReporteAsistenciaPorNivel] Todas las fechas con asistencias:', {
+        totalFechas: fechasSet.size,
+        fechas: Array.from(fechasSet).sort()
+      })
 
       aulas.forEach(aula => {
         const estudiantesDeAula = estudiantesData?.filter(e => e.aula_id === aula.id) || []
@@ -420,13 +500,15 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         let totalFalto = 0
         let diasDeAtencion = 0 // Contar días completos de atención
 
-        // 1. Primero procesar todas las asistencias por fecha (sin agregar a totales todavía)
+        // 1. Primero procesar TODAS las asistencias por fecha (sin filtrar por created_at aquí)
+        // El filtrado por created_at se hará solo al verificar días completos
         estudiantesDeAula.forEach(estudiante => {
           const asistenciasEstudiante = asistenciasData?.filter(a => a.estudiante_id === estudiante.id) || []
           
           asistenciasEstudiante.forEach(asistencia => {
             const fecha = asistencia.fecha
             
+            // Contar TODAS las asistencias registradas (sin filtrar por created_at aquí)
             if (!asistenciasPorFecha[fecha]) {
               asistenciasPorFecha[fecha] = {
                 presente: 0,
@@ -447,18 +529,47 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
           })
         })
 
-        // 2. Validar días completos: solo incluir días donde todos los estudiantes están marcados o ningún estudiante está marcado (día sin atención)
-        const fechasParaEliminar: string[] = []
-        Object.keys(asistenciasPorFecha).forEach(fecha => {
-          const marcadosEnFecha = asistenciasPorFecha[fecha].total
-          // Si hay al menos uno marcado pero no todos, es un día incompleto
-          if (marcadosEnFecha > 0 && marcadosEnFecha < totalEstudiantes) {
+        // 2. Generar todas las fechas del mes para detectar días incompletos
+        const diasDelMes = new Date(selectedYear, selectedMonth + 1, 0).getDate()
+        const todasLasFechasDelMes: string[] = []
+        for (let dia = 1; dia <= diasDelMes; dia++) {
+          const fechaDate = new Date(selectedYear, selectedMonth, dia)
+          todasLasFechasDelMes.push(fechaDate.toISOString().split('T')[0])
+        }
+
+        // 3. Procesar todas las fechas del mes (no solo las que tienen asistencias)
+        todasLasFechasDelMes.forEach(fecha => {
+          // Para detectar días incompletos, usar TODOS los estudiantes del aula (como en la página de asistencias)
+          // NO filtrar por created_at porque los estudiantes pueden haber sido agregados después
+          // pero aún así deberían tener asistencia registrada para fechas anteriores
+          const totalEstudiantesEnFecha = estudiantesDeAula.length
+          
+          // Contar estudiantes que tienen asistencia registrada en esta fecha
+          const marcadosEnFecha = estudiantesDeAula.filter(e => {
+            // Verificar si tiene asistencia registrada en esta fecha
+            const tieneAsistencia = asistenciasData?.some(a => 
+              a.estudiante_id === e.id && a.fecha === fecha
+            )
+            return tieneAsistencia
+          }).length
+          
+          // Si hay al menos uno marcado pero no todos los que deberían tener asistencia, es un día incompleto
+          if (marcadosEnFecha > 0 && marcadosEnFecha < totalEstudiantesEnFecha && totalEstudiantesEnFecha > 0) {
+            console.log('⚠️ [ReporteAsistenciaPorNivel] Día incompleto detectado:', {
+              fecha,
+              aula: aula.nombre,
+              marcados: marcadosEnFecha,
+              totalEstudiantes,
+              totalEstudiantesEnFecha,
+              tutorNombre
+            })
+            
             diasIncompletosAula.push({
               fecha,
               aulaId: aula.id,
               tutorNombre,
               marcados: marcadosEnFecha,
-              total: totalEstudiantes,
+              total: totalEstudiantesEnFecha, // Usar el total de estudiantes activos en esa fecha
             })
             
             // También agregar a la lista global
@@ -472,31 +583,90 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                 nivel: aula.nombre,
                 tutorNombre,
                 marcados: marcadosEnFecha,
-                total: totalEstudiantes,
+                total: totalEstudiantesEnFecha, // Usar el total de estudiantes activos en esa fecha
                 aulaId: aula.id,
               })
             }
             
-            // Marcar para eliminar (este día no se incluirá en los totales)
-            fechasParaEliminar.push(fecha)
-          } else if (marcadosEnFecha === totalEstudiantes) {
-            // Día completo: todos los estudiantes están marcados
-            fechasSet.add(fecha)
+            // NO marcar para eliminar - mostrar todas las fechas con asistencias
+            // fechasParaEliminar.push(fecha)
+            
+            // Agregar a totales incluso si es un día incompleto (para mostrar todas las asistencias)
+            const asistenciaFechaIncompleta = asistenciasPorFecha[fecha]
+            if (asistenciaFechaIncompleta) {
+              // Recalcular usando todos los estudiantes del aula
+              let presente = 0
+              let permiso = 0
+              let falto = 0
+              estudiantesDeAula.forEach(est => {
+                const asist = asistenciasData?.find(a => a.estudiante_id === est.id && a.fecha === fecha)
+                if (asist) {
+                  if (asist.estado === 'presente') presente++
+                  else if (asist.estado === 'permiso') permiso++
+                  else if (asist.estado === 'falto') falto++
+                }
+              })
+              totalPresente += presente
+              totalPermiso += permiso
+              totalFalto += falto
+            }
+          } else if (marcadosEnFecha === totalEstudiantesEnFecha && totalEstudiantesEnFecha > 0) {
+            // Día completo: todos los estudiantes que existían están marcados
+            console.log('✅ [ReporteAsistenciaPorNivel] Día completo detectado:', {
+              fecha,
+              aula: aula.nombre,
+              marcados: marcadosEnFecha,
+              totalEstudiantesEnFecha,
+              tutorNombre,
+              asistenciasPorFechaTotal: asistenciasPorFecha[fecha]?.total
+            })
+            // fechasSet ya contiene todas las fechas, no necesitamos agregarla aquí
             diasDeAtencion++ // Contar como día de atención
             
             // Agregar a totales solo si es un día completo
+            // IMPORTANTE: Usar solo las asistencias de estudiantes que existían en esa fecha
             const asistenciaFecha = asistenciasPorFecha[fecha]
-            totalPresente += asistenciaFecha.presente
-            totalPermiso += asistenciaFecha.permiso
-            totalFalto += asistenciaFecha.falto
+            if (asistenciaFecha) {
+              // Verificar que el total de asistenciasPorFecha coincida con marcadosEnFecha
+              // Si no coincide, recalcular usando solo estudiantes que existían
+              if (asistenciaFecha.total !== marcadosEnFecha) {
+                console.warn('⚠️ [ReporteAsistenciaPorNivel] Discrepancia detectada:', {
+                  fecha,
+                  aula: aula.nombre,
+                  asistenciasPorFechaTotal: asistenciaFecha.total,
+                  marcadosEnFecha
+                })
+                // Recalcular usando todos los estudiantes del aula
+                let presente = 0
+                let permiso = 0
+                let falto = 0
+                estudiantesDeAula.forEach(est => {
+                  const asist = asistenciasData?.find(a => a.estudiante_id === est.id && a.fecha === fecha)
+                  if (asist) {
+                    if (asist.estado === 'presente') presente++
+                    else if (asist.estado === 'permiso') permiso++
+                    else if (asist.estado === 'falto') falto++
+                  }
+                })
+                totalPresente += presente
+                totalPermiso += permiso
+                totalFalto += falto
+              } else {
+                totalPresente += asistenciaFecha.presente
+                totalPermiso += asistenciaFecha.permiso
+                totalFalto += asistenciaFecha.falto
+              }
+            }
           }
-          // Si marcadosEnFecha === 0, es un día sin atención, no se cuenta como día de atención
+          // Si marcadosEnFecha === 0 y totalEstudiantesEnFecha === 0, es un día sin estudiantes (no se cuenta)
+          // Si marcadosEnFecha === 0 pero totalEstudiantesEnFecha > 0, es un día sin clases (no se cuenta como día de atención)
         })
         
-        // 3. Eliminar días incompletos del objeto asistenciasPorFecha (no se mostrarán en el reporte)
-        fechasParaEliminar.forEach(fecha => {
-          delete asistenciasPorFecha[fecha]
-        })
+        // 3. NO eliminar días incompletos - mostrar TODAS las fechas con asistencias registradas
+        // Los días incompletos se marcan para alertas, pero se muestran en el reporte
+        // fechasParaEliminar.forEach(fecha => {
+        //   delete asistenciasPorFecha[fecha]
+        // })
 
         // Calcular Asis.Pro.m = totalPresente / diasDeAtencion
         // Ejemplo: 2 = 20 / 10
@@ -552,6 +722,13 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
           const dateB = new Date(b)
           return dateA.getTime() - dateB.getTime()
         })
+      
+      console.log('📅 [ReporteAsistenciaPorNivel] Fechas detectadas:', {
+        totalFechasEnSet: fechasSet.size,
+        fechasUnicas: fechasUnicas.length,
+        fechasUnicasArray: fechasUnicas,
+        todasLasFechasEnSet: Array.from(fechasSet).sort()
+      })
 
       setReporteData({
         fcp: {
