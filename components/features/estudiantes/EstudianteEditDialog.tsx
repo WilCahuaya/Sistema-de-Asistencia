@@ -13,13 +13,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { useForm } from 'react-hook-form'
 import { toast } from '@/lib/toast'
 
@@ -28,38 +21,42 @@ interface EstudianteFormData {
   nombre_completo: string
 }
 
-interface EstudianteDialogProps {
+interface Estudiante {
+  id: string
+  codigo: string
+  nombre_completo: string
+  aula_id: string
+  aula?: { nombre: string }
+  fcp_id: string
+}
+
+interface EstudianteEditDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  fcpId: string
-  aulaId?: string
-  aulas: Array<{ id: string; nombre: string }>
+  estudiante: Estudiante | null
 }
 
-export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId, aulas }: EstudianteDialogProps) {
+export function EstudianteEditDialog({
+  open,
+  onOpenChange,
+  onSuccess,
+  estudiante,
+}: EstudianteEditDialogProps) {
   const [loading, setLoading] = useState(false)
-  const [selectedAulaId, setSelectedAulaId] = useState(aulaId || '')
   const { register, handleSubmit, reset, formState: { errors } } = useForm<EstudianteFormData>()
 
   useEffect(() => {
-    if (aulaId) {
-      setSelectedAulaId(aulaId)
-    } else if (aulas.length > 0 && !selectedAulaId) {
-      setSelectedAulaId(aulas[0].id)
+    if (open && estudiante) {
+      reset({
+        codigo: estudiante.codigo,
+        nombre_completo: estudiante.nombre_completo,
+      })
     }
-  }, [aulaId, aulas])
+  }, [open, estudiante, reset])
 
   const onSubmit = async (data: EstudianteFormData) => {
-    if (!fcpId) {
-      toast.warning('Selecciona una ONG', 'Por favor, selecciona una ONG primero.')
-      return
-    }
-
-    if (!selectedAulaId) {
-      toast.warning('Selecciona un aula', 'Por favor, selecciona un aula.')
-      return
-    }
+    if (!estudiante) return
 
     try {
       setLoading(true)
@@ -75,39 +72,40 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId,
 
       const { error } = await supabase
         .from('estudiantes')
-        .insert({
+        .update({
           codigo: data.codigo,
           nombre_completo: data.nombre_completo,
-          fcp_id: fcpId,
-          aula_id: selectedAulaId,
-          created_by: user.id,
+          updated_at: new Date().toISOString(),
+          updated_by: user.id,
         })
+        .eq('id', estudiante.id)
 
       if (error) throw error
 
-      reset()
-      setSelectedAulaId(aulas.length > 0 ? aulas[0].id : '')
-      toast.created('Estudiante')
+      toast.updated('Estudiante')
       onSuccess()
+      onOpenChange(false)
     } catch (error: any) {
-      console.error('Error creating estudiante:', error)
+      console.error('Error updating estudiante:', error)
       if (error.code === '23505') {
-        toast.error('Código duplicado', 'El código del estudiante ya existe en esta ONG.')
+        toast.error('Código duplicado', 'El código del estudiante ya existe en esta FCP.')
       } else {
-        toast.error('Error al crear el estudiante', error?.message || 'Intenta nuevamente.')
+        toast.error('Error al actualizar el estudiante', error?.message || 'Intenta nuevamente.')
       }
     } finally {
       setLoading(false)
     }
   }
 
+  if (!estudiante) return null
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Crear Nuevo Estudiante</DialogTitle>
+          <DialogTitle>Editar Datos del Estudiante</DialogTitle>
           <DialogDescription>
-            Completa la información para registrar un nuevo estudiante
+            Modifica la información personal del estudiante
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)}>
@@ -134,44 +132,18 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId,
                 <p className="text-sm text-red-500">{errors.nombre_completo.message}</p>
               )}
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="aula_id">Aula *</Label>
-              <Select
-                value={selectedAulaId || ''}
-                onValueChange={(value) => setSelectedAulaId(value)}
-              >
-                <SelectTrigger id="aula_id" className="w-full">
-                  <SelectValue placeholder="Selecciona un aula">
-                    {selectedAulaId ? aulas.find(a => a.id === selectedAulaId)?.nombre : 'Selecciona un aula'}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {aulas.map((aula) => (
-                    <SelectItem key={aula.id} value={aula.id}>
-                      {aula.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {!selectedAulaId && (
-                <p className="text-sm text-red-500">Debes seleccionar un aula</p>
-              )}
-            </div>
           </div>
           <DialogFooter>
             <Button
               type="button"
               variant="outline"
-              onClick={() => {
-                reset()
-                setSelectedAulaId(aulas.length > 0 ? aulas[0].id : '')
-                onOpenChange(false)
-              }}
+              onClick={() => onOpenChange(false)}
+              disabled={loading}
             >
               Cancelar
             </Button>
-            <Button type="submit" disabled={loading || !fcpId || !selectedAulaId}>
-              {loading ? 'Creando...' : 'Crear Estudiante'}
+            <Button type="submit" disabled={loading}>
+              {loading ? 'Guardando...' : 'Guardar Cambios'}
             </Button>
           </DialogFooter>
         </form>
@@ -179,4 +151,3 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId,
     </Dialog>
   )
 }
-

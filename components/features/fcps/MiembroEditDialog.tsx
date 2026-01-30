@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { getRolDisplayName } from '@/lib/utils/roles'
+import { toast } from '@/lib/toast'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useUserRole } from '@/hooks/useUserRole'
 
@@ -58,16 +59,32 @@ export function MiembroEditDialog({
   // Nuevo estado para roles múltiples (solo para directores)
   const [selectedRoles, setSelectedRoles] = useState<Array<'secretario' | 'tutor'>>([])
   const [existingRoles, setExistingRoles] = useState<Array<{ id: string; rol: string; activo: boolean }>>([])
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const supabase = createClient()
   const { isSecretario, isDirector, isFacilitador } = useUserRole(miembro.fcp_id)
   
-  // Verificar si el usuario actual puede editar este miembro
+  // El director NO puede modificar ni eliminar el rol de director de ningún usuario (incluido él mismo).
+  // PERO SÍ puede agregar otros roles (secretario, tutor) a un director.
+  // El secretario solo puede editar miembros con rol tutor.
   const canEditThisMember = isFacilitador || isDirector || (isSecretario && miembro.rol === 'tutor')
+  
+  // Director/secretario NO pueden ponerse inactivos a sí mismos.
+  const isEditingSelf = Boolean(currentUserId && miembro.usuario_id === currentUserId)
+  const cannotSetInactive = (isDirector && !isFacilitador && isEditingSelf) || (isSecretario && isEditingSelf)
   
   // Si es director (pero no facilitador), permitir asignar múltiples roles
   // IMPORTANTE: Un director puede tener también el rol de tutor, pero debe poder gestionar todas las aulas
   const canAssignMultipleRoles = isDirector && !isFacilitador
   
+  // Obtener usuario actual para reglas (director/secretario no pueden inactivarse a sí mismos)
+  useEffect(() => {
+    if (open) {
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        setCurrentUserId(user?.id ?? null)
+      })
+    }
+  }, [open])
+
   // Debug: Log cuando el componente se monta o cuando cambian los roles
   useEffect(() => {
     if (open && miembro) {
@@ -84,7 +101,6 @@ export function MiembroEditDialog({
   useEffect(() => {
     if (miembro) {
       setRol(miembro.rol)
-      setActivo(miembro.activo)
       
       // Si el usuario es secretario y el miembro no es tutor, mostrar error
       if (isSecretario && miembro.rol !== 'tutor') {
@@ -104,6 +120,23 @@ export function MiembroEditDialog({
     if (!miembro?.usuario_id) return
     
     try {
+      // Cargar TODOS los roles del usuario (activos e inactivos)
+      const { data: allRoles, error: allRolesError } = await supabase
+        .from('fcp_miembros')
+        .select('id, rol, activo')
+        .eq('usuario_id', miembro.usuario_id)
+        .eq('fcp_id', miembro.fcp_id)
+      
+      if (allRolesError) {
+        console.error('Error loading all roles:', allRolesError)
+        return
+      }
+      
+      // Determinar si el usuario tiene al menos un rol activo
+      const tieneRolActivo = (allRoles || []).some(r => r.activo)
+      setActivo(tieneRolActivo)
+      
+      // Cargar solo roles activos para el selector
       const { data, error } = await supabase
         .from('fcp_miembros')
         .select('id, rol, activo')
@@ -129,12 +162,18 @@ export function MiembroEditDialog({
     }
   }
 
+  // Determinar si se debe mostrar el selector de aulas
+  // - Para directores: cuando tutor está en selectedRoles
+  // - Para secretarios: cuando el rol original es tutor
+  const shouldShowAulas = 
+    (canAssignMultipleRoles && selectedRoles.includes('tutor')) || 
+    (isSecretario && !isDirector && rol === 'tutor')
+
   useEffect(() => {
-    // Si es director y puede asignar múltiples roles, cargar aulas si tutor está seleccionado
-    if (open && miembro && canAssignMultipleRoles && selectedRoles.includes('tutor')) {
-      loadAulas()
-      loadAulasAsignadas()
-    } else if (open && miembro && rol === 'tutor') {
+    // Cargar aulas si:
+    // - Es director y tutor está seleccionado, O
+    // - Es secretario editando un tutor
+    if (open && miembro && shouldShowAulas) {
       loadAulas()
       loadAulasAsignadas()
     } else if (!open) {
@@ -143,11 +182,11 @@ export function MiembroEditDialog({
       setSelectedAulas([])
       setSelectedRoles([])
       setExistingRoles([])
-    } else if (rol !== 'tutor' && !selectedRoles.includes('tutor')) {
-      // Limpiar aulas si el rol no es tutor
+    } else if (canAssignMultipleRoles && !selectedRoles.includes('tutor')) {
+      // Limpiar aulas si tutor no está seleccionado (solo para directores con múltiples roles)
       setSelectedAulas([])
     }
-  }, [open, miembro, rol, selectedRoles, canAssignMultipleRoles])
+  }, [open, miembro, shouldShowAulas, canAssignMultipleRoles, selectedRoles])
 
   const loadAulas = async () => {
     if (!miembro) return
@@ -164,24 +203,24 @@ export function MiembroEditDialog({
 
       if (aulasError) throw aulasError
 
-      // Si el usuario es director (pero no facilitador), mostrar TODAS las aulas
-      // Esto permite que el director pueda reasignar aulas incluso si ya tienen tutor
-      // IMPORTANTE: Un director puede tener también el rol de tutor, pero debe ver todas las aulas
-      if (isDirector && !isFacilitador) {
-        console.log('🔍 Director detectado, mostrando todas las aulas:', {
-          totalAulas: todasLasAulas?.length || 0,
-          canAssignMultipleRoles,
-          isDirector,
-          isFacilitador
-        })
-        setAulas(todasLasAulas || [])
-        return
-      }
-
-      // Para otros roles (secretario, facilitador), mantener la lógica original
-      // que excluye aulas que ya tienen tutor asignado
       // 2. Obtener aulas que ya tienen tutor asignado
+      // Excluir las aulas asignadas al tutor actual (o a cualquier rol tutor del mismo usuario)
       let tutorIdsToExclude: string[] = [miembro.id]
+
+      // Si es director con múltiples roles, también excluir otros roles tutor del mismo usuario
+      if (canAssignMultipleRoles && miembro.usuario_id) {
+        const { data: tutorRecords } = await supabase
+          .from('fcp_miembros')
+          .select('id')
+          .eq('usuario_id', miembro.usuario_id)
+          .eq('fcp_id', miembro.fcp_id)
+          .eq('rol', 'tutor')
+          .eq('activo', true)
+        
+        if (tutorRecords && tutorRecords.length > 0) {
+          tutorIdsToExclude = tutorRecords.map(tr => tr.id)
+        }
+      }
 
       const { data: aulasConTutor, error: tutorError } = await supabase
         .from('tutor_aula')
@@ -193,7 +232,9 @@ export function MiembroEditDialog({
         throw tutorError
       }
 
-      // 3. Filtrar aulas sin tutor O aulas asignadas al tutor actual
+      // 3. Filtrar: mostrar solo aulas SIN tutor O aulas asignadas al tutor actual
+      // Esto permite que el tutor vea sus aulas actuales y pueda cambiarlas,
+      // pero NO permite asignar aulas que ya tienen otro tutor
       const aulasIdsConOtroTutor = new Set(
         (aulasConTutor || [])
           .filter(ta => !tutorIdsToExclude.includes(ta.fcp_miembro_id))
@@ -277,6 +318,7 @@ export function MiembroEditDialog({
     }
   }
 
+  /** Quitar el rol de tutor: elimina asignaciones tutor_aula y el registro de miembro (o lo deja sin rol tutor). */
   const onSubmit = async () => {
     try {
       setLoading(true)
@@ -285,6 +327,13 @@ export function MiembroEditDialog({
       // Validar permisos: secretarios solo pueden editar tutores
       if (isSecretario && miembro.rol !== 'tutor') {
         setError('Como secretario, solo puedes editar miembros con rol tutor.')
+        setLoading(false)
+        return
+      }
+
+      // Director/secretario no pueden ponerse inactivos a sí mismos
+      if (cannotSetInactive && !activo) {
+        setError('No puedes ponerte inactivo a ti mismo.')
         setLoading(false)
         return
       }
@@ -363,6 +412,7 @@ export function MiembroEditDialog({
 
           // No actualizar el registro existente, solo refrescar la lista
           setError(null)
+          toast.success('Director actualizado')
           onSuccess()
           return
         } else {
@@ -466,9 +516,11 @@ export function MiembroEditDialog({
       }
 
       setError(null)
+      toast.updated('Miembro')
       onSuccess()
     } catch (err: any) {
       console.error('Error updating miembro:', err)
+      toast.error('Error al actualizar miembro', err?.message)
       setError(err.message || 'Error al actualizar el miembro. Por favor, intenta nuevamente.')
     } finally {
       setLoading(false)
@@ -539,6 +591,7 @@ export function MiembroEditDialog({
       }
       
       setError(null)
+      toast.deleted('Miembro')
       onSuccess()
       setLoading(false)
       return
@@ -744,18 +797,30 @@ export function MiembroEditDialog({
 
     // Desactivar roles que ya no están seleccionados
     const rolesToDeactivate = existingRoleNames.filter(r => !rolesToKeep.includes(r))
+    console.log('🔍 Roles a desactivar:', {
+      rolesToDeactivate,
+      existingRoleNames,
+      rolesToKeep,
+      existingRoles
+    })
+    
     for (const roleToDeactivate of rolesToDeactivate) {
       const roleToDeactivateRecord = existingRoles.find(r => r.rol === roleToDeactivate)
       if (roleToDeactivateRecord) {
-        const { error: deactivateError } = await supabase
+        console.log(`🔄 Desactivando rol ${roleToDeactivate}:`, roleToDeactivateRecord)
+        
+        const { data: updateResult, error: deactivateError } = await supabase
           .from('fcp_miembros')
           .update({ activo: false })
           .eq('id', roleToDeactivateRecord.id)
+          .select()
 
         if (deactivateError) {
-          console.error(`Error desactivando rol ${roleToDeactivate}:`, deactivateError)
+          console.error(`❌ Error desactivando rol ${roleToDeactivate}:`, deactivateError)
           throw deactivateError
         }
+        
+        console.log(`✅ Rol ${roleToDeactivate} desactivado exitosamente:`, updateResult)
 
         // Si se desactiva tutor, eliminar asignaciones de aulas
         if (roleToDeactivate === 'tutor') {
@@ -776,7 +841,10 @@ export function MiembroEditDialog({
     // cuando se procesa cada rol (líneas 539-540, 572, 610, 622, 659).
     // No es necesario hacerlo nuevamente aquí para evitar duplicados.
 
+    console.log('✅ Actualización de roles completada exitosamente')
     setError(null)
+    toast.updated('Miembro')
+    console.log('🔄 Llamando a onSuccess() para recargar la lista')
     onSuccess()
     setLoading(false)
   }
@@ -795,9 +863,18 @@ export function MiembroEditDialog({
             <p className="text-sm">{error}</p>
           </div>
         )}
-        {!canEditThisMember && (
+        {!canEditThisMember && isSecretario && miembro.rol !== 'tutor' && (
           <div className="mb-4 rounded-md bg-amber-50 p-4 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
-            <p className="text-sm">No tienes permisos para editar este miembro. Como secretario, solo puedes editar miembros con rol tutor.</p>
+            <p className="text-sm">
+              Como secretario, solo puedes editar miembros con rol tutor.
+            </p>
+          </div>
+        )}
+        {miembro.rol === 'director' && isDirector && !isFacilitador && (
+          <div className="mb-4 rounded-md bg-blue-50 p-4 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+            <p className="text-sm">
+              ℹ️ Puedes agregar roles adicionales (secretario, tutor) a este director, pero no puedes eliminar el rol de director.
+            </p>
           </div>
         )}
         <div className="grid gap-4 py-4">
@@ -855,8 +932,10 @@ export function MiembroEditDialog({
                 </div>
               </div>
               {selectedRoles.length === 0 && activo && (
-                <p className="text-xs text-amber-600 dark:text-amber-400">
-                  Debes seleccionar al menos un rol (Secretario y/o Tutor).
+                <p className="text-xs text-muted-foreground">
+                  {miembro.rol === 'director' 
+                    ? 'Si no seleccionas ningún rol adicional, el director mantendrá solo el rol de director.'
+                    : 'Si no seleccionas ningún rol, el usuario quedará sin roles asignados.'}
                 </p>
               )}
               {!activo && (
@@ -866,7 +945,9 @@ export function MiembroEditDialog({
               )}
               {activo && (
                 <p className="text-xs text-muted-foreground">
-                  Como director, puedes asignar uno o ambos roles al miembro.
+                  {miembro.rol === 'director' 
+                    ? 'Puedes agregar roles adicionales (secretario y/o tutor) a este director. El rol de director se mantendrá.'
+                    : 'Como director, puedes asignar uno o ambos roles al miembro.'}
                 </p>
               )}
             </div>
@@ -881,12 +962,17 @@ export function MiembroEditDialog({
                     setError('Como secretario, solo puedes editar miembros con rol tutor.')
                     return
                   }
-                  // Si el usuario es director (pero no facilitador), no permitir asignar facilitador o director
-                  if (isDirector && !isFacilitador && (value === 'facilitador' || value === 'director')) {
-                    setError('Como director, no puedes asignar los roles de facilitador o director.')
+                  // Director no puede asignar director
+                  if (isDirector && !isFacilitador && value === 'director') {
+                    setError('Como director, no puedes asignar el rol de director.')
                     return
                   }
-                  setRol(value as 'facilitador' | 'director' | 'secretario' | 'tutor')
+                  // El rol Facilitador solo se asigna en BD; nunca desde la UI.
+                  if (value === 'facilitador') {
+                    setError('El rol Facilitador solo se asigna en base de datos.')
+                    return
+                  }
+                  setRol(value as 'director' | 'secretario' | 'tutor')
                 }}
                 disabled={!activo || !canEditThisMember || (isSecretario && miembro.rol === 'tutor')}
               >
@@ -894,16 +980,15 @@ export function MiembroEditDialog({
                   <SelectValue placeholder="Selecciona un rol" />
                 </SelectTrigger>
                 <SelectContent>
-                  {/* Facilitadores pueden asignar todos los roles */}
+                  {/* Facilitadores pueden asignar director, secretario, tutor. Nunca facilitador (solo en BD). */}
                   {isFacilitador && (
                     <>
-                      <SelectItem value="facilitador">{getRolDisplayName('facilitador')}</SelectItem>
                       <SelectItem value="director">{getRolDisplayName('director')}</SelectItem>
                       <SelectItem value="secretario">{getRolDisplayName('secretario')}</SelectItem>
                       <SelectItem value="tutor">{getRolDisplayName('tutor')}</SelectItem>
                     </>
                   )}
-                  {/* Directores solo pueden asignar secretario y tutor (NO facilitador ni director) */}
+                  {/* Directores solo pueden asignar secretario y tutor */}
                   {isDirector && !isFacilitador && (
                     <>
                       <SelectItem value="secretario">{getRolDisplayName('secretario')}</SelectItem>
@@ -928,7 +1013,7 @@ export function MiembroEditDialog({
             <Select
               value={activo ? 'activo' : 'inactivo'}
               onValueChange={(value) => setActivo(value === 'activo')}
-              disabled={!canEditThisMember}
+              disabled={!canEditThisMember || cannotSetInactive}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -938,10 +1023,15 @@ export function MiembroEditDialog({
                 <SelectItem value="inactivo">Inactivo</SelectItem>
               </SelectContent>
             </Select>
+            {cannotSetInactive && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                No puedes ponerte inactivo a ti mismo.
+              </p>
+            )}
           </div>
 
-          {/* Selector de aulas (solo para tutores) */}
-          {((canAssignMultipleRoles && selectedRoles.includes('tutor')) || rol === 'tutor') && (
+          {/* Selector de aulas (para tutores - tanto directores como secretarios) */}
+          {shouldShowAulas && (
             <div className="grid gap-2">
               <Label htmlFor="aulas">Aulas Asignadas *</Label>
               {!activo ? (
@@ -982,7 +1072,7 @@ export function MiembroEditDialog({
                   ))}
                 </div>
               )}
-              {activo && ((canAssignMultipleRoles && selectedRoles.includes('tutor')) || rol === 'tutor') && selectedAulas.length === 0 && (
+              {activo && selectedAulas.length === 0 && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
                   Debes asignar al menos una aula al tutor.
                 </p>
@@ -1005,10 +1095,9 @@ export function MiembroEditDialog({
             type="button" 
             onClick={onSubmit} 
             disabled={
-              loading || 
+              loading ||
               !canEditThisMember || 
-              (activo && canAssignMultipleRoles && (selectedRoles.length === 0 || (selectedRoles.includes('tutor') && selectedAulas.length === 0))) ||
-              (activo && !canAssignMultipleRoles && rol === 'tutor' && selectedAulas.length === 0)
+              (activo && shouldShowAulas && selectedAulas.length === 0)
             }
           >
             {loading ? 'Actualizando...' : 'Guardar Cambios'}

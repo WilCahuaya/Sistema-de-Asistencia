@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
+import { toast } from '@/lib/toast'
 
 interface Tutor {
   usuario_fcp_id: string
@@ -172,11 +173,13 @@ export function AulaTutorDialog({
         if (insertError) throw insertError
       }
 
+      toast.success(selectedTutorUsuarioOngId === '__none__' ? 'Tutor desasignado' : 'Tutor asignado al aula')
       onSuccess()
       onOpenChange(false)
     } catch (error: any) {
       console.error('Error assigning tutor:', error)
       setError(`Error al asignar tutor: ${error.message}`)
+      toast.error('Error al asignar tutor', error.message)
     } finally {
       setLoading(false)
     }

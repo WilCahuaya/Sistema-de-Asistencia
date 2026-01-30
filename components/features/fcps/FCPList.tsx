@@ -53,86 +53,51 @@ export function FCPList() {
         return
       }
 
-      // Verificar si el usuario es facilitador (directamente en la BD, no solo desde selectedRole)
-      // Esto es necesario porque selectedRole puede ser null mientras se carga
-      const { data: facilitadorData, error: facilitadorError } = await supabase
-        .from('fcp_miembros')
-        .select('rol, fcp_id')
+      // Unir FCPs como facilitador (fcps.facilitador_id) + como miembro (fcp_miembros).
+      const { data: facilitadorRow } = await supabase
+        .from('facilitadores')
+        .select('usuario_id')
         .eq('usuario_id', user.id)
-        .eq('rol', 'facilitador')
-        .eq('activo', true)
-        .limit(1)
         .maybeSingle()
 
-      const esFacilitador = !facilitadorError && facilitadorData !== null
-      const esFacilitadorDesdeSelectedRole = selectedRole?.role === 'facilitador'
-      const usuarioEsFacilitador = esFacilitador || esFacilitadorDesdeSelectedRole
+      const fcpMap = new Map<string, FCP>()
+      if (facilitadorRow) {
+        const { data: fcpsData } = await supabase
+          .from('fcps')
+          .select('*')
+          .eq('facilitador_id', user.id)
+          .eq('activa', true)
+          .order('razon_social', { ascending: true })
+        if (fcpsData) for (const f of fcpsData) fcpMap.set(f.id, f)
+      }
 
-      console.log('👤 [FCPList] Verificación de rol:', {
-        esFacilitadorDesdeBD: esFacilitador,
-        esFacilitadorDesdeSelectedRole,
-        usuarioEsFacilitador,
-        selectedRole: selectedRole ? { role: selectedRole.role, fcpId: selectedRole.fcpId } : null
-      })
-
-      // Si es facilitador, mostrar TODAS las FCPs donde tiene el rol de facilitador activo
-      if (usuarioEsFacilitador) {
-        console.log('👤 [FCPList] Usuario es facilitador, cargando FCPs a su cargo')
-        
-        // Obtener todas las FCPs donde el usuario tiene el rol de facilitador activo
-        const { data: fcpMiembrosData, error: fcpMiembrosError } = await supabase
-          .from('fcp_miembros')
-          .select(`
-            fcp_id,
-            fcp:fcps(*)
-          `)
-          .eq('usuario_id', user.id)
-          .eq('rol', 'facilitador')
-          .eq('activo', true)
-
-        if (fcpMiembrosError) {
-          console.error('Error obteniendo FCPs del facilitador:', fcpMiembrosError)
-          setFCPs([])
-          return
+      const memberOnlyIds = new Set<string>()
+      const { data: miembrosData } = await supabase
+        .from('fcp_miembros')
+        .select('fcp_id, fcp:fcps(*)')
+        .eq('usuario_id', user.id)
+        .eq('activo', true)
+        .not('fcp_id', 'is', null)
+      if (miembrosData) {
+        for (const m of miembrosData) {
+          if (m.fcp && m.fcp_id && !fcpMap.has(m.fcp_id)) {
+            fcpMap.set(m.fcp_id, m.fcp as FCP)
+            memberOnlyIds.add(m.fcp_id)
+          }
         }
-
-        // Extraer las FCPs de los resultados
-        const fcpsDelFacilitador = (fcpMiembrosData || [])
-          .map((miembro: any) => miembro.fcp)
-          .filter((fcp: any) => fcp && fcp.activa) // Solo FCPs activas
-          .sort((a: any, b: any) => a.razon_social.localeCompare(b.razon_social))
-
-        console.log(`✅ [FCPList] Cargadas ${fcpsDelFacilitador.length} FCPs a cargo del facilitador`)
-        setFCPs(fcpsDelFacilitador)
-        return
       }
 
-      // Para otros roles, solo mostrar la FCP del rol seleccionado
-      if (!selectedRole?.fcpId) {
-        console.log('No hay rol seleccionado o FCP asociada')
-        setFCPs([])
-        return
-      }
+      let merged = Array.from(fcpMap.values()).sort((a, b) => (a.razon_social || '').localeCompare(b.razon_social || ''))
 
-      // Obtener solo la FCP del rol seleccionado
-      const { data: fcpData, error: fcpError } = await supabase
-        .from('fcps')
-        .select('*')
-        .eq('id', selectedRole.fcpId)
-        .eq('activa', true)
-        .single()
-
-      if (fcpError) {
-        console.error('Error obteniendo FCP:', fcpError)
-        setFCPs([])
-        return
+      if (selectedRole) {
+        if (selectedRole.role === 'facilitador') {
+          merged = merged.filter(f => !memberOnlyIds.has(f.id))
+        } else if (selectedRole.fcpId) {
+          const sole = merged.find(f => f.id === selectedRole.fcpId)
+          merged = sole ? [sole] : []
+        }
       }
-
-      if (fcpData) {
-        setFCPs([fcpData])
-      } else {
-        setFCPs([])
-      }
+      setFCPs(merged)
     } catch (error) {
       console.error('Error loading FCPs:', error)
       setFCPs([])

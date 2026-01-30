@@ -1,6 +1,7 @@
 'use client'
 
 import { createClient } from '@/lib/supabase/client'
+import { toast } from '@/lib/toast'
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -13,7 +14,8 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    // Aplicar tema azul profesional (estilo Compassion) al login siempre
+    // Aplicar tema fijo azul profesional al login siempre
+    // El script en layout.tsx ya debería haberlo aplicado, pero lo reforzamos aquí
     const htmlElement = document.documentElement
     // Remover todos los temas existentes
     htmlElement.classList.remove('theme-blue', 'theme-green', 'theme-purple', 'theme-gray', 
@@ -56,12 +58,12 @@ export default function LoginPage() {
 
       if (error) {
         console.error('Error al iniciar sesión:', error)
-        alert('Error al iniciar sesión: ' + error.message)
+        toast.error('Error al iniciar sesión', error.message)
         setLoading(false)
       }
     } catch (error) {
       console.error('Error inesperado:', error)
-      alert('Error inesperado al iniciar sesión')
+      toast.error('Error inesperado', 'No se pudo iniciar sesión. Intenta nuevamente.')
       setLoading(false)
     }
   }

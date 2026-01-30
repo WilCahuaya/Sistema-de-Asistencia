@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Building2 } from 'lucide-react'
+import { toast } from '@/lib/toast'
 import {
   getExcelHeaderStyle,
   getExcelCellStyle,
@@ -118,7 +119,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
       await loadUserFCPs()
     }
     initialize()
-  }, [fcpIdProp])
+  }, [fcpIdProp, selectedRole?.role, selectedRole?.fcpId])
 
   const checkIfFacilitador = async () => {
     try {
@@ -126,20 +127,8 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      const { data: usuarioFcpData, error: usuarioFcpError } = await supabase
-        .from('fcp_miembros')
-        .select('rol')
-        .eq('usuario_id', user.id)
-        .eq('rol', 'facilitador')
-        .eq('activo', true)
-        .limit(1)
-
-      if (usuarioFcpError) {
-        console.error('Error checking facilitador:', usuarioFcpError)
-        return
-      }
-
-      setIsFacilitador(usuarioFcpData && usuarioFcpData.length > 0)
+      const { data: facRow } = await supabase.from('facilitadores').select('usuario_id').eq('usuario_id', user.id).maybeSingle()
+      setIsFacilitador(!!facRow)
     } catch (error) {
       console.error('Error checking facilitador:', error)
     }
@@ -151,50 +140,34 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Verificar si el usuario es facilitador en alguna FCP
-      const { data: usuarioFcpData, error: usuarioFcpError } = await supabase
-        .from('fcp_miembros')
-        .select('rol')
-        .eq('usuario_id', user.id)
-        .eq('rol', 'facilitador')
-        .eq('activo', true)
-        .limit(1)
-
-      if (usuarioFcpError) throw usuarioFcpError
-
-      const isFacilitadorCheck = usuarioFcpData && usuarioFcpData.length > 0
+      const { data: facRow } = await supabase.from('facilitadores').select('usuario_id').eq('usuario_id', user.id).maybeSingle()
+      const isFacilitadorCheck = !!facRow
       setIsFacilitador(isFacilitadorCheck)
 
       let fcps: Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }> = []
 
       if (isFacilitadorCheck) {
-        // Facilitadores pueden ver todas las FCPs del sistema
-        const { data: todasLasFCPs, error: fcpsError } = await supabase
+        const { data: fcpsData, error: fcpsError } = await supabase
           .from('fcps')
           .select('id, razon_social, numero_identificacion')
+          .eq('facilitador_id', user.id)
           .eq('activa', true)
           .order('razon_social', { ascending: true })
-        
         if (fcpsError) throw fcpsError
-        fcps = (todasLasFCPs || []).map((fcp: any) => ({
+        fcps = (fcpsData || []).map((fcp: any) => ({
           id: fcp.id,
           nombre: fcp.razon_social || 'FCP',
           numero_identificacion: fcp.numero_identificacion,
           razon_social: fcp.razon_social,
         }))
       } else {
-        // Usuarios no facilitadores solo ven sus FCPs
         const { data, error } = await supabase
           .from('fcp_miembros')
-          .select(`
-            fcp_id,
-            fcp:fcps(id, razon_social, numero_identificacion)
-          `)
+          .select('fcp_id, fcp:fcps(id, razon_social, numero_identificacion)')
           .eq('usuario_id', user.id)
           .eq('activo', true)
-
+          .not('fcp_id', 'is', null)
         if (error) throw error
-
         fcps = data?.map((item: any) => ({
           id: item.fcp.id,
           nombre: item.fcp.razon_social || item.fcp.numero_identificacion || 'FCP',
@@ -203,10 +176,15 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         })) || []
       }
 
+      if (selectedRole?.fcpId) {
+        const sole = fcps.find((f: any) => f.id === selectedRole.fcpId)
+        fcps = sole ? [sole] : []
+      }
+
       setUserFCPs(fcps)
-      // Solo auto-seleccionar FCP si NO es facilitador (facilitadores deben elegir manualmente)
       if (fcps.length > 0 && !selectedFCP && !isFacilitadorCheck && !fcpIdProp) {
-        setSelectedFCP(fcps[0].id)
+        if (selectedRole?.fcpId && fcps.some((f: any) => f.id === selectedRole.fcpId)) setSelectedFCP(selectedRole.fcpId)
+        else setSelectedFCP(fcps[0].id)
       }
     } catch (error) {
       console.error('Error loading FCPs:', error)
@@ -218,7 +196,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
     const fcpIdParaReporte = selectedRole?.fcpId || selectedFCP
     
     if (!fcpIdParaReporte) {
-      alert('Por favor, selecciona una FCP o asegúrate de tener un rol seleccionado')
+      toast.warning('Selecciona FCP o rol', 'Selecciona una FCP o asegúrate de tener un rol seleccionado.')
       return
     }
 
@@ -843,7 +821,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
       })
     } catch (error) {
       console.error('Error generating report:', error)
-      alert('Error al generar el reporte. Por favor, intenta nuevamente.')
+      toast.error('Error al generar el reporte', 'Intenta nuevamente.')
     } finally {
       setLoading(false)
     }
@@ -1089,7 +1067,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
       XLSX.writeFile(wb, nombreArchivo)
     } catch (error) {
       console.error('Error exporting to Excel:', error)
-      alert('Error al exportar a Excel. Por favor, intenta nuevamente.')
+      toast.error('Error al exportar a Excel', 'Intenta nuevamente.')
     }
   }
 
@@ -1428,7 +1406,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
       doc.save(nombreArchivo)
     } catch (error) {
       console.error('Error exporting to PDF:', error)
-      alert('Error al exportar a PDF. Por favor, intenta nuevamente.')
+      toast.error('Error al exportar a PDF', 'Intenta nuevamente.')
     }
   }
 

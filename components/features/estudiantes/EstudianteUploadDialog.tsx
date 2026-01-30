@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Download } from 'lucide-react'
+import { toast } from '@/lib/toast'
 
 interface EstudianteUploadDialogProps {
   open: boolean
@@ -49,7 +50,7 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
         setFile(selectedFile)
         setErrors([])
       } else {
-        alert('Por favor, selecciona un archivo Excel (.xlsx o .xls)')
+        toast.warning('Formato de archivo', 'Selecciona un archivo Excel (.xlsx o .xls).')
         setFile(null)
       }
     }
@@ -111,12 +112,12 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
 
   const onSubmit = async () => {
     if (!file) {
-      alert('Por favor, selecciona un archivo Excel')
+      toast.warning('Selecciona un archivo', 'Por favor, selecciona un archivo Excel.')
       return
     }
 
     if (aulas.length === 0) {
-      alert('No hay aulas disponibles. Primero crea aulas para esta ONG.')
+      toast.warning('Sin aulas', 'Crea aulas para esta ONG antes de cargar estudiantes.')
       return
     }
 
@@ -145,6 +146,8 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
 
       if (errors.length === estudiantes.length) {
         setErrors(errors)
+        toast.error('Aulas no encontradas', 'Verifica que los nombres de aula coincidan con los de la ONG.')
+        setLoading(false)
         return
       }
 
@@ -200,14 +203,22 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
       setSuccessCount(successCount)
 
       if (successCount > 0) {
+        toast.success(
+          successCount === 1 ? '1 estudiante creado' : `${successCount} estudiantes creados`,
+          errors.length > 0 ? `Con ${errors.length} advertencia(s)` : undefined
+        )
         setTimeout(() => {
           onSuccess()
           handleReset()
         }, 2000)
       }
+      if (errors.length > 0 && successCount === 0) {
+        toast.error('Error al cargar estudiantes', errors[0])
+      }
     } catch (error: any) {
       console.error('Error uploading estudiantes:', error)
       setErrors([error.message || 'Error al procesar el archivo'])
+      toast.error('Error al cargar estudiantes', error?.message || 'Error al procesar el archivo.')
     } finally {
       setLoading(false)
     }

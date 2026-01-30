@@ -125,19 +125,14 @@ export async function getUserHighestRoleFromDB(
       actualUserId = user.id
     }
     
-    // Primero verificar si el usuario es facilitador del sistema (fcp_id = NULL)
-    // Los facilitadores tienen la mayor jerarquía
-    const { data: facilitadorSistemaData } = await supabase
-      .from('fcp_miembros')
-      .select('rol')
+    // Facilitador solo desde BD (tabla facilitadores). Mayor jerarquía.
+    const { data: facilitadorRow } = await supabase
+      .from('facilitadores')
+      .select('usuario_id')
       .eq('usuario_id', actualUserId)
-      .is('fcp_id', null)
-      .eq('rol', 'facilitador')
-      .eq('activo', true)
       .maybeSingle()
 
-    // Si es facilitador del sistema, retornar inmediatamente
-    if (facilitadorSistemaData) {
+    if (facilitadorRow) {
       return {
         isFacilitador: true,
         isDirector: false,
@@ -148,29 +143,7 @@ export async function getUserHighestRoleFromDB(
       }
     }
 
-    // También verificar si el usuario es facilitador en CUALQUIER FCP
-    const { data: facilitadorCualquierFCPData } = await supabase
-      .from('fcp_miembros')
-      .select('rol')
-      .eq('usuario_id', actualUserId)
-      .eq('rol', 'facilitador')
-      .eq('activo', true)
-      .limit(1)
-      .maybeSingle()
-
-    // Si es facilitador en alguna FCP, retornar inmediatamente
-    if (facilitadorCualquierFCPData) {
-      return {
-        isFacilitador: true,
-        isDirector: false,
-        isSecretario: false,
-        isTutor: false,
-        highestRole: 'facilitador',
-        allRoles: ['facilitador']
-      }
-    }
-
-    // Si no es facilitador, obtener TODOS los roles activos del usuario en todas las FCPs
+    // Obtener todos los roles activos del usuario en fcp_miembros (director, secretario, tutor)
     const { data, error } = await supabase
       .from('fcp_miembros')
       .select('rol')

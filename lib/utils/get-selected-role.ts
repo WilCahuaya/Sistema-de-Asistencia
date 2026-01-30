@@ -41,8 +41,37 @@ export async function getSelectedRoleFromCookies(userId: string): Promise<Select
     }
 
     const supabase = await createClient()
-    
-    // Verificar que el rol seleccionado todavía existe y está activo
+
+    if (selectedRole === 'facilitador' && (selectedRoleId.startsWith('facilitador-') || selectedRoleId === 'facilitador-sistema')) {
+      const { data: facRow } = await supabase
+        .from('facilitadores')
+        .select('usuario_id')
+        .eq('usuario_id', userId)
+        .maybeSingle()
+      if (!facRow) return null
+      const fcpIdVal = selectedFcpId || (selectedRoleId !== 'facilitador-sistema' && selectedRoleId.startsWith('facilitador-') ? selectedRoleId.replace(/^facilitador-/, '') : null)
+      let fcp: { id: string; razon_social: string; numero_identificacion?: string } | undefined
+      if (fcpIdVal) {
+        const { data: fcpRow } = await supabase
+          .from('fcps')
+          .select('id, razon_social, numero_identificacion')
+          .eq('id', fcpIdVal)
+          .eq('facilitador_id', userId)
+          .eq('activa', true)
+          .maybeSingle()
+        if (!fcpRow) return null
+        fcp = { id: fcpRow.id, razon_social: fcpRow.razon_social ?? '', numero_identificacion: fcpRow.numero_identificacion ?? undefined }
+      } else {
+        fcp = { id: '', razon_social: 'Facilitador', numero_identificacion: undefined }
+      }
+      return {
+        roleId: selectedRoleId,
+        role: 'facilitador' as RolType,
+        fcpId: fcpIdVal || null,
+        fcp,
+      }
+    }
+
     const { data: roleData, error } = await supabase
       .from('fcp_miembros')
       .select(`

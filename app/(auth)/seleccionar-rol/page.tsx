@@ -5,18 +5,23 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Building2, User, Loader2 } from 'lucide-react'
+import { Building2, User, Loader2, LogOut } from 'lucide-react'
 import { getRolDisplayName, getRolBadgeColor } from '@/lib/utils/roles'
+import { toast } from '@/lib/toast'
+
+interface FcpInfo {
+  id: string
+  razon_social: string
+  numero_identificacion?: string
+}
 
 interface RolFCP {
   id: string
   rol: 'facilitador' | 'director' | 'secretario' | 'tutor'
   fcp_id: string | null
-  fcp?: {
-    id: string
-    razon_social: string
-    numero_identificacion?: string
-  }
+  fcp?: FcpInfo
+  /** Solo para facilitador unificado: lista de FCPs que administra */
+  fcps?: FcpInfo[]
 }
 
 export default function SeleccionarRolPage() {
@@ -25,6 +30,7 @@ export default function SeleccionarRolPage() {
   const [roles, setRoles] = useState<RolFCP[]>([])
   const [selectedRole, setSelectedRole] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     // Solo ejecutar en el cliente
@@ -37,24 +43,62 @@ export default function SeleccionarRolPage() {
   }, [])
 
   const loadRoles = async () => {
-    // Asegurar que solo se ejecute en el cliente
-    if (typeof window === 'undefined') {
-      return
-    }
-    
+    if (typeof window === 'undefined') return
+
     try {
       setLoading(true)
-      
-      // Crear cliente solo cuando se necesita, dentro de la función
+      setLoadError(null)
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
 
       if (!user) {
         router.push('/login')
+        setLoading(false)
         return
       }
 
-      // Obtener todos los roles activos del usuario con sus FCPs
+      let hadError = false
+      const rolesFacilitador: RolFCP[] = []
+
+      const { data: facilitadorRow, error: facilErr } = await supabase
+        .from('facilitadores')
+        .select('usuario_id')
+        .eq('usuario_id', user.id)
+        .maybeSingle()
+
+      if (facilErr) {
+        console.error('Error loading facilitadores:', facilErr)
+        setLoadError('Error al verificar rol facilitador.')
+        hadError = true
+      }
+
+      if (facilitadorRow) {
+        const { data: fcpsFac, error: fcpsErr } = await supabase
+          .from('fcps')
+          .select('id, razon_social, numero_identificacion')
+          .eq('facilitador_id', user.id)
+          .eq('activa', true)
+          .order('razon_social', { ascending: true })
+
+        if (fcpsErr) {
+          console.error('Error loading facilitator FCPs:', fcpsErr)
+          setLoadError('Error al cargar FCPs de facilitador.')
+          hadError = true
+        }
+        const fcpsList: FcpInfo[] = (fcpsFac || []).map((f) => ({
+          id: f.id,
+          razon_social: f.razon_social ?? '',
+          numero_identificacion: f.numero_identificacion ?? undefined,
+        }))
+        rolesFacilitador.push({
+          id: 'facilitador-sistema',
+          rol: 'facilitador',
+          fcp_id: null,
+          fcp: { id: '', razon_social: 'Facilitador', numero_identificacion: undefined },
+          fcps: fcpsList,
+        })
+      }
+
       const { data: fcpMiembrosData, error } = await supabase
         .from('fcp_miembros')
         .select(`
@@ -62,75 +106,51 @@ export default function SeleccionarRolPage() {
           rol,
           fcp_id,
           created_at,
-          fcp:fcps(
-            id,
-            razon_social,
-            numero_identificacion
-          )
+          fcp:fcps(id, razon_social, numero_identificacion)
         `)
         .eq('usuario_id', user.id)
         .eq('activo', true)
         .order('created_at', { ascending: false })
 
       if (error) {
-        console.error('Error loading roles:', error)
+        console.error('Error loading fcp_miembros:', error)
+        setLoadError('Error al cargar roles de miembro.')
+        hadError = true
+      }
+
+      const rolesMiembros: RolFCP[] = (fcpMiembrosData || [])
+        .filter((r: any) => r.fcp_id != null && r.fcp)
+        .map((r: any) => ({
+          id: r.id,
+          rol: r.rol,
+          fcp_id: r.fcp_id,
+          fcp: { id: r.fcp.id, razon_social: r.fcp.razon_social ?? '', numero_identificacion: r.fcp.numero_identificacion },
+        })) as RolFCP[]
+
+      const uniqueRoles: RolFCP[] = [...rolesFacilitador]
+      const seen = new Set<string>()
+      for (const r of rolesFacilitador) seen.add(`facilitador-${r.id}`)
+      for (const r of rolesMiembros) {
+        const key = `${r.fcp_id}-${r.rol}`
+        if (!seen.has(key)) {
+          seen.add(key)
+          uniqueRoles.push(r)
+        }
+      }
+
+      if (uniqueRoles.length === 0 && !hadError) {
+        router.push('/pendiente')
         setLoading(false)
         return
       }
 
-      if (!fcpMiembrosData || fcpMiembrosData.length === 0) {
-        // Si no tiene roles, redirigir a pendiente
-        router.push('/pendiente')
-        return
-      }
-
-      // Deduplicar roles: para facilitadores, mostrar solo uno por FCP
-      // Excluir facilitadores del sistema (fcp_id = null)
-      const uniqueRoles: RolFCP[] = []
-      const seenFacilitadorKeys = new Set<string>()
-
-      for (const role of fcpMiembrosData) {
-        if (role.rol === 'facilitador') {
-          // Excluir facilitadores del sistema (sin FCP asignada)
-          if (role.fcp_id === null) {
-            continue
-          }
-          
-          // Para facilitadores, usar una clave única basada en fcp_id
-          const key = role.fcp_id
-          
-          if (!seenFacilitadorKeys.has(key)) {
-            seenFacilitadorKeys.add(key)
-            uniqueRoles.push(role as RolFCP)
-          }
-          // Si ya existe un facilitador para esta FCP, omitir este
-        } else {
-          // Para otros roles, agregar directamente (pueden tener múltiples roles por FCP)
-          uniqueRoles.push(role as RolFCP)
-        }
-      }
-
-      if (uniqueRoles.length === 0) {
-        router.push('/pendiente')
-        return
-      }
-
-      // Si solo tiene un rol único, guardarlo y redirigir directamente
-      if (uniqueRoles.length === 1) {
-        const singleRole = uniqueRoles[0]
-        await saveSelectedRole(singleRole.id, singleRole.rol, singleRole.fcp_id)
-        // Esperar un momento para asegurar que las cookies se establezcan
-        await new Promise(resolve => setTimeout(resolve, 500))
-        // Forzar recarga completa de la página
-        window.location.href = '/dashboard'
-        return
-      }
-
-      // Si tiene múltiples roles, mostrar la página de selección
       setRoles(uniqueRoles)
+      if (uniqueRoles.length === 1) setSelectedRole(uniqueRoles[0].id)
       setLoading(false)
     } catch (err) {
       console.error('Error in loadRoles:', err)
+      setLoadError('Error al cargar roles. Reintenta.')
+      setRoles([])
       setLoading(false)
     }
   }
@@ -236,7 +256,25 @@ export default function SeleccionarRolPage() {
     } catch (err) {
       console.error('Error selecting role:', err)
       setSubmitting(false)
-      alert('Error al seleccionar el rol. Por favor, intenta nuevamente.')
+      toast.error('Error al seleccionar el rol', 'Por favor, intenta nuevamente.')
+    }
+  }
+
+  const handleSignOut = async () => {
+    try {
+      const supabase = createClient()
+      await supabase.auth.signOut()
+      
+      // Limpiar localStorage
+      localStorage.removeItem('selectedRoleId')
+      localStorage.removeItem('selectedRole')
+      localStorage.removeItem('selectedFcpId')
+      
+      // Redirigir al login
+      router.push('/login')
+    } catch (err) {
+      console.error('Error signing out:', err)
+      toast.error('Error al cerrar sesión', 'Por favor, intenta nuevamente.')
     }
   }
 
@@ -259,56 +297,112 @@ export default function SeleccionarRolPage() {
             Selecciona tu Rol
           </h1>
           <p className="text-muted-foreground">
-            Tienes múltiples roles asignados. Selecciona con cuál rol deseas acceder a la aplicación.
+            {roles.length === 1
+              ? 'Tienes un rol asignado. Haz clic en &quot;Acceder con este rol&quot; para continuar.'
+              : 'Tienes varios roles. Elige uno como rol activo para operar. Al cambiar de rol mantienes la misma sesión; la interfaz y permisos dependen solo del rol seleccionado.'}
           </p>
+
+          {/* Botón de cerrar sesión elegante con tema adaptativo */}
+          <div className="mt-6">
+            <button
+              onClick={handleSignOut}
+              className="group inline-flex items-center gap-2 px-5 py-2.5 rounded-full 
+                         bg-muted/50 hover:bg-primary/10 
+                         border border-border hover:border-primary/50
+                         text-muted-foreground hover:text-primary
+                         transition-all duration-300 ease-in-out
+                         hover:shadow-md hover:shadow-primary/10
+                         focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-2"
+            >
+              <LogOut className="h-4 w-4 transition-transform duration-300 group-hover:-translate-x-0.5" />
+              <span className="text-sm font-medium">Cerrar sesión</span>
+            </button>
+          </div>
         </div>
 
+        {loadError && roles.length > 0 && (
+          <div className="mb-6 p-4 rounded-lg bg-destructive/10 text-destructive flex items-center justify-between gap-4">
+            <span>{loadError}</span>
+            <Button variant="outline" size="sm" onClick={() => loadRoles()}>
+              Reintentar
+            </Button>
+          </div>
+        )}
+
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {roles.map((role) => (
-            <Card
-              key={role.id}
-              className={`cursor-pointer transition-all hover:shadow-lg ${
-                selectedRole === role.id ? 'ring-2 ring-primary' : ''
-              }`}
-              onClick={() => setSelectedRole(role.id)}
-            >
-              <CardHeader>
-                <div className="flex items-center justify-between mb-2">
-                  <Building2 className="h-5 w-5 text-muted-foreground" />
-                  <span className={`px-2 py-1 rounded text-xs font-medium ${getRolBadgeColor(role.rol)}`}>
-                    {getRolDisplayName(role.rol)}
-                  </span>
-                </div>
-                <CardTitle className="text-lg">
-                  {role.fcp?.razon_social || 'Sistema'}
-                </CardTitle>
-                {role.fcp?.numero_identificacion && (
-                  <CardDescription className="text-xs">
-                    {role.fcp.numero_identificacion}
-                  </CardDescription>
-                )}
-              </CardHeader>
-              <CardContent>
-                <Button
-                  className="w-full"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleSelectRole(role)
-                  }}
-                  disabled={submitting}
-                >
-                  {submitting && selectedRole === role.id ? (
+          {roles.map((role) => {
+            const isFacilitadorUnificado = role.rol === 'facilitador' && role.fcps != null
+            return (
+              <Card
+                key={role.id}
+                className={`cursor-pointer transition-all hover:shadow-lg ${
+                  selectedRole === role.id ? 'ring-2 ring-primary' : ''
+                }`}
+                onClick={() => setSelectedRole(role.id)}
+              >
+                <CardHeader>
+                  <div className="flex items-center justify-between mb-2">
+                    <Building2 className="h-5 w-5 text-muted-foreground" />
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${getRolBadgeColor(role.rol)}`}>
+                      {getRolDisplayName(role.rol)}
+                    </span>
+                  </div>
+                  {isFacilitadorUnificado ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Accediendo...
+                      <CardTitle className="text-lg">Facilitador</CardTitle>
+                      <CardDescription className="text-xs mt-1">
+                        FCPs que administras:
+                      </CardDescription>
+                      {role.fcps && role.fcps.length > 0 ? (
+                        <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+                          {role.fcps.map((f) => (
+                            <li key={f.id} className="flex items-baseline gap-2">
+                              <span className="font-medium text-foreground">{f.razon_social}</span>
+                              {f.numero_identificacion && (
+                                <span className="text-xs">({f.numero_identificacion})</span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="mt-2 text-sm text-muted-foreground">Sin FCPs asignadas</p>
+                      )}
                     </>
                   ) : (
-                    'Acceder con este rol'
+                    <>
+                      <CardTitle className="text-lg">
+                        {role.fcp?.razon_social || 'Sistema'}
+                      </CardTitle>
+                      {role.fcp?.numero_identificacion && (
+                        <CardDescription className="text-xs">
+                          {role.fcp.numero_identificacion}
+                        </CardDescription>
+                      )}
+                    </>
                   )}
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
+                </CardHeader>
+                <CardContent>
+                  <Button
+                    className="w-full"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleSelectRole(role)
+                    }}
+                    disabled={submitting}
+                  >
+                    {submitting && selectedRole === role.id ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Accediendo...
+                      </>
+                    ) : (
+                      'Acceder con este rol'
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
+            )
+          })}
         </div>
 
         {roles.length === 0 && (
@@ -316,9 +410,14 @@ export default function SeleccionarRolPage() {
             <CardContent className="pt-6">
               <div className="text-center">
                 <User className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">
-                  No tienes roles asignados. Contacta al administrador.
+                <p className="text-muted-foreground mb-4">
+                  {loadError ? loadError : 'No tienes roles asignados. Contacta al administrador.'}
                 </p>
+                {loadError && (
+                  <Button variant="outline" onClick={() => loadRoles()}>
+                    Reintentar
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>

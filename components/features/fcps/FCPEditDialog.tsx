@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useForm } from 'react-hook-form'
+import { toast } from '@/lib/toast'
 
 interface FCPFormData {
   numero_identificacion: string
@@ -61,6 +62,7 @@ export function FCPEditDialog({ open, onOpenChange, onSuccess, fcpId, initialDat
       const { data: { user }, error: userError } = await supabase.auth.getUser()
       if (userError || !user) {
         setError('Error de autenticación. Por favor, inicia sesión nuevamente.')
+        toast.error('Error de autenticación', 'Inicia sesión nuevamente.')
         setLoading(false)
         return
       }
@@ -75,6 +77,7 @@ export function FCPEditDialog({ open, onOpenChange, onSuccess, fcpId, initialDat
       if (fetchError) {
         console.error('Error fetching current FCP:', fetchError)
         setError(`Error al obtener datos de la FCP: ${fetchError.message}`)
+        toast.error('Error al obtener la FCP', fetchError.message)
         setLoading(false)
         return
       }
@@ -97,6 +100,7 @@ export function FCPEditDialog({ open, onOpenChange, onSuccess, fcpId, initialDat
       if (updateError) {
         console.error('Error updating FCP:', updateError)
         setError(`Error al actualizar la FCP: ${updateError.message}`)
+        toast.error('Error al actualizar la FCP', updateError.message)
         setLoading(false)
         return
       }
@@ -188,10 +192,13 @@ export function FCPEditDialog({ open, onOpenChange, onSuccess, fcpId, initialDat
         }
       }
 
+      toast.updated('FCP')
       onSuccess()
     } catch (err: any) {
       console.error('Error inesperado updating FCP:', err)
-      setError(`Error inesperado: ${err.message || 'Error desconocido'}`)
+      const msg = err?.message || 'Error desconocido'
+      setError(`Error inesperado: ${msg}`)
+      toast.error('Error al actualizar la FCP', msg)
       setLoading(false)
     }
   }

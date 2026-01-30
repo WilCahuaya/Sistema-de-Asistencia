@@ -12,16 +12,39 @@ export async function POST(request: NextRequest) {
 
     const { roleId, role, fcpId } = await request.json()
 
-    // Verificar que el rol pertenece al usuario
-    const { data: roleData, error } = await supabase
-      .from('fcp_miembros')
-      .select('id, usuario_id, activo')
-      .eq('id', roleId)
-      .eq('usuario_id', user.id)
-      .eq('activo', true)
-      .maybeSingle()
+    let valid = false
+    if (role === 'facilitador' && (roleId?.startsWith('facilitador-') || roleId === 'facilitador-sistema')) {
+      const { data: facRow } = await supabase
+        .from('facilitadores')
+        .select('usuario_id')
+        .eq('usuario_id', user.id)
+        .maybeSingle()
+      if (facRow) {
+        if (roleId === 'facilitador-sistema' || !fcpId) {
+          valid = true
+        } else {
+          const { data: fcpRow } = await supabase
+            .from('fcps')
+            .select('id')
+            .eq('id', fcpId)
+            .eq('facilitador_id', user.id)
+            .eq('activa', true)
+            .maybeSingle()
+          valid = !!fcpRow
+        }
+      }
+    } else {
+      const { data: roleData, error } = await supabase
+        .from('fcp_miembros')
+        .select('id, usuario_id, activo')
+        .eq('id', roleId)
+        .eq('usuario_id', user.id)
+        .eq('activo', true)
+        .maybeSingle()
+      valid = !error && !!roleData
+    }
 
-    if (error || !roleData) {
+    if (!valid) {
       return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
     }
 

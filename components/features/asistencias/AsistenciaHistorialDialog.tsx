@@ -31,6 +31,7 @@ interface AsistenciaHistorial {
   updated_by_nombre?: string | null
   updated_by_email?: string | null
   updated_by_rol?: string | null
+  registro_tardio?: boolean
   fcp_id?: string
   // Campos legacy (para compatibilidad)
   creador?: {
@@ -125,9 +126,16 @@ export function AsistenciaHistorialDialog({
                     day: 'numeric',
                   })}
                 </p>
-                <p className="text-sm text-muted-foreground">
-                  Estado: <span className="font-semibold">{getEstadoLabel(asistencia.estado)}</span>
-                </p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm text-muted-foreground">
+                    Estado: <span className="font-semibold">{getEstadoLabel(asistencia.estado)}</span>
+                  </p>
+                  {asistencia.registro_tardio && (
+                    <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 text-xs">
+                      Registro tardío
+                    </Badge>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -212,7 +220,7 @@ export function AsistenciaHistorialDialog({
                     <Edit className="h-4 w-4 text-muted-foreground" />
                     <p className="text-sm font-medium text-muted-foreground">Última edición por</p>
                   </div>
-                  (asistencia.updated_by_nombre || asistencia.updated_by_email || asistencia.editor) ? (
+                  {(asistencia.updated_by_nombre || asistencia.updated_by_email || asistencia.editor) ? (
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-base font-semibold">

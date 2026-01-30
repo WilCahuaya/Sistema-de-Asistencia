@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
 import { getUserRole } from '@/lib/utils/get-user-role'
+import { checkUserAccess } from '@/lib/utils/check-user-access'
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
@@ -83,11 +84,12 @@ export async function GET(request: NextRequest) {
     console.log('User authenticated successfully:', user.email)
     console.log('Cookies in response:', response.cookies.getAll().map(c => c.name))
 
-    // Verificar si el usuario tiene algún rol asignado
-    const roleInfo = await getUserRole(user.id)
-    
-    if (!roleInfo.hasRole) {
-      // Si no tiene roles, redirigir a pendiente
+    // Verificar si el usuario tiene acceso y cuántos roles tiene,
+    // usando la misma lógica centralizada que el middleware
+    const accessCheck = await checkUserAccess(user.id)
+
+    if (!accessCheck.hasAccess) {
+      // Sin roles activos → /pendiente
       const redirectResponse = NextResponse.redirect(`${origin}/pendiente`)
       response.cookies.getAll().forEach(cookie => {
         redirectResponse.cookies.set(cookie.name, cookie.value, {
@@ -100,16 +102,9 @@ export async function GET(request: NextRequest) {
       return redirectResponse
     }
 
-    // Verificar cuántos roles tiene el usuario
-    const { data: rolesData } = await supabase
-      .from('fcp_miembros')
-      .select('id')
-      .eq('usuario_id', user.id)
-      .eq('activo', true)
-
-    // Si tiene múltiples roles, redirigir a la página de selección
-    // Si solo tiene un rol, redirigir directamente al dashboard
-    const redirectPath = (rolesData && rolesData.length > 1) ? '/seleccionar-rol' : '/dashboard'
+    // Si tiene múltiples roles, redirigir a la página de selección;
+    // si solo tiene uno, ir directo al dashboard.
+    const redirectPath = accessCheck.roleCount > 1 ? '/seleccionar-rol' : '/dashboard'
 
     // Crear respuesta de redirección con las cookies establecidas
     const redirectResponse = NextResponse.redirect(`${origin}${redirectPath}`)
@@ -126,8 +121,8 @@ export async function GET(request: NextRequest) {
     })
 
     console.log('Redirecting with cookies:', redirectResponse.cookies.getAll().map(c => c.name))
-    console.log('User has roles:', roleInfo.hasRole ? 'Yes' : 'No')
-    console.log('User role:', roleInfo.role || 'None')
+    console.log('User has roles:', accessCheck.hasAccess ? 'Yes' : 'No')
+    console.log('User roleCount:', accessCheck.roleCount)
     console.log('Redirecting to:', redirectPath)
     return redirectResponse
   } catch (error: any) {

@@ -4,6 +4,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { FCPProvider } from "@/contexts/FCPContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { SelectedRoleProvider } from "@/contexts/SelectedRoleContext";
+import { Toaster } from "@/components/ui/sonner";
 import { Suspense } from "react";
 
 export const metadata: Metadata = {
@@ -24,10 +25,23 @@ export default function RootLayout({
             __html: `
               (function() {
                 try {
-                  const theme = localStorage.getItem('app-theme') || 'blue';
-                  const validThemes = ['blue', 'green', 'purple', 'gray', 'dark-blue', 'dark-green', 'dark-purple'];
-                  const selectedTheme = validThemes.includes(theme) ? theme : 'blue';
-                  document.documentElement.classList.add('theme-' + selectedTheme);
+                  // Si estamos en la página de login, siempre usar tema azul
+                  const isLoginPage = window.location.pathname === '/login' || window.location.pathname.startsWith('/login');
+                  
+                  if (isLoginPage) {
+                    // Remover todos los temas y aplicar solo azul
+                    document.documentElement.classList.remove('theme-blue', 'theme-green', 'theme-purple', 'theme-gray', 
+                                                             'theme-dark-blue', 'theme-dark-green', 'theme-dark-purple');
+                    document.documentElement.classList.add('theme-blue');
+                  } else {
+                    // Para otras páginas, usar el tema guardado
+                    const theme = localStorage.getItem('app-theme') || 'blue';
+                    const validThemes = ['blue', 'green', 'purple', 'gray', 'dark-blue', 'dark-green', 'dark-purple'];
+                    const selectedTheme = validThemes.includes(theme) ? theme : 'blue';
+                    document.documentElement.classList.remove('theme-blue', 'theme-green', 'theme-purple', 'theme-gray', 
+                                                             'theme-dark-blue', 'theme-dark-green', 'theme-dark-purple');
+                    document.documentElement.classList.add('theme-' + selectedTheme);
+                  }
                 } catch (e) {
                   document.documentElement.classList.add('theme-blue');
                 }
@@ -37,17 +51,18 @@ export default function RootLayout({
         />
       </head>
       <body>
-        <ThemeProvider>
         <AuthProvider>
-          <SelectedRoleProvider>
-            <Suspense fallback={<div>Cargando...</div>}>
-              <FCPProvider>
-                {children}
-              </FCPProvider>
-            </Suspense>
-          </SelectedRoleProvider>
+          <ThemeProvider>
+            <SelectedRoleProvider>
+              <Suspense fallback={<div>Cargando...</div>}>
+                <FCPProvider>
+                  {children}
+                </FCPProvider>
+              </Suspense>
+            </SelectedRoleProvider>
+          </ThemeProvider>
         </AuthProvider>
-        </ThemeProvider>
+        <Toaster />
       </body>
     </html>
   );

@@ -5,8 +5,9 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Plus, GraduationCap, Upload, Search, ArrowRight } from 'lucide-react'
+import { Plus, GraduationCap, Upload, Search, ArrowRight, UserX, UserCheck, Loader2, Edit } from 'lucide-react'
 import { EstudianteDialog } from './EstudianteDialog'
+import { EstudianteEditDialog } from './EstudianteEditDialog'
 import { useRouter } from 'next/navigation'
 import {
   Table,
@@ -37,7 +38,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 import { Building2 } from 'lucide-react'
+import { toast } from '@/lib/toast'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 interface Estudiante {
   id: string
@@ -62,11 +67,14 @@ export function EstudianteList() {
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false)
   const [isMovimientoDialogOpen, setIsMovimientoDialogOpen] = useState(false)
   const [selectedEstudianteForMovimiento, setSelectedEstudianteForMovimiento] = useState<Estudiante | null>(null)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [selectedEstudianteForEdit, setSelectedEstudianteForEdit] = useState<Estudiante | null>(null)
   const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
   const [selectedAula, setSelectedAula] = useState<string | null>(null)
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
   const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
   const [searchTerm, setSearchTerm] = useState('')
+  const [includeInactivos, setIncludeInactivos] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalEstudiantes, setTotalEstudiantes] = useState(0)
   const [tableWidth, setTableWidth] = useState<number | null>(null) // Ancho personalizado de la tabla
@@ -92,7 +100,7 @@ export function EstudianteList() {
 
   useEffect(() => {
     loadUserFCPs()
-  }, [])
+  }, [selectedRole?.role, selectedRole?.fcpId])
 
   // Efecto para obtener el ancho por defecto del div contenedor (mb-8 mx-auto max-w-7xl)
   useEffect(() => {
@@ -221,13 +229,13 @@ export function EstudianteList() {
 
   useEffect(() => {
     if (selectedFCP || isTutorState) {
-      setCurrentPage(1) // Resetear a la primera página cuando cambian los filtros
+      setCurrentPage(1)
       loadEstudiantes()
     } else {
       setEstudiantes([])
       setTotalEstudiantes(0)
     }
-  }, [selectedFCP, selectedAula, isTutorState])
+  }, [selectedFCP, selectedAula, isTutorState, includeInactivos])
 
   useEffect(() => {
     if (selectedFCP || isTutorState) {
@@ -275,57 +283,43 @@ export function EstudianteList() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Usar el rol seleccionado para determinar qué FCPs mostrar
-      const esFacilitador = isFacilitador
       let fcps: Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }> = []
 
-      if (esFacilitador) {
-        // Facilitadores pueden ver todas las FCPs del sistema
-        const { data: todasLasFCPs, error: fcpsError } = await supabase
+      if (isFacilitador) {
+        const { data: d, error: e } = await supabase
           .from('fcps')
           .select('id, razon_social, numero_identificacion')
+          .eq('facilitador_id', user.id)
           .eq('activa', true)
           .order('razon_social', { ascending: true })
-        
-        if (fcpsError) throw fcpsError
-        fcps = (todasLasFCPs || []).map((fcp: any) => ({
-          id: fcp.id,
-          nombre: fcp.razon_social || 'FCP',
-          numero_identificacion: fcp.numero_identificacion,
-          razon_social: fcp.razon_social,
-        }))
+        if (!e && d) fcps = d.map((f: any) => ({ id: f.id, nombre: f.razon_social || 'FCP', numero_identificacion: f.numero_identificacion, razon_social: f.razon_social }))
       } else {
-        // Usuarios no facilitadores solo ven sus FCPs
         const { data, error } = await supabase
           .from('fcp_miembros')
-          .select(`
-            fcp_id,
-            fcp:fcps(id, razon_social, numero_identificacion)
-          `)
+          .select('fcp_id, fcp:fcps(id, razon_social, numero_identificacion)')
           .eq('usuario_id', user.id)
           .eq('activo', true)
-
-        if (error) throw error
-
-        fcps = data?.map((item: any) => ({
-          id: item.fcp?.id,
-          nombre: item.fcp?.razon_social || 'FCP',
-          numero_identificacion: item.fcp?.numero_identificacion,
-          razon_social: item.fcp?.razon_social,
-        })).filter((fcp: any) => fcp.id) || []
+        if (!error && data) {
+          fcps = data.map((item: any) => ({
+            id: item.fcp?.id,
+            nombre: item.fcp?.razon_social || 'FCP',
+            numero_identificacion: item.fcp?.numero_identificacion,
+            razon_social: item.fcp?.razon_social,
+          })).filter((f: any) => f.id) || []
+        }
       }
 
-      // Si hay un rol seleccionado con fcpId, asegurarse de que esté en la lista
-      if (fcpIdFromRole && selectedRole?.fcp) {
-        const fcpFromRole = {
+      if (selectedRole?.fcpId) {
+        const sole = fcps.find(f => f.id === selectedRole!.fcpId!)
+        fcps = sole ? [sole] : []
+      }
+      if (fcpIdFromRole && selectedRole?.fcp && !fcps.find(f => f.id === fcpIdFromRole)) {
+        fcps = [{
           id: fcpIdFromRole,
           nombre: selectedRole.fcp.razon_social || 'FCP',
           numero_identificacion: selectedRole.fcp.numero_identificacion,
           razon_social: selectedRole.fcp.razon_social,
-        }
-        if (!fcps.find(fcp => fcp.id === fcpIdFromRole)) {
-          fcps.push(fcpFromRole)
-        }
+        }]
       }
 
       setUserFCPs(fcps)
@@ -525,7 +519,6 @@ export function EstudianteList() {
           if (tutorAulasData && tutorAulasData.length > 0) {
             const aulaIds = tutorAulasData.map((ta: any) => ta.aula_id)
 
-            // Cargar estudiantes de las aulas del tutor
             query = supabase
               .from('estudiantes')
               .select(`
@@ -534,9 +527,8 @@ export function EstudianteList() {
                 fcp:fcps(razon_social)
               `)
               .in('aula_id', aulaIds)
-              .eq('activo', true)
+            if (!includeInactivos) query = query.eq('activo', true)
 
-            // Si hay un aula seleccionada y está en las aulas del tutor, filtrar por ella
             if (selectedAula && aulaIds.includes(selectedAula)) {
               query = query.eq('aula_id', selectedAula)
             }
@@ -571,7 +563,7 @@ export function EstudianteList() {
             fcp:fcps(razon_social)
           `)
           .eq('fcp_id', fcpIdToUse)
-          .eq('activo', true)
+        if (!includeInactivos) query = query.eq('activo', true)
 
         if (selectedAula) {
           query = query.eq('aula_id', selectedAula)
@@ -608,8 +600,7 @@ export function EstudianteList() {
               .from('estudiantes')
               .select('id', { count: 'exact', head: true })
               .in('aula_id', aulaIds)
-              .eq('activo', true)
-            
+            if (!includeInactivos) countQuery = countQuery.eq('activo', true)
             if (selectedAula && aulaIds.includes(selectedAula)) {
               countQuery = countQuery.eq('aula_id', selectedAula)
             }
@@ -626,8 +617,7 @@ export function EstudianteList() {
             .from('estudiantes')
             .select('id', { count: 'exact', head: true })
             .eq('fcp_id', fcpIdToUse)
-            .eq('activo', true)
-          
+          if (!includeInactivos) countQuery = countQuery.eq('activo', true)
           if (selectedAula) {
             countQuery = countQuery.eq('aula_id', selectedAula)
           }
@@ -715,12 +705,55 @@ export function EstudianteList() {
   }
 
   const handleUploadSuccess = () => {
-    // Asegurar que selectedFCP esté establecido antes de recargar
     if ((isSecretario || isDirector) && !selectedFCP && userFCPs.length > 0) {
       setSelectedFCP(userFCPs[0].id)
     }
     loadEstudiantes()
     setIsUploadDialogOpen(false)
+  }
+
+  const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [estudianteParaInactivar, setEstudianteParaInactivar] = useState<Estudiante | null>(null)
+
+  const handleToggleActivo = (est: Estudiante) => {
+    const nuevoActivo = !est.activo
+    if (!nuevoActivo) {
+      setEstudianteParaInactivar(est)
+      return
+    }
+    doToggleActivo(est, true)
+  }
+
+  const doToggleActivo = async (est: Estudiante, nuevoActivo: boolean) => {
+    const action = nuevoActivo ? 'reactivar' : 'inactivar'
+    try {
+      setTogglingId(est.id)
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('No autenticado')
+      const { error } = await supabase
+        .from('estudiantes')
+        .update({
+          activo: nuevoActivo,
+          updated_at: new Date().toISOString(),
+          updated_by: user.id,
+        })
+        .eq('id', est.id)
+      if (error) throw error
+      toast.success(nuevoActivo ? 'Estudiante reactivado' : 'Estudiante inactivado')
+      loadEstudiantes()
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Error al ' + action
+      toast.error(`Error al ${action} estudiante`, msg)
+    } finally {
+      setTogglingId(null)
+    }
+  }
+
+  const handleConfirmInactivar = async () => {
+    if (!estudianteParaInactivar) return
+    await doToggleActivo(estudianteParaInactivar, false)
+    setEstudianteParaInactivar(null)
   }
 
   // Calcular paginación
@@ -850,6 +883,19 @@ export function EstudianteList() {
               ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="include-inactivos"
+              checked={includeInactivos}
+              onCheckedChange={(v) => {
+                setIncludeInactivos(!!v)
+                setCurrentPage(1)
+              }}
+            />
+            <Label htmlFor="include-inactivos" className="text-sm font-normal cursor-pointer whitespace-nowrap">
+              Incluir inactivos
+            </Label>
           </div>
         </div>
 
@@ -1032,18 +1078,46 @@ export function EstudianteList() {
                             allowedRoles={['director', 'secretario']}
                             fallback={<span className="text-sm text-muted-foreground">Solo lectura</span>}
                           >
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedEstudianteForMovimiento(estudiante)
-                                setIsMovimientoDialogOpen(true)
-                              }}
-                              disabled={!estudiante.activo || aulas.length <= 1}
-                              title={aulas.length <= 1 ? 'Necesitas al menos 2 aulas para mover estudiantes' : 'Mover a otra aula'}
-                            >
-                              <ArrowRight className="h-4 w-4" />
-                            </Button>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedEstudianteForEdit(estudiante)
+                                  setIsEditDialogOpen(true)
+                                }}
+                                title="Editar datos del estudiante"
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleToggleActivo(estudiante)}
+                                disabled={togglingId === estudiante.id}
+                                title={estudiante.activo ? 'Inactivar (no aparecerá en lista ni en asistencias nuevas)' : 'Reactivar estudiante'}
+                              >
+                                {togglingId === estudiante.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : estudiante.activo ? (
+                                  <UserX className="h-4 w-4" />
+                                ) : (
+                                  <UserCheck className="h-4 w-4" />
+                                )}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedEstudianteForMovimiento(estudiante)
+                                  setIsMovimientoDialogOpen(true)
+                                }}
+                                disabled={!estudiante.activo || aulas.length <= 1}
+                                title={aulas.length <= 1 ? 'Necesitas al menos 2 aulas para mover estudiantes' : 'Mover a otra aula'}
+                              >
+                                <ArrowRight className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </RoleGuard>
                         </TableCell>
                       </TableRow>
@@ -1157,6 +1231,22 @@ export function EstudianteList() {
         aulas={aulas}
       />
 
+      {selectedEstudianteForEdit && (
+        <EstudianteEditDialog
+          open={isEditDialogOpen}
+          onOpenChange={(open) => {
+            setIsEditDialogOpen(open)
+            if (!open) setSelectedEstudianteForEdit(null)
+          }}
+          onSuccess={() => {
+            loadEstudiantes()
+            setIsEditDialogOpen(false)
+            setSelectedEstudianteForEdit(null)
+          }}
+          estudiante={selectedEstudianteForEdit}
+        />
+      )}
+
       {selectedEstudianteForMovimiento && (
         <EstudianteMovimientoDialog
           open={isMovimientoDialogOpen}
@@ -1173,6 +1263,23 @@ export function EstudianteList() {
           aulas={aulas}
         />
       )}
+
+      <ConfirmDialog
+        open={!!estudianteParaInactivar}
+        onOpenChange={(open) => {
+          if (!open) setEstudianteParaInactivar(null)
+        }}
+        title="Inactivar estudiante"
+        message={
+          estudianteParaInactivar
+            ? `¿Inactivar a ${estudianteParaInactivar.nombre_completo}? No aparecerá en la lista ni para marcar asistencia en meses nuevos. Sí seguirá visible en meses anteriores.`
+            : ''
+        }
+        confirmLabel="Sí, inactivar"
+        cancelLabel="Cancelar"
+        onConfirm={handleConfirmInactivar}
+        loading={!!togglingId}
+      />
     </div>
   )
 }

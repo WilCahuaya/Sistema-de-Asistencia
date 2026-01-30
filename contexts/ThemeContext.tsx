@@ -1,6 +1,7 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { useAuth } from '@/contexts/AuthContext'
 
 export type Theme = 'blue' | 'green' | 'purple' | 'gray' | 'dark-blue' | 'dark-green' | 'dark-purple'
 
@@ -11,70 +12,94 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 
-const THEME_STORAGE_KEY = 'app-theme'
+const THEME_STORAGE_GUEST = 'app-theme'
+const THEME_STORAGE_USER_PREFIX = 'app-theme-user-'
+const VALID_THEMES: Theme[] = ['blue', 'green', 'purple', 'gray', 'dark-blue', 'dark-green', 'dark-purple']
+
+function getStorageKey(userId: string | undefined): string {
+  return userId ? `${THEME_STORAGE_USER_PREFIX}${userId}` : THEME_STORAGE_GUEST
+}
+
+function loadTheme(key: string): Theme {
+  if (typeof window === 'undefined') return 'blue'
+  try {
+    const saved = localStorage.getItem(key) as Theme | null
+    return (saved && VALID_THEMES.includes(saved)) ? saved : 'blue'
+  } catch {
+    return 'blue'
+  }
+}
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  // Inicializar con tema guardado o azul por defecto
-  const [theme, setThemeState] = useState<Theme>(() => {
-    if (typeof window !== 'undefined') {
-      const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as Theme | null
-      const validThemes = ['blue', 'green', 'purple', 'gray', 'dark-blue', 'dark-green', 'dark-purple']
-      if (savedTheme && validThemes.includes(savedTheme)) {
-        return savedTheme
-      }
-    }
-    return 'blue'
-  })
+  const { user } = useAuth()
+  const userId = user?.id
+  const storageKey = getStorageKey(userId)
+
+  const [theme, setThemeState] = useState<Theme>(() => loadTheme(THEME_STORAGE_GUEST))
   const [mounted, setMounted] = useState(false)
 
-  // Aplicar tema inicial al HTML antes del primer render
-  useEffect(() => {
-    const root = document.documentElement
-    const savedTheme = localStorage.getItem(THEME_STORAGE_KEY) as Theme | null
-    const validThemes = ['blue', 'green', 'purple', 'gray', 'dark-blue', 'dark-green', 'dark-purple']
-    const initialTheme = (savedTheme && validThemes.includes(savedTheme)) 
-      ? savedTheme 
-      : 'blue'
-    
-    // Remover todos los temas anteriores
-    root.classList.remove('theme-blue', 'theme-green', 'theme-purple', 'theme-gray', 'theme-dark-blue', 'theme-dark-green', 'theme-dark-purple')
-    // Aplicar el tema inicial inmediatamente
-    root.classList.add(`theme-${initialTheme}`)
-    
-    // Sincronizar el estado
-    if (initialTheme !== theme) {
-      setThemeState(initialTheme)
+  const applyToDom = useCallback((t: Theme) => {
+    // No cambiar el tema si estamos en la página de login (siempre debe ser azul)
+    if (typeof window !== 'undefined' && (window.location.pathname === '/login' || window.location.pathname.startsWith('/login'))) {
+      const root = document.documentElement
+      root.classList.remove('theme-blue', 'theme-green', 'theme-purple', 'theme-gray', 'theme-dark-blue', 'theme-dark-green', 'theme-dark-purple')
+      root.classList.add('theme-blue')
+      return
     }
-    
-    setMounted(true)
+    const root = document.documentElement
+    root.classList.remove('theme-blue', 'theme-green', 'theme-purple', 'theme-gray', 'theme-dark-blue', 'theme-dark-green', 'theme-dark-purple')
+    root.classList.add(`theme-${t}`)
   }, [])
 
-  // Aplicar tema al HTML cuando cambia
+  // Al montar o al cambiar usuario: cargar tema del usuario (o invitado) y aplicarlo
+  useEffect(() => {
+    const key = getStorageKey(userId)
+    let t: Theme
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem(key) : null
+      if (raw && VALID_THEMES.includes(raw as Theme)) {
+        t = raw as Theme
+      } else if (userId && raw === null) {
+        const guest = loadTheme(THEME_STORAGE_GUEST)
+        if (guest !== 'blue' && VALID_THEMES.includes(guest)) {
+          try {
+            localStorage.setItem(key, guest)
+            t = guest
+          } catch {
+            t = 'blue'
+          }
+        } else {
+          t = 'blue'
+        }
+      } else {
+        t = loadTheme(key)
+      }
+    } catch {
+      t = 'blue'
+    }
+    setThemeState(t)
+    applyToDom(t)
+    setMounted(true)
+  }, [userId, applyToDom])
+
+  // Aplicar y persistir cuando cambia el tema
   useEffect(() => {
     if (!mounted) return
-    
-    const root = document.documentElement
-    // Remover todos los temas anteriores
-    root.classList.remove('theme-blue', 'theme-green', 'theme-purple', 'theme-gray', 'theme-dark-blue', 'theme-dark-green', 'theme-dark-purple')
-    // Aplicar el tema actual inmediatamente
-    root.classList.add(`theme-${theme}`)
-    
-    // Guardar en localStorage
+    // No aplicar cambios de tema si estamos en login
+    if (typeof window !== 'undefined' && (window.location.pathname === '/login' || window.location.pathname.startsWith('/login'))) {
+      return
+    }
+    applyToDom(theme)
     try {
-      localStorage.setItem(THEME_STORAGE_KEY, theme)
+      localStorage.setItem(storageKey, theme)
     } catch (e) {
       console.error('Error saving theme to localStorage:', e)
     }
-  }, [theme, mounted])
+  }, [theme, mounted, storageKey, applyToDom])
 
-  const setTheme = (newTheme: Theme) => {
+  const setTheme = useCallback((newTheme: Theme) => {
     setThemeState(newTheme)
-  }
-
-  // No renderizar hasta que esté montado para evitar flash de contenido
-  if (!mounted) {
-    return <>{children}</>
-  }
+  }, [])
 
   return (
     <ThemeContext.Provider value={{ theme, setTheme }}>

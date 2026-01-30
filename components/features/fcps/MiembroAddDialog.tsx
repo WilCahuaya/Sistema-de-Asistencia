@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/select'
 import { useForm } from 'react-hook-form'
 import { getRolDisplayName } from '@/lib/utils/roles'
+import { toast } from '@/lib/toast'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useUserRole } from '@/hooks/useUserRole'
 
@@ -305,6 +306,7 @@ export function MiembroAddDialog({
 
         reset()
         setError(null)
+        toast.updated('Miembro')
         onSuccess()
         return
       }
@@ -371,6 +373,7 @@ export function MiembroAddDialog({
           // Éxito: nuevo registro creado, otros roles preservados
           reset()
           setError(null)
+          toast.success('Director asignado', 'El nuevo director fue registrado correctamente.')
           onSuccess()
           return
         }
@@ -497,10 +500,13 @@ export function MiembroAddDialog({
       reset()
       setSelectedAulas([])
       setError(null)
+      toast.created('Miembro')
       onSuccess()
     } catch (err: any) {
       console.error('Error adding miembro:', err)
-      setError(err.message || 'Error al agregar el miembro. Por favor, intenta nuevamente.')
+      const msg = err?.message || 'Error al agregar el miembro. Por favor, intenta nuevamente.'
+      setError(msg)
+      toast.error('Error al agregar miembro', err?.message)
     } finally {
       setLoading(false)
     }
@@ -543,6 +549,11 @@ export function MiembroAddDialog({
               />
               {errors.email && (
                 <p className="text-sm text-red-500">{errors.email.message}</p>
+              )}
+              {isDirector && !isSecretario && (
+                <p className="text-xs text-muted-foreground">
+                  Puedes ingresar tu propio email para asignarte otros roles (secretario, tutor).
+                </p>
               )}
             </div>
             <div className="grid gap-2">

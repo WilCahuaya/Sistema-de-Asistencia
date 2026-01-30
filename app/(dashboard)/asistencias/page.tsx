@@ -83,25 +83,19 @@ export default function AsistenciasPage() {
             }]
           }
         } else {
-          // Si no hay rol seleccionado o no tiene fcpId, obtener todas las FCPs del usuario
-          const { data, error } = await supabase
-            .from('fcp_miembros')
-            .select(`
-              fcp_id,
-              fcp:fcps(id, razon_social, numero_identificacion)
-            `)
-            .eq('usuario_id', user.id)
-            .eq('activo', true)
-            .not('fcp_id', 'is', null)  // Excluir facilitadores del sistema
-
-          if (error) throw error
-
-          fcps = data?.map((item: any) => ({
-            id: item.fcp?.id,
-            nombre: item.fcp?.razon_social || 'FCP',
-            numero_identificacion: item.fcp?.numero_identificacion,
-            razon_social: item.fcp?.razon_social,
-          })).filter((fcp: any) => fcp.id && fcp.id !== null) || []
+          const fcpMap = new Map<string, { id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>()
+          // Facilitador: solo FCPs propias (enfoque en el rol seleccionado)
+          if (esFacilitador) {
+            const { data: fcpsData } = await supabase.from('fcps').select('id, razon_social, numero_identificacion').eq('facilitador_id', user.id).eq('activa', true)
+            if (fcpsData) for (const f of fcpsData) fcpMap.set(f.id, { id: f.id, nombre: f.razon_social || 'FCP', numero_identificacion: f.numero_identificacion, razon_social: f.razon_social })
+          } else {
+            const { data: memData, error } = await supabase.from('fcp_miembros').select('fcp_id, fcp:fcps(id, razon_social, numero_identificacion)').eq('usuario_id', user.id).eq('activo', true).not('fcp_id', 'is', null)
+            if (!error && memData) for (const m of memData) {
+              if (!m.fcp?.id) continue
+              fcpMap.set(m.fcp.id, { id: m.fcp.id, nombre: m.fcp.razon_social || 'FCP', numero_identificacion: m.fcp.numero_identificacion, razon_social: m.fcp.razon_social })
+            }
+          }
+          fcps = Array.from(fcpMap.values())
         }
 
       setUserFCPs(fcps)

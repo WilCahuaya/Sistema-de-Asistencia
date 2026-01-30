@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { FileSpreadsheet, FileText } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
+import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 
 interface FCPResumen {
   id: string
@@ -20,10 +21,11 @@ export function ReportesMensualesResumen() {
   const [loading, setLoading] = useState(true)
   const [resumenes, setResumenes] = useState<FCPResumen[]>([])
   const [mesActual, setMesActual] = useState({ year: new Date().getFullYear(), month: new Date().getMonth() })
+  const { selectedRole } = useSelectedRole()
 
   useEffect(() => {
     cargarResumenes()
-  }, [])
+  }, [selectedRole?.role, selectedRole?.fcpId])
 
   const cargarResumenes = async () => {
     try {
@@ -32,46 +34,34 @@ export function ReportesMensualesResumen() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Verificar si el usuario es facilitador
-      const { data: facilitadorData, error: facilitadorError } = await supabase
-        .from('fcp_miembros')
-        .select('rol')
-        .eq('usuario_id', user.id)
-        .eq('rol', 'facilitador')
-        .eq('activo', true)
-        .limit(1)
-
+      const { data: facRow } = await supabase.from('facilitadores').select('usuario_id').eq('usuario_id', user.id).maybeSingle()
       let todasLasFCPs: any[] = []
 
-      if (facilitadorData && facilitadorData.length > 0) {
-        // Facilitadores pueden ver todas las FCPs del sistema
-        const { data: todasLasFCPsData, error: fcpsError } = await supabase
+      if (facRow) {
+        const { data: fcpsData, error: e } = await supabase
           .from('fcps')
           .select('id, razon_social')
+          .eq('facilitador_id', user.id)
           .eq('activa', true)
           .order('razon_social', { ascending: true })
-        
-        if (fcpsError) throw fcpsError
-        todasLasFCPs = (todasLasFCPsData || []).map((fcp: any) => ({
-          id: fcp.id,
-          nombre: fcp.razon_social || 'FCP'
-        }))
+        if (!e && fcpsData) todasLasFCPs = fcpsData.map((f: any) => ({ id: f.id, nombre: f.razon_social || 'FCP' }))
       } else {
-        // Usuarios no facilitadores solo ven sus FCPs
         const { data: userFCPs, error: userFCPsError } = await supabase
           .from('fcp_miembros')
-          .select(`
-            fcp_id,
-            fcp:fcps(id, razon_social)
-          `)
+          .select('fcp_id, fcp:fcps(id, razon_social)')
           .eq('usuario_id', user.id)
           .eq('activo', true)
+          .not('fcp_id', 'is', null)
+        if (!userFCPsError && userFCPs) {
+          todasLasFCPs = (userFCPs || [])
+            .map((item: any) => ({ id: item.fcp?.id, nombre: item.fcp?.razon_social || 'FCP' }))
+            .filter((fcp: any) => fcp.id) || []
+        }
+      }
 
-        if (userFCPsError) throw userFCPsError
-        todasLasFCPs = (userFCPs || []).map((item: any) => ({
-          id: item.fcp?.id,
-          nombre: item.fcp?.razon_social || 'FCP'
-        })).filter((fcp: any) => fcp.id) || []
+      if (selectedRole?.fcpId) {
+        const sole = todasLasFCPs.find((f: any) => f.id === selectedRole.fcpId)
+        todasLasFCPs = sole ? [sole] : []
       }
 
       const resumenesData: FCPResumen[] = []

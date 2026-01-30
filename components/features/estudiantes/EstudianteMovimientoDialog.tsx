@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ArrowRight, AlertCircle } from 'lucide-react'
+import { toast } from '@/lib/toast'
 
 interface Estudiante {
   id: string
@@ -67,12 +68,12 @@ export function EstudianteMovimientoDialog({
 
   const onSubmit = async () => {
     if (!estudiante || !selectedAulaId) {
-      alert('Por favor, selecciona un aula destino')
+      toast.warning('Selecciona un aula', 'Por favor, selecciona un aula destino.')
       return
     }
 
     if (selectedAulaId === estudiante.aula_id) {
-      alert('Debes seleccionar un aula diferente a la actual')
+      toast.warning('Aula diferente', 'Debes seleccionar un aula diferente a la actual.')
       return
     }
 
@@ -80,9 +81,8 @@ export function EstudianteMovimientoDialog({
       setLoading(true)
 
       const authResult = await ensureAuthenticated()
-      
       if (!authResult || !authResult.user) {
-        alert('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.')
+        toast.error('Sesión expirada', 'Por favor, inicia sesión nuevamente.')
         setLoading(false)
         return
       }
@@ -121,12 +121,13 @@ export function EstudianteMovimientoDialog({
         // Solo registramos el error en la consola
       }
 
+      toast.success('Estudiante movido', 'El estudiante fue asignado a la nueva aula.')
       onSuccess()
       setSelectedAulaId('')
       setMotivo('')
     } catch (error: any) {
       console.error('Error moving estudiante:', error)
-      alert('Error al mover el estudiante. Por favor, intenta nuevamente.')
+      toast.error('Error al mover el estudiante', error?.message || 'Intenta nuevamente.')
     } finally {
       setLoading(false)
     }

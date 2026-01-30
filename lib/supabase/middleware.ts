@@ -61,16 +61,8 @@ export async function updateSession(request: NextRequest) {
     const url = request.nextUrl.clone()
     
     if (accessCheck.hasAccess) {
-      // Verificar cuántos roles tiene el usuario
-      const { data: rolesData } = await supabase
-        .from('fcp_miembros')
-        .select('id')
-        .eq('usuario_id', user.id)
-        .eq('activo', true)
-
-      // Si tiene múltiples roles, redirigir a selección de roles
-      // Si solo tiene un rol, redirigir directamente al dashboard
-      url.pathname = (rolesData && rolesData.length > 1) ? '/seleccionar-rol' : '/dashboard'
+      // Si tiene múltiples roles, redirigir a selección; si uno solo, al dashboard
+      url.pathname = accessCheck.roleCount > 1 ? '/seleccionar-rol' : '/dashboard'
     } else {
       // Sin rol → /pendiente
       url.pathname = '/pendiente'

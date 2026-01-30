@@ -13,11 +13,20 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useForm } from 'react-hook-form'
+import { toast } from '@/lib/toast'
 
 interface AulaFormData {
   nombre: string
   descripcion?: string
+  activa?: boolean
 }
 
 interface AulaEditDialogProps {
@@ -31,6 +40,7 @@ interface AulaEditDialogProps {
 export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, initialData }: AulaEditDialogProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [activa, setActiva] = useState(initialData.activa ?? true)
   const { register, handleSubmit, reset, formState: { errors } } = useForm<AulaFormData>({
     defaultValues: initialData,
   })
@@ -39,6 +49,7 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, initialD
   useEffect(() => {
     if (open && initialData) {
       reset(initialData)
+      setActiva(initialData.activa ?? true)
     }
   }, [open, initialData, reset])
 
@@ -53,8 +64,23 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, initialD
       const { data: { user }, error: userError } = await supabase.auth.getUser()
       if (userError || !user) {
         setError('Error de autenticación. Por favor, inicia sesión nuevamente.')
+        toast.error('Error de autenticación', 'Inicia sesión nuevamente.')
         setLoading(false)
         return
+      }
+
+      // Si se va a inactivar el aula, verificar si tiene tutor asignado
+      if (!activa) {
+        // Desasignar el tutor si existe
+        const { error: deleteTutorError } = await supabase
+          .from('tutor_aula')
+          .delete()
+          .eq('aula_id', aulaId)
+
+        if (deleteTutorError) {
+          console.error('Error al desasignar tutor:', deleteTutorError)
+          // Continuar de todos modos
+        }
       }
 
       // Actualizar aula
@@ -63,17 +89,21 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, initialD
         .update({
           nombre: data.nombre,
           descripcion: data.descripcion || null,
+          activa: activa,
         })
         .eq('id', aulaId)
 
       if (updateError) throw updateError
 
       reset()
+      toast.updated('Aula')
       onSuccess()
       onOpenChange(false)
     } catch (error: any) {
       console.error('Error updating aula:', error)
-      setError(`Error al actualizar el aula: ${error.message || 'Error desconocido'}`)
+      const msg = error?.message || 'Error desconocido'
+      setError(`Error al actualizar el aula: ${msg}`)
+      toast.error('Error al actualizar el aula', msg)
     } finally {
       setLoading(false)
     }
@@ -113,6 +143,27 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, initialD
                 {...register('descripcion')}
                 placeholder="Breve descripción (opcional)"
               />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="estado">Estado</Label>
+              <Select
+                value={activa ? 'activo' : 'inactivo'}
+                onValueChange={(value) => setActiva(value === 'activo')}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="activo">Activo</SelectItem>
+                  <SelectItem value="inactivo">Inactivo</SelectItem>
+                </SelectContent>
+              </Select>
+              {!activa && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Al inactivar el aula, se desasignará el tutor si existe y el aula no aparecerá en las listas de asistencia.
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter>

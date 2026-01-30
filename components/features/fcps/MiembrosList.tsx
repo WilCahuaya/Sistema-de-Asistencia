@@ -271,7 +271,60 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
         }
       }))
       
-      setMiembros(miembrosProcesados)
+      // Agrupar miembros por usuario_id o email_pendiente
+      const miembrosAgrupados = miembrosProcesados.reduce((acc: any[], miembro: any) => {
+        const key = miembro.usuario_id || miembro.email_pendiente
+        if (!key) return acc // Skip si no tiene identificador
+        
+        const existingIndex = acc.findIndex(m => 
+          (m.usuario_id && m.usuario_id === miembro.usuario_id) ||
+          (m.email_pendiente && m.email_pendiente === miembro.email_pendiente)
+        )
+        
+        if (existingIndex >= 0) {
+          // Usuario ya existe, agregar rol a la lista
+          const existing = acc[existingIndex]
+          if (!existing.roles) {
+            existing.roles = [{
+              id: existing.id,
+              rol: existing.rol,
+              activo: existing.activo,
+              fecha_asignacion: existing.fecha_asignacion
+            }]
+          }
+          existing.roles.push({
+            id: miembro.id,
+            rol: miembro.rol,
+            activo: miembro.activo,
+            fecha_asignacion: miembro.fecha_asignacion
+          })
+          // Combinar aulas si hay
+          if (miembro.aulas && miembro.aulas.length > 0) {
+            existing.aulas = [...(existing.aulas || []), ...miembro.aulas]
+            // Eliminar duplicados por id
+            existing.aulas = Array.from(new Map(existing.aulas.map((a: any) => [a.id, a])).values())
+          }
+          // Usar la fecha más reciente
+          if (new Date(miembro.fecha_asignacion) > new Date(existing.fecha_asignacion)) {
+            existing.fecha_asignacion = miembro.fecha_asignacion
+          }
+        } else {
+          // Nuevo usuario, agregar a la lista
+          acc.push({
+            ...miembro,
+            roles: [{
+              id: miembro.id,
+              rol: miembro.rol,
+              activo: miembro.activo,
+              fecha_asignacion: miembro.fecha_asignacion
+            }]
+          })
+        }
+        
+        return acc
+      }, [])
+      
+      setMiembros(miembrosAgrupados)
     } catch (error) {
       console.error('Error loading miembros:', error)
     } finally {
@@ -371,8 +424,17 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                     const email = miembro.usuario?.email || miembro.email_pendiente || 'Sin email'
                     const nombre = miembro.usuario?.nombre_completo || 'Sin nombre'
                     
+                    // Obtener roles activos
+                    const rolesActivos = miembro.roles?.filter((r: any) => r.activo) || []
+                    const tieneRolesActivos = rolesActivos.length > 0
+                    
+                    // Para editar, usar el primer rol o el miembro completo si solo tiene uno
+                    const miembroParaEditar = miembro.roles && miembro.roles.length > 0 
+                      ? { ...miembro, id: miembro.roles[0].id, rol: miembro.roles[0].rol, activo: miembro.roles[0].activo }
+                      : miembro
+                    
                     return (
-                    <TableRow key={miembro.id}>
+                    <TableRow key={miembro.usuario_id || miembro.email_pendiente || miembro.id}>
                       <TableCell>
                         {nombre}
                       </TableCell>
@@ -385,19 +447,27 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge className={getRolBadgeColor(miembro.rol)}>
-                          {getRolDisplayName(miembro.rol)}
-                        </Badge>
+                        {rolesActivos.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {rolesActivos.map((r: any) => (
+                              <Badge key={r.id} className={getRolBadgeColor(r.rol)}>
+                                {getRolDisplayName(r.rol)}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">-</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Badge
                           className={
-                            miembro.activo
+                            tieneRolesActivos
                               ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                               : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
                           }
                         >
-                          {miembro.activo ? 'Activo' : 'Inactivo'}
+                          {tieneRolesActivos ? 'Activo' : 'Inactivo'}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
@@ -431,11 +501,11 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                         {/* Mostrar botón de editar según el rol del usuario */}
                         {isSecretario ? (
                           // Secretarios solo pueden editar tutores
-                          miembro.rol === 'tutor' ? (
+                          rolesActivos.some((r: any) => r.rol === 'tutor') ? (
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleEditMiembro(miembro)}
+                              onClick={() => handleEditMiembro(miembroParaEditar)}
                             >
                               <Edit className="h-4 w-4" />
                             </Button>
@@ -448,7 +518,7 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleEditMiembro(miembro)}
+                            onClick={() => handleEditMiembro(miembroParaEditar)}
                           >
                             <Edit className="h-4 w-4" />
                           </Button>

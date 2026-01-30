@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useForm } from 'react-hook-form'
+import { toast } from '@/lib/toast'
 
 interface AulaFormData {
   nombre: string
@@ -33,25 +34,22 @@ export function AulaDialog({ open, onOpenChange, onSuccess, fcpId }: AulaDialogP
 
   const onSubmit = async (data: AulaFormData) => {
     if (!fcpId) {
-      alert('Por favor, selecciona una ONG primero')
+      toast.warning('Selecciona una ONG', 'Por favor, selecciona una ONG primero.')
       return
     }
 
     try {
       setLoading(true)
 
-      // Asegurar que el usuario esté autenticado (refresca la sesión si es necesario)
       const authResult = await ensureAuthenticated()
-      
       if (!authResult || !authResult.user) {
-        alert('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.')
+        toast.error('Sesión expirada', 'Por favor, inicia sesión nuevamente.')
         setLoading(false)
         return
       }
 
       const { user, supabase } = authResult
 
-      // Crear aula
       const { error } = await supabase
         .from('aulas')
         .insert({
@@ -64,10 +62,11 @@ export function AulaDialog({ open, onOpenChange, onSuccess, fcpId }: AulaDialogP
       if (error) throw error
 
       reset()
+      toast.created('Aula')
       onSuccess()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating aula:', error)
-      alert('Error al crear el aula. Por favor, intenta nuevamente.')
+      toast.error('Error al crear el aula', error?.message || 'Intenta nuevamente.')
     } finally {
       setLoading(false)
     }

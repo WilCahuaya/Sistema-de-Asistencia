@@ -16,6 +16,8 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Textarea } from '@/components/ui/textarea'
 import { Calendar, CheckCircle2 } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
+import { useCorreccionMes } from '@/hooks/useCorreccionMes'
+import { toast } from '@/lib/toast'
 
 interface Estudiante {
   id: string
@@ -51,6 +53,24 @@ export function AsistenciaRegistroDialog({
   const [asistencias, setAsistencias] = useState<Map<string, AsistenciaFormData>>(new Map())
   const [savedCount, setSavedCount] = useState(0)
   const { canEdit, role } = useUserRole(fcpId)
+  const [y, m] = (() => {
+    const d = new Date(fecha + 'T12:00:00')
+    return [d.getFullYear(), d.getMonth() + 1]
+  })()
+  const { data: correccionMes } = useCorreccionMes(fcpId, y, m)
+  const correccionHabilitada = correccionMes?.estado === 'correccion_habilitada'
+  const puedeEditarMes = (() => {
+    const now = new Date()
+    const ay = now.getFullYear()
+    const am0 = now.getMonth()
+    const vista = y * 12 + (m - 1)
+    const actual = ay * 12 + am0
+    const prev = actual - 1
+    if (vista > actual) return canEdit && (role === 'director' || role === 'secretario')
+    if (vista === actual) return canEdit && (role === 'director' || role === 'secretario')
+    if (vista === prev && correccionHabilitada && role === 'secretario') return true
+    return false
+  })()
 
   useEffect(() => {
     if (open) {
@@ -151,37 +171,27 @@ export function AsistenciaRegistroDialog({
 
   const onSubmit = async () => {
     if (!fcpId || !aulaId || !fecha) {
-      alert('Faltan datos requeridos')
+      toast.warning('Faltan datos', 'Completa los datos requeridos.')
       return
     }
 
-    // Validar permisos: solo director y secretario pueden registrar asistencias
-    if (!canEdit || (role !== 'director' && role !== 'secretario')) {
-      alert('No tienes permisos para registrar asistencias. Solo los directores y secretarios pueden realizar esta acción.')
+    if (!puedeEditarMes) {
+      toast.warning('Sin permisos', 'No puedes registrar asistencias en esta fecha. El mes puede estar cerrado o la corrección no habilitada.')
       return
     }
 
-    // Validar inmutabilidad: no permitir registrar asistencias en fechas de meses anteriores
-    // IMPORTANTE: Comparar solo meses, no días, para permitir mes actual y futuros
-    const fechaAsistencia = new Date(fecha + 'T00:00:00') // Asegurar hora local
-    const fechaActual = new Date()
-    const mesAsistencia = new Date(fechaAsistencia.getFullYear(), fechaAsistencia.getMonth(), 1)
-    const mesActual = new Date(fechaActual.getFullYear(), fechaActual.getMonth(), 1)
-    
-    console.log('🔍 [AsistenciaRegistroDialog] Validación de fecha:', {
-      fecha,
-      fechaAsistencia: fechaAsistencia.toISOString(),
-      mesAsistencia: mesAsistencia.toISOString(),
-      mesActual: mesActual.toISOString(),
-      esMesAnterior: mesAsistencia < mesActual,
-      esMesActual: mesAsistencia.getTime() === mesActual.getTime(),
-      esMesFuturo: mesAsistencia > mesActual
-    })
-    
-    // Solo bloquear si es un mes anterior (estrictamente menor)
-    // Permitir mes actual (igual) y meses futuros (mayor)
-    if (mesAsistencia < mesActual) {
-      alert('No se pueden registrar asistencias en fechas de meses anteriores. Las asistencias quedan cerradas al finalizar cada mes.')
+    const now = new Date()
+    const ay = now.getFullYear()
+    const am0 = now.getMonth()
+    const vista = y * 12 + (m - 1)
+    const actual = ay * 12 + am0
+    const prev = actual - 1
+    if (vista < actual && vista !== prev) {
+      toast.warning('Mes cerrado', 'No se pueden registrar asistencias de meses más antiguos que el anterior.')
+      return
+    }
+    if (vista < actual && !correccionHabilitada) {
+      toast.warning('Corrección no habilitada', 'El facilitador debe habilitar la corrección del mes anterior.')
       return
     }
 
@@ -189,9 +199,8 @@ export function AsistenciaRegistroDialog({
       setLoading(true)
 
       const authResult = await ensureAuthenticated()
-      
       if (!authResult || !authResult.user) {
-        alert('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.')
+        toast.error('Sesión expirada', 'Por favor, inicia sesión nuevamente.')
         setLoading(false)
         return
       }
@@ -212,7 +221,7 @@ export function AsistenciaRegistroDialog({
       }))
 
       if (asistenciasToSave.length === 0) {
-        alert('No hay estudiantes para registrar asistencias')
+        toast.warning('Sin estudiantes', 'No hay estudiantes para registrar asistencias.')
         setLoading(false)
         return
       }
@@ -225,9 +234,8 @@ export function AsistenciaRegistroDialog({
         })
 
       if (error) {
-        // Si el error es de inmutabilidad desde la BD, mostrar mensaje específico
         if (error.message?.includes('meses anteriores') || error.message?.includes('mes cerrado')) {
-          alert('No se pueden registrar asistencias en fechas de meses anteriores. Las asistencias quedan cerradas al finalizar cada mes.')
+          toast.error('Mes cerrado', 'No se pueden registrar asistencias en fechas de meses anteriores.')
         } else {
           throw error
         }
@@ -236,6 +244,9 @@ export function AsistenciaRegistroDialog({
       }
 
       setSavedCount(asistenciasToSave.length)
+      toast.success(
+        asistenciasToSave.length === 1 ? 'Asistencia guardada' : `${asistenciasToSave.length} asistencias guardadas`
+      )
       setTimeout(() => {
         onSuccess()
         setAsistencias(new Map())
@@ -243,7 +254,7 @@ export function AsistenciaRegistroDialog({
       }, 1000)
     } catch (error: any) {
       console.error('Error saving asistencias:', error)
-      alert('Error al guardar las asistencias. Por favor, intenta nuevamente.')
+      toast.error('Error al guardar asistencias', error?.message || 'Intenta nuevamente.')
     } finally {
       setLoading(false)
     }
@@ -353,7 +364,7 @@ export function AsistenciaRegistroDialog({
           <Button
             type="button"
             onClick={onSubmit}
-            disabled={loading || estudiantes.length === 0}
+            disabled={loading || estudiantes.length === 0 || !puedeEditarMes}
           >
             {loading ? (
               <>

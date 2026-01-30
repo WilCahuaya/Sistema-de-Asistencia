@@ -8,9 +8,17 @@ import { MonthPicker } from '@/components/ui/month-picker'
 import { BarChart3, FileSpreadsheet, FileText, Calendar, Download } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
+import { toast } from '@/lib/toast'
 import {
   getExcelHeaderStyle,
   getExcelCellStyle,
@@ -92,6 +100,7 @@ export function ReporteList() {
   const [responsable, setResponsable] = useState<{ nombre: string; email: string; rol: string } | null>(null)
   const [esFacilitador, setEsFacilitador] = useState<boolean>(false)
   const [fcpIdParaFacilitador, setFcpIdParaFacilitador] = useState<string | null>(null)
+  const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string }>>([])
   const router = useRouter()
   const { selectedRole } = useSelectedRole()
   const fcpIdParaReporte = selectedRole?.fcpId
@@ -103,8 +112,8 @@ export function ReporteList() {
   useEffect(() => {
     const verificarFacilitador = async () => {
       if (fcpIdParaReporte) {
-        // Si ya hay un fcpId, usarlo directamente
         setEsFacilitador(false)
+        setUserFCPs([])
         setFcpIdParaFacilitador(null)
         setFcpIdFinal(fcpIdParaReporte)
         return
@@ -115,66 +124,49 @@ export function ReporteList() {
       
       if (!user) {
         setEsFacilitador(false)
+        setUserFCPs([])
         setFcpIdParaFacilitador(null)
         setFcpIdFinal(null)
         return
       }
 
-      // Si selectedRole indica que es facilitador pero fcpId es null, buscar la primera FCP donde es facilitador
-      if (selectedRole?.role === 'facilitador' && !selectedRole.fcpId) {
-        console.log('👤 [ReporteList] Facilitador sin fcpId, buscando primera FCP asignada')
-        
-        // Buscar todas las FCPs donde el usuario es facilitador con fcp_id no nulo
-        const { data: facilitadorFCPs, error: facilitadorFCPsError } = await supabase
-          .from('fcp_miembros')
-          .select('fcp_id, fcp:fcps(id, razon_social, numero_identificacion)')
-          .eq('usuario_id', user.id)
-          .eq('rol', 'facilitador')
-          .eq('activo', true)
-          .not('fcp_id', 'is', null) // Solo FCPs con fcp_id no nulo
-          .order('fecha_asignacion', { ascending: false }) // Más reciente primero
-          .limit(1)
-          .maybeSingle()
+      // Facilitador: tabla facilitadores. FCPs vía fcps.facilitador_id.
+      const { data: facRow } = await supabase.from('facilitadores').select('usuario_id').eq('usuario_id', user.id).maybeSingle()
+      const esFac = !!facRow
 
-        if (!facilitadorFCPsError && facilitadorFCPs && facilitadorFCPs.fcp_id) {
+      if ((selectedRole?.role === 'facilitador' || esFac) && !fcpIdParaReporte) {
+        if (esFac) {
+          const { data: fcpsData } = await supabase
+            .from('fcps')
+            .select('id, razon_social, numero_identificacion')
+            .eq('facilitador_id', user.id)
+            .eq('activa', true)
+            .order('razon_social', { ascending: true })
+          const fcps = (fcpsData || []).map((f: any) => ({
+            id: f.id,
+            nombre: f.razon_social || f.numero_identificacion || 'FCP',
+            numero_identificacion: f.numero_identificacion,
+          }))
+          setUserFCPs(fcps)
           setEsFacilitador(true)
-          setFcpIdParaFacilitador(facilitadorFCPs.fcp_id)
-          setFcpIdFinal(facilitadorFCPs.fcp_id)
-          console.log('👤 [ReporteList] Facilitador encontrado con FCP:', facilitadorFCPs.fcp_id, facilitadorFCPs.fcp)
-        } else {
-          // Es facilitador pero no tiene FCPs asignadas (facilitador del sistema)
-          setEsFacilitador(true)
-          setFcpIdParaFacilitador(null)
-          setFcpIdFinal(null)
-          console.log('👤 [ReporteList] Usuario es facilitador del sistema (sin FCP específica)')
-        }
-      } else if (!fcpIdParaReporte) {
-        // Si no hay fcpId y no es facilitador según selectedRole, verificar si es facilitador
-        const { data: facilitadorCheck, error: facilitadorCheckError } = await supabase
-          .from('fcp_miembros')
-          .select('fcp_id, fcp:fcps(id, razon_social, numero_identificacion)')
-          .eq('usuario_id', user.id)
-          .eq('rol', 'facilitador')
-          .eq('activo', true)
-          .not('fcp_id', 'is', null)
-          .order('fecha_asignacion', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-
-        if (!facilitadorCheckError && facilitadorCheck && facilitadorCheck.fcp_id) {
-          setEsFacilitador(true)
-          setFcpIdParaFacilitador(facilitadorCheck.fcp_id)
-          setFcpIdFinal(facilitadorCheck.fcp_id)
-          console.log('👤 [ReporteList] Usuario es facilitador (detectado sin selectedRole), usando FCP:', facilitadorCheck.fcp_id)
+          if (fcps.length > 0) {
+            setFcpIdParaFacilitador(fcps[0].id)
+            setFcpIdFinal(fcps[0].id)
+          } else {
+            setFcpIdParaFacilitador(null)
+            setFcpIdFinal(null)
+          }
         } else {
           setEsFacilitador(false)
+          setUserFCPs([])
           setFcpIdParaFacilitador(null)
           setFcpIdFinal(null)
         }
       } else {
-        // Ya hay fcpId, no necesitamos verificar
         setEsFacilitador(false)
+        setUserFCPs([])
         setFcpIdParaFacilitador(null)
+        setFcpIdFinal(null)
       }
     }
 
@@ -204,14 +196,15 @@ export function ReporteList() {
 
 
   const generarReporte = async () => {
-    const fcpIdAUsar = fcpIdParaReporte || fcpIdParaFacilitador
+    const fcpIdAUsar = fcpIdFinal ?? fcpIdParaReporte ?? fcpIdParaFacilitador
     
     if (!fcpIdAUsar) {
-      alert('Por favor, asegúrate de tener un rol seleccionado')
+      toast.warning('Selecciona FCP o rol', 'Asegúrate de tener un rol seleccionado o selecciona una FCP.')
       return
     }
 
     console.log('📊 [ReporteList] Generando reporte con:', {
+      fcpIdFinal,
       fcpIdParaReporte,
       fcpIdParaFacilitador,
       fcpIdAUsar,
@@ -1154,7 +1147,7 @@ export function ReporteList() {
       }, 100)
     } catch (error) {
       console.error('Error generating report:', error)
-      alert('Error al generar el reporte. Por favor, intenta nuevamente.')
+      toast.error('Error al generar el reporte', 'Intenta nuevamente.')
     } finally {
       setLoading(false)
     }
@@ -1331,7 +1324,7 @@ export function ReporteList() {
       }
     } catch (error) {
       console.error('Error exporting to Excel:', error)
-      alert('Error al exportar a Excel. Por favor, intenta nuevamente.')
+      toast.error('Error al exportar a Excel', 'Intenta nuevamente.')
     }
   }
 
@@ -1508,7 +1501,7 @@ export function ReporteList() {
       }
     } catch (error) {
       console.error('Error exporting to PDF:', error)
-      alert('Error al exportar a PDF. Por favor, intenta nuevamente.')
+      toast.error('Error al exportar a PDF', 'Intenta nuevamente.')
     }
   }
 
@@ -1551,6 +1544,29 @@ export function ReporteList() {
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+            {esFacilitador && userFCPs.length > 0 && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">FCP:</label>
+                <Select
+                  value={fcpIdFinal ?? ''}
+                  onValueChange={(value) => {
+                    setFcpIdFinal(value || null)
+                    setFcpIdParaFacilitador(value || null)
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar FCP" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {userFCPs.map((fcp) => (
+                      <SelectItem key={fcp.id} value={fcp.id}>
+                        {fcp.numero_identificacion ? `${fcp.numero_identificacion} – ` : ''}{fcp.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div>
               <label className="text-sm font-medium mb-2 block">Mes:</label>
               <MonthPicker

@@ -11,7 +11,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus, GraduationCap, Users, Edit, Building2 } from 'lucide-react'
+import { Plus, GraduationCap, Users, Edit, Building2, Eye, EyeOff } from 'lucide-react'
+import { Checkbox } from '@/components/ui/checkbox'
 import { AulaDialog } from './AulaDialog'
 import { AulaTutorDialog } from './AulaTutorDialog'
 import { AulaEditDialog } from './AulaEditDialog'
@@ -49,6 +50,7 @@ export function AulaList() {
   const [editingAula, setEditingAula] = useState<Aula | null>(null)
   const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
+  const [showInactive, setShowInactive] = useState(false)
   const router = useRouter()
   const { selectedRole } = useSelectedRole()
   
@@ -65,7 +67,7 @@ export function AulaList() {
 
   useEffect(() => {
     loadUserFCPs()
-  }, [])
+  }, [selectedRole?.role, selectedRole?.fcpId])
 
   useEffect(() => {
     // Si hay un rol seleccionado con fcpId, usarlo
@@ -82,7 +84,7 @@ export function AulaList() {
     if (selectedFCP || isTutorState) {
       loadAulas()
     }
-  }, [selectedFCP, isTutorState])
+  }, [selectedFCP, isTutorState, showInactive])
 
   const loadUserFCPs = async () => {
     try {
@@ -90,57 +92,43 @@ export function AulaList() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Usar el rol seleccionado para determinar qué FCPs mostrar
-      const esFacilitador = isFacilitador
       let fcps: Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }> = []
 
-      if (esFacilitador) {
-        // Facilitadores pueden ver todas las FCPs del sistema
-        const { data: todasLasFCPs, error: fcpsError } = await supabase
+      if (isFacilitador) {
+        const { data: d, error: e } = await supabase
           .from('fcps')
           .select('id, razon_social, numero_identificacion')
+          .eq('facilitador_id', user.id)
           .eq('activa', true)
           .order('razon_social', { ascending: true })
-        
-        if (fcpsError) throw fcpsError
-        fcps = (todasLasFCPs || []).map((fcp: any) => ({
-          id: fcp.id,
-          nombre: fcp.razon_social || 'FCP',
-          numero_identificacion: fcp.numero_identificacion,
-          razon_social: fcp.razon_social,
-        }))
+        if (!e && d) fcps = d.map((f: any) => ({ id: f.id, nombre: f.razon_social || 'FCP', numero_identificacion: f.numero_identificacion, razon_social: f.razon_social }))
       } else {
-        // Usuarios no facilitadores solo ven sus FCPs
         const { data, error } = await supabase
           .from('fcp_miembros')
-          .select(`
-            fcp_id,
-            fcp:fcps(id, razon_social, numero_identificacion)
-          `)
+          .select('fcp_id, fcp:fcps(id, razon_social, numero_identificacion)')
           .eq('usuario_id', user.id)
           .eq('activo', true)
-
-        if (error) throw error
-
-        fcps = data?.map((item: any) => ({
-          id: item.fcp?.id,
-          nombre: item.fcp?.razon_social || 'FCP',
-          numero_identificacion: item.fcp?.numero_identificacion,
-          razon_social: item.fcp?.razon_social,
-        })).filter((fcp: any) => fcp.id) || []
+        if (!error && data) {
+          fcps = data.map((item: any) => ({
+            id: item.fcp?.id,
+            nombre: item.fcp?.razon_social || 'FCP',
+            numero_identificacion: item.fcp?.numero_identificacion,
+            razon_social: item.fcp?.razon_social,
+          })).filter((f: any) => f.id) || []
+        }
       }
 
-      // Si hay un rol seleccionado con fcpId, asegurarse de que esté en la lista
-      if (fcpIdFromRole && selectedRole?.fcp) {
-        const fcpFromRole = {
+      if (selectedRole?.fcpId) {
+        const sole = fcps.find(f => f.id === selectedRole!.fcpId!)
+        fcps = sole ? [sole] : []
+      }
+      if (fcpIdFromRole && selectedRole?.fcp && !fcps.find(f => f.id === fcpIdFromRole)) {
+        fcps = [{
           id: fcpIdFromRole,
           nombre: selectedRole.fcp.razon_social || 'FCP',
           numero_identificacion: selectedRole.fcp.numero_identificacion,
           razon_social: selectedRole.fcp.razon_social,
-        }
-        if (!fcps.find(fcp => fcp.id === fcpIdFromRole)) {
-          fcps.push(fcpFromRole)
-        }
+        }]
       }
 
       setUserFCPs(fcps)
@@ -238,12 +226,19 @@ export function AulaList() {
           return
         }
         
-        const { data: aulasData, error: aulasError } = await supabase
+        // Construir la consulta base
+        let aulasQuery = supabase
           .from('aulas')
           .select('*')
           .eq('fcp_id', fcpIdToUse)
-          .eq('activa', true)
           .order('nombre', { ascending: true })
+        
+        // Si no se muestran inactivos, filtrar solo las activas
+        if (!showInactive) {
+          aulasQuery = aulasQuery.eq('activa', true)
+        }
+        
+        const { data: aulasData, error: aulasError } = await aulasQuery
 
         data = aulasData || []
         error = aulasError
@@ -443,12 +438,38 @@ export function AulaList() {
             </Select>
           </div>
         )}
-        <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
-          <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedFCP}>
-            <Plus className="mr-2 h-4 w-4" />
-            Crear Aula
-          </Button>
-        </RoleGuard>
+        
+        <div className="flex items-center gap-4">
+          {/* Toggle para mostrar aulas inactivas - solo para directores y secretarios */}
+          <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
+            <button
+              onClick={() => setShowInactive(!showInactive)}
+              className={`group inline-flex items-center gap-2 px-4 py-2 rounded-full 
+                         border transition-all duration-300 ease-in-out
+                         focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-2
+                         ${showInactive 
+                           ? 'bg-primary/10 border-primary/50 text-primary hover:bg-primary/20' 
+                           : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted hover:text-foreground'
+                         }`}
+            >
+              {showInactive ? (
+                <Eye className="h-4 w-4" />
+              ) : (
+                <EyeOff className="h-4 w-4" />
+              )}
+              <span className="text-sm font-medium">
+                {showInactive ? 'Ocultando inactivas' : 'Mostrar inactivas'}
+              </span>
+            </button>
+          </RoleGuard>
+          
+          <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
+            <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedFCP}>
+              <Plus className="mr-2 h-4 w-4" />
+              Crear Aula
+            </Button>
+          </RoleGuard>
+        </div>
       </div>
 
       {aulas.length === 0 ? (
@@ -471,9 +492,21 @@ export function AulaList() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {aulas.map((aula) => (
-            <Card key={aula.id} className="cursor-pointer hover:shadow-lg transition-shadow">
+            <Card 
+              key={aula.id} 
+              className={`cursor-pointer hover:shadow-lg transition-shadow ${
+                !aula.activa ? 'opacity-60 border-dashed bg-muted/30' : ''
+              }`}
+            >
               <CardHeader>
-                <CardTitle>{aula.nombre}</CardTitle>
+                <CardTitle className={!aula.activa ? 'text-muted-foreground' : ''}>
+                  {aula.nombre}
+                  {!aula.activa && (
+                    <span className="ml-2 text-xs font-normal text-amber-600 dark:text-amber-400">
+                      (Inactiva)
+                    </span>
+                  )}
+                </CardTitle>
                 {aula.descripcion && (
                   <CardDescription>{aula.descripcion}</CardDescription>
                 )}
@@ -573,6 +606,7 @@ export function AulaList() {
           initialData={{
             nombre: editingAula.nombre,
             descripcion: editingAula.descripcion || '',
+            activa: editingAula.activa,
           }}
         />
       )}

@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useForm } from 'react-hook-form'
+import { toast } from '@/lib/toast'
 
 interface FCPFormData {
   numero_identificacion: string
@@ -88,10 +89,9 @@ export function FCPDialog({ open, onOpenChange, onSuccess }: FCPDialogProps) {
       if (!authResult || !authResult.user) {
         console.error('Authentication failed during form submission:', authResult)
         setAuthError('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.')
+        toast.error('Sesión expirada', 'Por favor, inicia sesión nuevamente.')
         setLoading(false)
-        setTimeout(() => {
-          router.push('/login')
-        }, 2000)
+        setTimeout(() => { router.push('/login') }, 2000)
         return
       }
 
@@ -134,8 +134,8 @@ export function FCPDialog({ open, onOpenChange, onSuccess }: FCPDialogProps) {
         console.error('Error calling debug_auth RPC:', error)
       }
 
-      // Crear FCP usando el mismo cliente que tiene la sesión
-      // El cliente de Supabase automáticamente incluirá el token en los headers
+      // Solo facilitadores pueden crear FCPs (RLS). La FCP pertenece al facilitador (fcps.facilitador_id).
+      // El rol Facilitador solo se asigna en BD; no se usa fcp_miembros para facilitadores.
       console.log('Attempting to insert FCP...')
       const { data: fcp, error: fcpError } = await supabase
         .from('fcps')
@@ -147,6 +147,7 @@ export function FCPDialog({ open, onOpenChange, onSuccess }: FCPDialogProps) {
           email: data.email,
           ubicacion: data.ubicacion,
           rol_contacto: data.rol_contacto,
+          facilitador_id: user.id,
           created_by: user.id,
         })
         .select()
@@ -154,47 +155,21 @@ export function FCPDialog({ open, onOpenChange, onSuccess }: FCPDialogProps) {
 
       if (fcpError) {
         console.error('Error creating FCP:', fcpError)
-        setAuthError(`Error al crear la FCP: ${fcpError.message} (Código: ${fcpError.code})`)
+        const errMsg = `Error al crear la FCP: ${fcpError.message} (Código: ${fcpError.code})`
+        setAuthError(errMsg)
+        toast.error('Error al crear la FCP', fcpError.message)
         setLoading(false)
         return
       }
 
       if (!fcp) {
         setAuthError('Error: La FCP se creó pero no se devolvió correctamente.')
+        toast.error('Error al crear la FCP', 'No se devolvió el registro.')
         setLoading(false)
         return
       }
 
       console.log('FCP created successfully:', fcp.id)
-
-      // Asociar usuario como facilitador de la FCP
-      // Nota: Los facilitadores necesitan tener al menos un registro en fcp_miembros con rol 'facilitador'
-      // para que la función es_facilitador() los identifique
-      const { error: fcpMiembroError } = await supabase
-        .from('fcp_miembros')
-        .insert({
-          usuario_id: user.id,
-          fcp_id: fcp.id,
-          rol: 'facilitador',
-          activo: true,
-        })
-
-      if (fcpMiembroError) {
-        console.error('Error creating fcp_miembros:', fcpMiembroError)
-        console.error('Error details:', {
-          message: fcpMiembroError.message,
-          code: fcpMiembroError.code,
-          details: fcpMiembroError.details,
-          hint: fcpMiembroError.hint,
-        })
-        // Intentar eliminar la FCP creada si falla la asociación
-        await supabase.from('fcps').delete().eq('id', fcp.id)
-        setAuthError(`Error al asociar el usuario con la FCP: ${fcpMiembroError.message} (Código: ${fcpMiembroError.code || 'N/A'}). Detalles: ${fcpMiembroError.details || 'Sin detalles'}`)
-        setLoading(false)
-        return
-      }
-
-      console.log('Usuario facilitador asociado correctamente a la FCP')
 
       // Crear usuario con rol de director para la FCP
       // Primero intentar asociar usando la función RPC que busca en auth.users
@@ -241,10 +216,13 @@ export function FCPDialog({ open, onOpenChange, onSuccess }: FCPDialogProps) {
       }
       reset()
       setAuthError(null)
+      toast.created('FCP')
       onSuccess()
     } catch (error: any) {
       console.error('Error inesperado creating FCP:', error)
-      setAuthError(`Error inesperado: ${error.message || 'Error desconocido'}`)
+      const msg = error?.message || 'Error desconocido'
+      setAuthError(`Error inesperado: ${msg}`)
+      toast.error('Error al crear la FCP', msg)
       setLoading(false)
     }
   }

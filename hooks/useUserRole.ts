@@ -20,17 +20,11 @@ interface UseUserRoleResult {
 }
 
 /**
- * Hook para obtener el rol del usuario actual en una FCP específica
- * 
+ * Hook para obtener el rol del usuario actual en una FCP específica.
+ * La interfaz y permisos dependen exclusivamente del rol seleccionado (selectedRole).
+ *
  * @param fcpId - ID de la FCP
  * @returns Objeto con el rol del usuario y helpers de permisos
- * 
- * @example
- * const { role, canEdit, loading } = useUserRole(fcpId)
- * 
- * if (canEdit) {
- *   // Mostrar botones de edición
- * }
  */
 export function useUserRole(fcpId: string | null): UseUserRoleResult {
   const [role, setRole] = useState<RolType>(null)
@@ -51,17 +45,17 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
           return
         }
 
-        // PRIMERO: Intentar usar el rol seleccionado desde el contexto
         if (selectedRole) {
-          // Si hay un rol seleccionado y coincide con la FCP actual (o es facilitador del sistema)
           if (selectedRole.fcpId === fcpId || selectedRole.fcpId === null || !fcpId) {
-            console.log('✅ useUserRole - Usando rol seleccionado desde contexto:', {
-              selectedRole: selectedRole.role,
-              fcpId: selectedRole.fcpId,
-              requestedFcpId: fcpId
-            })
             if (!cancelled) {
               setRole(selectedRole.role)
+              setLoading(false)
+            }
+            return
+          }
+          if (selectedRole.fcpId && fcpId && selectedRole.fcpId !== fcpId) {
+            if (!cancelled) {
+              setRole(null)
               setLoading(false)
             }
             return
@@ -81,21 +75,35 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
           return
         }
 
-        // Primero verificar si el usuario es facilitador del sistema (fcp_id = NULL)
-        // Los facilitadores pueden gestionar todas las FCPs
-        const { data: facilitadorSistemaData, error: facilitadorSistemaError } = await supabase
-          .from('fcp_miembros')
-          .select('rol')
+        // Facilitador solo desde BD (tabla facilitadores). FCP dueño vía fcps.facilitador_id.
+        const { data: facilitadorRow } = await supabase
+          .from('facilitadores')
+          .select('usuario_id')
           .eq('usuario_id', user.id)
-          .is('fcp_id', null)
-          .eq('rol', 'facilitador')
-          .eq('activo', true)
           .maybeSingle()
 
         if (cancelled) return
 
-        // Si es facilitador del sistema, retornar ese rol
-        if (facilitadorSistemaData && !facilitadorSistemaError) {
+        const esFacilitador = !!facilitadorRow
+
+        if (esFacilitador && fcpId) {
+          const { data: fcpRow } = await supabase
+            .from('fcps')
+            .select('id')
+            .eq('id', fcpId)
+            .eq('facilitador_id', user.id)
+            .maybeSingle()
+          if (cancelled) return
+          if (fcpRow) {
+            if (!cancelled) {
+              setRole('facilitador')
+              setLoading(false)
+            }
+            return
+          }
+        }
+
+        if (esFacilitador && !fcpId) {
           if (!cancelled) {
             setRole('facilitador')
             setLoading(false)
@@ -103,29 +111,6 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
           return
         }
 
-        // También verificar si el usuario es facilitador en CUALQUIER FCP
-        // Esto es necesario porque los facilitadores pueden estar asociados a FCPs específicas
-        const { data: facilitadorCualquierFCPData, error: facilitadorCualquierFCPError } = await supabase
-          .from('fcp_miembros')
-          .select('rol')
-          .eq('usuario_id', user.id)
-          .eq('rol', 'facilitador')
-          .eq('activo', true)
-          .limit(1)
-          .maybeSingle()
-
-        if (cancelled) return
-
-        // Si es facilitador en alguna FCP, retornar ese rol
-        if (facilitadorCualquierFCPData && !facilitadorCualquierFCPError) {
-          if (!cancelled) {
-            setRole('facilitador')
-            setLoading(false)
-          }
-          return
-        }
-
-        // Si no hay fcpId, no podemos obtener el rol específico
         if (!fcpId) {
           if (!cancelled) {
             setRole(null)
@@ -134,21 +119,7 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
           return
         }
 
-        // Si hay un rol seleccionado pero es para otra FCP, verificar si el usuario tiene roles en esta FCP
-        // Si el rol seleccionado es para esta FCP, usarlo directamente
-        if (selectedRole && selectedRole.fcpId === fcpId) {
-          console.log('✅ useUserRole - Usando rol seleccionado para esta FCP:', {
-            selectedRole: selectedRole.role,
-            fcpId: selectedRole.fcpId
-          })
-          if (!cancelled) {
-            setRole(selectedRole.role)
-            setLoading(false)
-          }
-          return
-        }
-
-        // Si no hay rol seleccionado o es para otra FCP, obtener el rol en la FCP específica
+        // Sin rol seleccionado aplicable: obtener rol en la FCP vía fcp_miembros
         // Usar el rol seleccionado si está disponible, de lo contrario usar el de mayor jerarquía
         const { data: fcpMiembrosData, error: queryError } = await supabase
           .from('fcp_miembros')

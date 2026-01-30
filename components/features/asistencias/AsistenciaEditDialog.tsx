@@ -16,6 +16,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Textarea } from '@/components/ui/textarea'
 import { Edit } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
+import { toast } from '@/lib/toast'
 
 interface Asistencia {
   id: string
@@ -59,20 +60,17 @@ export function AsistenciaEditDialog({
   }, [open, asistencia])
 
   const onSubmit = async () => {
-    // Validar permisos: solo director y secretario pueden editar asistencias
     if (!canEdit || (role !== 'director' && role !== 'secretario')) {
-      alert('No tienes permisos para editar asistencias. Solo los directores y secretarios pueden realizar esta acción.')
+      toast.warning('Sin permisos', 'Solo directores y secretarios pueden editar asistencias.')
       return
     }
 
-    // Validar inmutabilidad: no permitir editar asistencias de meses anteriores
     const fechaAsistencia = new Date(asistencia.fecha)
     const fechaActual = new Date()
     const mesAsistencia = new Date(fechaAsistencia.getFullYear(), fechaAsistencia.getMonth(), 1)
     const mesActual = new Date(fechaActual.getFullYear(), fechaActual.getMonth(), 1)
-    
     if (mesAsistencia < mesActual) {
-      alert('No se pueden modificar asistencias de meses anteriores. Las asistencias quedan cerradas al finalizar cada mes.')
+      toast.warning('Mes cerrado', 'No se pueden modificar asistencias de meses anteriores.')
       return
     }
 
@@ -80,9 +78,8 @@ export function AsistenciaEditDialog({
       setLoading(true)
 
       const authResult = await ensureAuthenticated()
-      
       if (!authResult || !authResult.user) {
-        alert('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.')
+        toast.error('Sesión expirada', 'Por favor, inicia sesión nuevamente.')
         setLoading(false)
         return
       }
@@ -100,9 +97,8 @@ export function AsistenciaEditDialog({
         .eq('id', asistencia.id)
 
       if (error) {
-        // Si el error es de inmutabilidad desde la BD, mostrar mensaje específico
         if (error.message?.includes('meses anteriores') || error.message?.includes('mes cerrado')) {
-          alert('No se pueden modificar asistencias de meses anteriores. Las asistencias quedan cerradas al finalizar cada mes.')
+          toast.error('Mes cerrado', 'No se pueden modificar asistencias de meses anteriores.')
         } else {
           throw error
         }
@@ -110,10 +106,11 @@ export function AsistenciaEditDialog({
         return
       }
 
+      toast.updated('Asistencia')
       onSuccess()
     } catch (error: any) {
       console.error('Error updating asistencia:', error)
-      alert(error.message || 'Error al actualizar la asistencia. Por favor, intenta nuevamente.')
+      toast.error('Error al actualizar asistencia', error?.message || 'Intenta nuevamente.')
     } finally {
       setLoading(false)
     }

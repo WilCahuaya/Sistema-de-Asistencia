@@ -149,43 +149,67 @@ export default async function DashboardPage() {
 
   let fcps: any[] = []
   let fcpsError: any = null
+  const fcpMap = new Map<string, { fcp_id: string; fcp: any; rol: string; activo: boolean }>()
 
-  // Todos los usuarios (incluidos facilitadores) solo ven las FCPs donde tienen roles asignados
-  // Excluir facilitadores del sistema (fcp_id = null)
-  const { data: fcpsData, error: fcpsErrorUsuario } = await supabase
-    .from('fcp_miembros')
-    .select(`
-      *,
-      fcp:fcps(*)
-    `)
-    .eq('usuario_id', user.id)
-    .eq('activo', true)
-    .not('fcp_id', 'is', null)  // Excluir facilitadores del sistema
+  const { data: facRow } = await supabase.from('facilitadores').select('usuario_id').eq('usuario_id', user.id).maybeSingle()
+  const esFacilitador = !!facRow
 
-  if (fcpsErrorUsuario) {
-    console.error('Error loading FCPs:', fcpsErrorUsuario)
-    fcpsError = fcpsErrorUsuario
-  } else {
-    // Filtrar también en el código por si acaso
-    fcps = (fcpsData || []).filter((fcp: any) => fcp.fcp_id !== null && fcp.fcp !== null)
+  if (esFacilitador) {
+    const { data: fcpsData, error: e } = await supabase
+      .from('fcps')
+      .select('*')
+      .eq('facilitador_id', user.id)
+      .eq('activa', true)
+      .order('razon_social')
+    if (e) fcpsError = e
+    else if (fcpsData) {
+      for (const f of fcpsData) {
+        fcpMap.set(f.id, { fcp_id: f.id, fcp: f, rol: 'facilitador', activo: true })
+      }
+    }
   }
 
-  // Verificar si el usuario tiene algún rol asignado (excluyendo facilitadores del sistema)
+  const { data: miembrosData, error: miembrosErr } = await supabase
+    .from('fcp_miembros')
+    .select('*, fcp:fcps(*)')
+    .eq('usuario_id', user.id)
+    .eq('activo', true)
+    .not('fcp_id', 'is', null)
+  if (miembrosErr) fcpsError = miembrosErr
+  else if (miembrosData) {
+    const { getRolPriority } = await import('@/lib/utils/roles')
+    for (const m of miembrosData) {
+      if (!m.fcp || !m.fcp_id) continue
+      const existing = fcpMap.get(m.fcp_id)
+      const useNew = !existing || getRolPriority(m.rol) > getRolPriority(existing.rol)
+      if (useNew) fcpMap.set(m.fcp_id, { fcp_id: m.fcp_id, fcp: m.fcp, rol: m.rol, activo: true })
+    }
+  }
+
+  fcps = Array.from(fcpMap.values()).sort((a, b) => (a.fcp?.razon_social || '').localeCompare(b.fcp?.razon_social || ''))
+
+  // Filtrar por rol seleccionado: toda la app se enfoca en ese rol
+  if (selectedRoleInfo) {
+    if (selectedRoleInfo.role === 'facilitador') {
+      fcps = fcps.filter((f: any) => f.rol === 'facilitador')
+    } else if (selectedRoleInfo.fcpId) {
+      const sole = fcps.find((f: any) => f.fcp?.id === selectedRoleInfo.fcpId)
+      fcps = sole ? [sole] : []
+    }
+  }
+
   const { data: rolesCheck } = await supabase
     .from('fcp_miembros')
     .select('id, activo, rol, fcp_id')
     .eq('usuario_id', user.id)
     .eq('activo', true)
-    .not('fcp_id', 'is', null)  // Excluir facilitadores del sistema
+    .not('fcp_id', 'is', null)
     .limit(1)
 
-  // Si no tiene ningún rol activo, redirigir a la página pendiente
-  if (!rolesCheck || rolesCheck.length === 0) {
+  if (!esFacilitador && (!rolesCheck || rolesCheck.length === 0)) {
     redirect('/pendiente')
   }
 
-  // Bloquear acceso si el usuario no tiene FCPs asignadas
-  // Todos los usuarios (facilitadores, directores, secretarios, tutores) deben tener al menos una FCP asignada
   if (!fcps || fcps.length === 0) {
     redirect('/pendiente')
   }

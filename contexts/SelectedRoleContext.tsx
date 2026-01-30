@@ -46,20 +46,42 @@ export function SelectedRoleProvider({ children }: { children: ReactNode }) {
       const savedFcpId = localStorage.getItem('selectedFcpId')
 
       if (savedRoleId && savedRole) {
-        // Verificar que el rol seleccionado todavía existe y está activo
+        // Facilitador unificado (facilitador-sistema, fcpId null): validar solo en facilitadores
+        if (savedRole === 'facilitador' && (savedRoleId === 'facilitador-sistema' || !savedFcpId)) {
+          const { data: facRow } = await supabase.from('facilitadores').select('usuario_id').eq('usuario_id', user.id).maybeSingle()
+          if (facRow) {
+            const roleToSet = {
+              roleId: 'facilitador-sistema',
+              role: 'facilitador' as RolType,
+              fcpId: null as string | null,
+              fcp: { id: '', razon_social: 'Facilitador', numero_identificacion: undefined }
+            }
+            setSelectedRoleState(roleToSet)
+            setLoading(false)
+            return
+          }
+        }
+        // Facilitador por FCP (legacy): validar vía facilitadores + fcps
+        if (savedRole === 'facilitador' && savedFcpId) {
+          const { data: facRow } = await supabase.from('facilitadores').select('usuario_id').eq('usuario_id', user.id).maybeSingle()
+          const { data: fcpRow } = await supabase.from('fcps').select('id, razon_social, numero_identificacion').eq('id', savedFcpId).eq('facilitador_id', user.id).eq('activa', true).maybeSingle()
+          if (facRow && fcpRow) {
+            const roleToSet = {
+              roleId: savedRoleId,
+              role: 'facilitador' as RolType,
+              fcpId: savedFcpId,
+              fcp: { id: fcpRow.id, razon_social: fcpRow.razon_social, numero_identificacion: fcpRow.numero_identificacion }
+            }
+            setSelectedRoleState(roleToSet)
+            setLoading(false)
+            return
+          }
+        }
+
+        // Otros roles: validar en fcp_miembros
         const { data: roleData, error } = await supabase
           .from('fcp_miembros')
-          .select(`
-            id,
-            rol,
-            fcp_id,
-            activo,
-            fcp:fcps(
-              id,
-              razon_social,
-              numero_identificacion
-            )
-          `)
+          .select('id, rol, fcp_id, activo, fcp:fcps(id, razon_social, numero_identificacion)')
           .eq('id', savedRoleId)
           .eq('usuario_id', user.id)
           .eq('activo', true)
@@ -70,112 +92,70 @@ export function SelectedRoleProvider({ children }: { children: ReactNode }) {
             roleId: roleData.id,
             role: roleData.rol as RolType,
             fcpId: roleData.fcp_id,
-            fcp: roleData.fcp || undefined
+            fcp: (roleData as any).fcp || undefined
           }
-          console.log('👤 [SelectedRoleContext] Rol cargado desde localStorage:', {
-            roleId: roleToSet.roleId,
-            role: roleToSet.role,
-            fcpId: roleToSet.fcpId,
-            fcpNombre: roleToSet.fcp?.razon_social || 'N/A',
-            usuario: user.email
-          })
           setSelectedRoleState(roleToSet)
           setLoading(false)
           return
         }
       }
 
-      // Si no hay rol seleccionado o el rol seleccionado ya no es válido,
-      // obtener todos los roles y seleccionar el de mayor jerarquía
-      const { data: allRolesData, error: allRolesError } = await supabase
+      // Rol guardado no válido o no hay uno guardado; cargar todos y elegir el de mayor jerarquía
+
+      // Obtener todos los roles: un solo facilitador (facilitador-sistema) + fcp_miembros
+      const allRoles: { id: string; rol: RolType; fcp_id: string | null; fcp?: { id: string; razon_social: string; numero_identificacion?: string } }[] = []
+      const { data: facRow } = await supabase.from('facilitadores').select('usuario_id').eq('usuario_id', user.id).maybeSingle()
+      if (facRow) {
+        allRoles.push({
+          id: 'facilitador-sistema',
+          rol: 'facilitador',
+          fcp_id: null,
+          fcp: { id: '', razon_social: 'Facilitador', numero_identificacion: undefined }
+        })
+      }
+      const { data: miembrosData } = await supabase
         .from('fcp_miembros')
-        .select(`
-          id,
-          rol,
-          fcp_id,
-          fcp:fcps(
-            id,
-            razon_social,
-            numero_identificacion
-          )
-        `)
+        .select('id, rol, fcp_id, fcp:fcps(id, razon_social, numero_identificacion)')
         .eq('usuario_id', user.id)
         .eq('activo', true)
+        .not('fcp_id', 'is', null)
+      for (const m of miembrosData || []) {
+        allRoles.push({
+          id: m.id,
+          rol: m.rol as RolType,
+          fcp_id: m.fcp_id,
+          fcp: (m as any).fcp || undefined
+        })
+      }
 
-      if (allRolesError || !allRolesData || allRolesData.length === 0) {
+      if (allRoles.length === 0) {
         setSelectedRoleState(null)
         setLoading(false)
         return
       }
-
-      // Si solo tiene un rol, seleccionarlo automáticamente
-      if (allRolesData.length === 1) {
-        const singleRole = allRolesData[0]
-        const roleToSet = {
-          roleId: singleRole.id,
-          role: singleRole.rol as RolType,
-          fcpId: singleRole.fcp_id,
-          fcp: singleRole.fcp || undefined
-        }
-        console.log('👤 [SelectedRoleContext] Usuario con un solo rol, seleccionado automáticamente:', {
-          roleId: roleToSet.roleId,
-          role: roleToSet.role,
-          fcpId: roleToSet.fcpId,
-          fcpNombre: roleToSet.fcp?.razon_social || 'N/A',
-          usuario: user.email
-        })
+      if (allRoles.length === 1) {
+        const r = allRoles[0]
+        const roleToSet = { roleId: r.id, role: r.rol, fcpId: r.fcp_id, fcp: r.fcp }
         setSelectedRoleState(roleToSet)
-        // Guardar en localStorage
-        localStorage.setItem('selectedRoleId', singleRole.id)
-        localStorage.setItem('selectedRole', singleRole.rol)
-        if (singleRole.fcp_id) {
-          localStorage.setItem('selectedFcpId', singleRole.fcp_id)
-        }
+        localStorage.setItem('selectedRoleId', r.id)
+        localStorage.setItem('selectedRole', r.rol)
+        if (r.fcp_id) localStorage.setItem('selectedFcpId', r.fcp_id)
         setLoading(false)
         return
       }
 
-      // Si tiene múltiples roles, usar el de mayor jerarquía como predeterminado
-      const roles = allRolesData.map(r => r.rol) as RolType[]
-      const highestRole = getHighestPriorityRole(roles)
-      
-      // Si el rol de mayor jerarquía es facilitador, preferir uno con fcp_id no nulo
-      let highestRoleData = allRolesData.find(r => r.rol === highestRole)
-      
-      // Si el rol seleccionado es facilitador y tiene fcp_id null, buscar uno con fcp_id no nulo
-      if (highestRole === 'facilitador' && highestRoleData && !highestRoleData.fcp_id) {
-        const facilitadorConFcp = allRolesData.find(r => r.rol === 'facilitador' && r.fcp_id !== null)
-        if (facilitadorConFcp) {
-          highestRoleData = facilitadorConFcp
-          console.log('👤 [SelectedRoleContext] Facilitador con fcp_id null, usando uno con FCP asignada')
-        }
-      }
+      // Múltiples roles: NO auto-seleccionar uno de mayor jerarquía.
+      // El usuario debe elegir explícitamente en /seleccionar-rol.
+      console.log('🔍 SelectedRoleProvider - Usuario con múltiples roles, no se auto-selecciona rol por defecto.', {
+        roles: allRoles.map(r => ({
+          id: r.id,
+          rol: r.rol,
+          fcpId: r.fcp_id,
+          fcpNombre: r.fcp?.razon_social ?? 'N/A'
+        }))
+      })
 
-      if (highestRoleData) {
-        const roleToSet = {
-          roleId: highestRoleData.id,
-          role: highestRoleData.rol as RolType,
-          fcpId: highestRoleData.fcp_id,
-          fcp: highestRoleData.fcp || undefined
-        }
-        console.log('👤 [SelectedRoleContext] Usuario con múltiples roles, usando el de mayor jerarquía:', {
-          roleId: roleToSet.roleId,
-          role: roleToSet.role,
-          fcpId: roleToSet.fcpId,
-          fcpNombre: roleToSet.fcp?.razon_social || 'N/A',
-          todosLosRoles: roles,
-          rolSeleccionado: highestRole,
-          usuario: user.email
-        })
-        setSelectedRoleState(roleToSet)
-        // Guardar en localStorage
-        localStorage.setItem('selectedRoleId', highestRoleData.id)
-        localStorage.setItem('selectedRole', highestRoleData.rol)
-        if (highestRoleData.fcp_id) {
-          localStorage.setItem('selectedFcpId', highestRoleData.fcp_id)
-        }
-      }
-
+      setSelectedRoleState(null)
       setLoading(false)
     } catch (err) {
       console.error('Error loading selected role:', err)

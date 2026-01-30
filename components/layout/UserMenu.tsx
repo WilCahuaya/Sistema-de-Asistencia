@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTheme } from '@/contexts/ThemeContext'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -17,8 +18,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Badge } from '@/components/ui/badge'
-import { MoreVertical, LogOut, Palette, Check, User, Building2, Shield, Mail } from 'lucide-react'
+import { MoreVertical, LogOut, Palette, Check, User, Building2, Shield, Mail, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import Link from 'next/link'
 
 const themes = [
   {
@@ -97,6 +99,7 @@ const roleIcons: Record<string, string> = {
 
 export function UserMenu() {
   const { signOut } = useAuth()
+  const { theme, setTheme } = useTheme()
   const { selectedRole, loading: roleLoading } = useSelectedRole()
   const [signingOut, setSigningOut] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -104,46 +107,9 @@ export function UserMenu() {
     nombre: string
     email: string
   } | null>(null)
-  const [theme, setThemeState] = useState<Theme>(() => {
-    if (typeof window === 'undefined') return 'blue'
-    const savedTheme = localStorage.getItem('app-theme') as Theme | null
-    const validThemes = ['blue', 'green', 'purple', 'gray', 'dark-blue', 'dark-green', 'dark-purple']
-    return (savedTheme && validThemes.includes(savedTheme)) ? savedTheme : 'blue'
-  })
 
   useEffect(() => {
     setMounted(true)
-    // Intentar obtener el tema del contexto si está disponible
-    try {
-      // Dynamic import para evitar errores en SSR
-      import('@/contexts/ThemeContext').then(({ useTheme }) => {
-        try {
-          const themeContext = useTheme()
-          setThemeState(themeContext.theme)
-        } catch {
-          // Si no está disponible, usar localStorage
-          const savedTheme = localStorage.getItem('app-theme') as Theme | null
-          const validThemes = ['blue', 'green', 'purple', 'gray', 'dark-blue', 'dark-green', 'dark-purple']
-          if (savedTheme && validThemes.includes(savedTheme)) {
-            setThemeState(savedTheme)
-          }
-        }
-      }).catch(() => {
-        // Si el módulo no está disponible, usar localStorage
-        const savedTheme = localStorage.getItem('app-theme') as Theme | null
-        const validThemes = ['blue', 'green', 'purple', 'gray', 'dark-blue', 'dark-green', 'dark-purple']
-        if (savedTheme && validThemes.includes(savedTheme)) {
-          setThemeState(savedTheme)
-        }
-      })
-    } catch {
-      // Fallback a localStorage
-      const savedTheme = localStorage.getItem('app-theme') as Theme | null
-      const validThemes = ['blue', 'green', 'purple', 'gray', 'dark-blue', 'dark-green', 'dark-purple']
-      if (savedTheme && validThemes.includes(savedTheme)) {
-        setThemeState(savedTheme)
-      }
-    }
   }, [])
 
   useEffect(() => {
@@ -192,30 +158,7 @@ export function UserMenu() {
   }, [])
 
   const handleThemeChange = (newTheme: Theme) => {
-    setThemeState(newTheme)
-    // Forzar actualización inmediata
-    if (typeof window !== 'undefined') {
-      const root = document.documentElement
-      root.classList.remove('theme-blue', 'theme-green', 'theme-purple', 'theme-gray', 'theme-dark-blue', 'theme-dark-green', 'theme-dark-purple')
-      root.classList.add(`theme-${newTheme}`)
-      localStorage.setItem('app-theme', newTheme)
-      
-      // Intentar actualizar el contexto si está disponible
-      try {
-        import('@/contexts/ThemeContext').then(({ useTheme }) => {
-          try {
-            const themeContext = useTheme()
-            themeContext.setTheme(newTheme)
-          } catch {
-            // Ignorar si no está disponible
-          }
-        }).catch(() => {
-          // Ignorar si el módulo no está disponible
-        })
-      } catch {
-        // Ignorar errores
-      }
-    }
+    setTheme(newTheme)
   }
 
   const handleSignOut = async () => {
@@ -299,6 +242,16 @@ export function UserMenu() {
         )}
 
         <DropdownMenuLabel>Opciones</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+
+        {/* Cambiar rol: misma sesión, cambia contexto de permisos y datos */}
+        <DropdownMenuItem asChild>
+          <Link href="/seleccionar-rol" className="cursor-pointer flex items-center">
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Cambiar rol
+          </Link>
+        </DropdownMenuItem>
+
         <DropdownMenuSeparator />
         
         {/* Selector de tema */}
