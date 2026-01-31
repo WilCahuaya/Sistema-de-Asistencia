@@ -1345,7 +1345,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       <CardHeader>
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <CardTitle>Control de Asistencia - {formatMonthYear(selectedMonth, selectedYear)}</CardTitle>
-          <div className="flex gap-2 items-center">
+          <div className="flex flex-wrap gap-2 items-center w-full sm:w-auto">
             {zoomLevel !== 1 && (
               <span className="text-xs text-muted-foreground">
                 Zoom: {Math.round(zoomLevel * 100)}% | Ctrl+Scroll para ajustar
@@ -1504,7 +1504,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                   <th className="border border-border p-2 bg-muted sticky left-0 z-20 min-w-[120px] text-left shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
                     Código
                   </th>
-                  <th className="border border-border p-2 bg-muted sticky left-[120px] z-20 min-w-[180px] text-left shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+                  <th className="border border-border p-2 bg-muted sm:sticky sm:left-[120px] z-20 min-w-[180px] text-left sm:shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
                     Participante
                   </th>
                   {daysInMonth.map(({ day, date, dayName, fechaStr }) => {
@@ -1602,7 +1602,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                     <td className="border border-border p-2 bg-muted sticky left-0 z-10 font-mono text-xs min-w-[120px] shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
                       {estudiante.codigo}
                     </td>
-                    <td className="border border-border p-2 bg-muted sticky left-[120px] z-10 text-xs min-w-[180px] shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+                    <td className="border border-border p-2 bg-muted sm:sticky sm:left-[120px] z-10 text-xs min-w-[180px] sm:shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
                       {estudiante.nombre_completo}
                     </td>
                     {daysInMonth.map(({ day, date, fechaStr }) => {
