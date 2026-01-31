@@ -144,8 +144,25 @@ export async function getSelectedRoleOrHighest(userId: string): Promise<Selected
 
   console.warn('⚠️ getSelectedRoleOrHighest - No hay rol en cookies, usando fallback de mayor jerarquía. Esto no debería pasar si el usuario viene de /seleccionar-rol')
 
-  // Si no hay rol seleccionado, obtener el rol de mayor jerarquía
   const supabase = await createClient()
+
+  // Facilitador global (tabla facilitadores): puede no tener FCPs aún
+  const { data: facRow } = await supabase
+    .from('facilitadores')
+    .select('usuario_id')
+    .eq('usuario_id', userId)
+    .maybeSingle()
+  if (facRow) {
+    console.log('🔍 getSelectedRoleOrHighest - Usando rol facilitador (sin FCPs asignadas aún)')
+    return {
+      roleId: 'facilitador-sistema',
+      role: 'facilitador' as RolType,
+      fcpId: null,
+      fcp: { id: '', razon_social: 'Facilitador', numero_identificacion: undefined }
+    }
+  }
+
+  // Roles en fcp_miembros
   const { data: allRolesData, error } = await supabase
     .from('fcp_miembros')
     .select(`

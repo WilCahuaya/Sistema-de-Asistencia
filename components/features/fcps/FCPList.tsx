@@ -137,7 +137,9 @@ export function FCPList() {
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Building2 className="h-12 w-12 text-muted-foreground mb-4" />
             <p className="text-muted-foreground mb-4 text-center">
-              No tienes FCPs asignadas. Contacta a un facilitador para que te agregue a una FCP.
+              {isFacilitador
+                ? 'Aún no tienes FCPs creadas. Haz clic en "Crear Nueva FCP" para comenzar.'
+                : 'No tienes FCPs asignadas. Contacta a un facilitador para que te agregue a una FCP.'}
             </p>
           </CardContent>
         </Card>
