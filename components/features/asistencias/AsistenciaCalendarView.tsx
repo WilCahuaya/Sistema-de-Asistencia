@@ -545,6 +545,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
           estudiante_id, 
           fecha, 
           estado, 
+          observaciones,
           aula_id,
           fcp_id,
           created_by,
@@ -1021,10 +1022,12 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
 
     // Esperar a que ambas operaciones terminen
     Promise.all([updatePromises, insertPromise])
-      .then(([updateResult, insertResult]) => {
+      .then(([updateResults, insertResult]) => {
+        const updateResult = Array.isArray(updateResults) ? updateResults[0] : updateResults
+        const updateError = updateResult && 'error' in updateResult ? updateResult.error : (Array.isArray(updateResults) ? updateResults.find((r: any) => r?.error)?.error : null)
         // Verificar errores de inmutabilidad primero
-        if (updateResult.error) {
-          if (updateResult.error.message?.includes('meses anteriores') || updateResult.error.message?.includes('mes cerrado')) {
+        if (updateError) {
+          if (updateError.message?.includes('meses anteriores') || updateError.message?.includes('mes cerrado')) {
             toast.error('Mes cerrado', 'No se pueden modificar asistencias de meses anteriores. El facilitador debe habilitar la corrección.')
             setSavingDates((prev) => {
               const updated = new Set(prev)
@@ -1034,12 +1037,12 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
             loadAsistenciasMes()
             return
           }
-          toast.error('No se pudo guardar', updateResult.error.message)
+          toast.error('No se pudo guardar', updateError.message)
           setSavingDates((prev) => { const u = new Set(prev); u.delete(fechaStr); return u })
           return
         }
         
-        if (insertResult.error) {
+        if (insertResult?.error) {
           if (insertResult.error.message?.includes('meses anteriores') || insertResult.error.message?.includes('mes cerrado')) {
             toast.error('Mes cerrado', 'No se pueden registrar asistencias en fechas de meses anteriores. El facilitador debe habilitar la corrección.')
             setSavingDates((prev) => {
@@ -1056,10 +1059,11 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
           return
         }
         
-        const hasErrors = (updateResult.error && !updateResult.error.message?.includes('AbortError')) ||
-                         (insertResult.error && !insertResult.error.message?.includes('AbortError'))
+        const insertErr = (insertResult as unknown as { error?: { message?: string } })?.error
+        const hasErrors = (updateError && !(updateError as { message?: string }).message?.includes('AbortError')) ||
+                         (insertErr && !insertErr.message?.includes('AbortError'))
 
-        if (hasErrors && insertResult.error) {
+        if (hasErrors && insertErr) {
           // Si hay error en inserciones, intentar individualmente
           toInsert.forEach(async (item) => {
             try {

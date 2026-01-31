@@ -26,7 +26,7 @@ import { useUserRole } from '@/hooks/useUserRole'
 
 interface Miembro {
   id: string
-  usuario_id: string
+  usuario_id: string | null
   fcp_id: string
   rol: 'facilitador' | 'director' | 'secretario' | 'tutor'
   activo: boolean

@@ -91,8 +91,9 @@ export default function AsistenciasPage() {
           } else {
             const { data: memData, error } = await supabase.from('fcp_miembros').select('fcp_id, fcp:fcps(id, razon_social, numero_identificacion)').eq('usuario_id', user.id).eq('activo', true).not('fcp_id', 'is', null)
             if (!error && memData) for (const m of memData) {
-              if (!m.fcp?.id) continue
-              fcpMap.set(m.fcp.id, { id: m.fcp.id, nombre: m.fcp.razon_social || 'FCP', numero_identificacion: m.fcp.numero_identificacion, razon_social: m.fcp.razon_social })
+              const fcp = Array.isArray((m as any).fcp) ? (m as any).fcp[0] : (m as any).fcp
+              if (!fcp?.id) continue
+              fcpMap.set(fcp.id, { id: fcp.id, nombre: fcp.razon_social || 'FCP', numero_identificacion: fcp.numero_identificacion, razon_social: fcp.razon_social })
             }
           }
           fcps = Array.from(fcpMap.values())

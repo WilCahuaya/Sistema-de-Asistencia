@@ -181,7 +181,7 @@ export default async function DashboardPage() {
     for (const m of miembrosData) {
       if (!m.fcp || !m.fcp_id) continue
       const existing = fcpMap.get(m.fcp_id)
-      const useNew = !existing || getRolPriority(m.rol) > getRolPriority(existing.rol)
+      const useNew = !existing || getRolPriority(m.rol as 'facilitador' | 'director' | 'secretario' | 'tutor') > getRolPriority(existing.rol as 'facilitador' | 'director' | 'secretario' | 'tutor' | null)
       if (useNew) fcpMap.set(m.fcp_id, { fcp_id: m.fcp_id, fcp: m.fcp, rol: m.rol, activo: true })
     }
   }

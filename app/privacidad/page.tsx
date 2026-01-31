@@ -183,7 +183,7 @@ export default function PrivacidadPage() {
           <CardContent className="space-y-4 text-muted-foreground">
             <p>
               Podemos actualizar esta política de privacidad ocasionalmente. Le notificaremos sobre cambios significativos 
-              publicando la nueva política en esta página y actualizando la fecha de "Última actualización".
+              publicando la nueva política en esta página y actualizando la fecha de &quot;Última actualización&quot;.
             </p>
             <p>
               Le recomendamos revisar esta política periódicamente para mantenerse informado sobre cómo protegemos su información.

@@ -311,7 +311,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
           : rolSeleccionado === 'director' ? 'Director' 
           : rolSeleccionado === 'secretario' ? 'Secretario' 
           : rolSeleccionado === 'tutor' ? 'Tutor' 
-          : rolSeleccionado.charAt(0).toUpperCase() + rolSeleccionado.slice(1)
+          : String(rolSeleccionado).charAt(0).toUpperCase() + String(rolSeleccionado).slice(1)
 
         console.log('👤 [ReporteAsistenciaPorNivel] Estableciendo responsable:', {
           rolSeleccionado,

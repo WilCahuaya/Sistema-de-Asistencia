@@ -191,7 +191,7 @@ export function AulaTutorDialog({
         <DialogHeader>
           <DialogTitle>Asignar Tutor al Aula</DialogTitle>
           <DialogDescription>
-            Asigna o cambia el tutor encargado del aula "{aulaNombre}"
+            Asigna o cambia el tutor encargado del aula &quot;{aulaNombre}&quot;
           </DialogDescription>
         </DialogHeader>
 

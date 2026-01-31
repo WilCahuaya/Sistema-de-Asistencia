@@ -659,7 +659,7 @@ export function EstudianteList() {
       // Si hay término de búsqueda, filtrar en memoria
       if (searchTerm) {
         const terminoBusqueda = searchTerm.toLowerCase().trim()
-        estudiantesFiltrados = estudiantesCargados.filter(est => 
+        estudiantesFiltrados = estudiantesCargados.filter((est: Estudiante) => 
           est.nombre_completo.toLowerCase().includes(terminoBusqueda) ||
           est.codigo.toLowerCase().includes(terminoBusqueda)
         )

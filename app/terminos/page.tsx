@@ -99,7 +99,7 @@ export default function TerminosPage() {
           </CardHeader>
           <CardContent className="space-y-4 text-muted-foreground">
             <p>
-              El Sistema de Gestión de Asistencias se proporciona "tal cual" sin garantías de ningún tipo. 
+              El Sistema de Gestión de Asistencias se proporciona &quot;tal cual&quot; sin garantías de ningún tipo. 
               No garantizamos que el servicio esté libre de errores o interrupciones.
             </p>
             <p>

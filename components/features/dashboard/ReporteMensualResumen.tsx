@@ -10,6 +10,8 @@ interface NivelData {
   asistenPromed: number
   registrados: number
   porcentaje: number
+  diasDeClases?: number
+  totalAsistenciasPresente?: number
 }
 
 interface ReporteData {

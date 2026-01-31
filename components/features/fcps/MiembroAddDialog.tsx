@@ -236,12 +236,12 @@ export function MiembroAddDialog({
 
       // 4. Si existe pero está inactivo, reactivar y actualizar rol y aulas
       if (existingMember && !existingMember.activo) {
-        // Si se está asignando como director, manejar el cambio del director anterior
-        if (data.rol === 'director') {
+        // Si se está asignando como director, manejar el cambio del director anterior (legacy, este diálogo solo permite secretario/tutor)
+        if ((data.rol as string) === 'director') {
           const { error: directorChangeError } = await supabase.rpc('manejar_cambio_director', {
             p_fcp_id: fcpId,
             p_nuevo_director_id: existingMember.id,
-            p_nuevo_director_usuario_id: existingMember.usuario_id
+            p_nuevo_director_usuario_id: (existingMember as { usuario_id?: string }).usuario_id ?? null
           })
 
           if (directorChangeError) {
@@ -314,7 +314,7 @@ export function MiembroAddDialog({
       // 5. Crear nueva membresía o invitación pendiente
       // Si se está asignando como director, verificar si el usuario tiene otros roles activos
       // Si tiene otros roles, crear un nuevo registro en lugar de actualizar
-      if (data.rol === 'director' && usuarioData) {
+      if ((data.rol as string) === 'director' && usuarioData) {
         // Verificar si el usuario ya tiene otros roles activos en esta FCP
         const { data: otrosRoles, error: otrosRolesError } = await supabase
           .from('fcp_miembros')
@@ -448,7 +448,7 @@ export function MiembroAddDialog({
       }
 
       // Si se asignó como director, manejar el cambio del director anterior
-      if (data.rol === 'director' && newFcpMiembro.id) {
+      if ((data.rol as string) === 'director' && newFcpMiembro.id) {
         const { error: directorChangeError } = await supabase.rpc('manejar_cambio_director', {
           p_fcp_id: fcpId,
           p_nuevo_director_id: newFcpMiembro.id,

@@ -81,7 +81,8 @@ export function FCPList() {
       if (miembrosData) {
         for (const m of miembrosData) {
           if (m.fcp && m.fcp_id && !fcpMap.has(m.fcp_id)) {
-            fcpMap.set(m.fcp_id, m.fcp as FCP)
+            const fcp = Array.isArray((m as any).fcp) ? (m as any).fcp[0] : (m as any).fcp
+            fcpMap.set(m.fcp_id, fcp as FCP)
             memberOnlyIds.add(m.fcp_id)
           }
         }

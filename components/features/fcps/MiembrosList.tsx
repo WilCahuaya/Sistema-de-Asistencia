@@ -20,6 +20,12 @@ import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import { getRolDisplayName, getRolBadgeColor } from '@/lib/utils/roles'
 
+interface MiembroRol {
+  id: string
+  rol: 'facilitador' | 'director' | 'secretario' | 'tutor'
+  activo: boolean
+}
+
 interface Miembro {
   id: string
   usuario_id: string | null
@@ -28,6 +34,7 @@ interface Miembro {
   rol: 'facilitador' | 'director' | 'secretario' | 'tutor'
   activo: boolean
   fecha_asignacion: string
+  roles?: MiembroRol[]
   usuario?: {
     email: string
     nombre_completo?: string

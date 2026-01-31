@@ -26,7 +26,8 @@ interface UseUserRoleResult {
  * @param fcpId - ID de la FCP
  * @returns Objeto con el rol del usuario y helpers de permisos
  */
-export function useUserRole(fcpId: string | null): UseUserRoleResult {
+export function useUserRole(fcpId: string | null | undefined): UseUserRoleResult {
+  const resolvedFcpId = fcpId ?? null
   const [role, setRole] = useState<RolType>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
@@ -46,14 +47,14 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
         }
 
         if (selectedRole) {
-          if (selectedRole.fcpId === fcpId || selectedRole.fcpId === null || !fcpId) {
+          if (selectedRole.fcpId === resolvedFcpId || selectedRole.fcpId === null || !resolvedFcpId) {
             if (!cancelled) {
               setRole(selectedRole.role)
               setLoading(false)
             }
             return
           }
-          if (selectedRole.fcpId && fcpId && selectedRole.fcpId !== fcpId) {
+          if (selectedRole.fcpId && resolvedFcpId && selectedRole.fcpId !== resolvedFcpId) {
             if (!cancelled) {
               setRole(null)
               setLoading(false)
@@ -86,11 +87,11 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
 
         const esFacilitador = !!facilitadorRow
 
-        if (esFacilitador && fcpId) {
+        if (esFacilitador && resolvedFcpId) {
           const { data: fcpRow } = await supabase
             .from('fcps')
             .select('id')
-            .eq('id', fcpId)
+            .eq('id', resolvedFcpId)
             .eq('facilitador_id', user.id)
             .maybeSingle()
           if (cancelled) return
@@ -103,7 +104,7 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
           }
         }
 
-        if (esFacilitador && !fcpId) {
+        if (esFacilitador && !resolvedFcpId) {
           if (!cancelled) {
             setRole('facilitador')
             setLoading(false)
@@ -111,7 +112,7 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
           return
         }
 
-        if (!fcpId) {
+        if (!resolvedFcpId) {
           if (!cancelled) {
             setRole(null)
             setLoading(false)
@@ -125,7 +126,7 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
           .from('fcp_miembros')
           .select('rol')
           .eq('usuario_id', user.id)
-          .eq('fcp_id', fcpId)
+          .eq('fcp_id', resolvedFcpId)
           .eq('activo', true)
         
         if (cancelled) return
@@ -149,7 +150,7 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
           const roles = fcpMiembrosData.map((m: { rol: RolType }) => m.rol) as RolTypeUtil[]
           
           // Si hay un rol seleccionado para esta FCP, usarlo
-          if (selectedRole && selectedRole.fcpId === fcpId && roles.includes(selectedRole.role)) {
+          if (selectedRole && selectedRole.fcpId === resolvedFcpId && roles.includes(selectedRole.role)) {
             console.log('✅ useUserRole - Usando rol seleccionado para esta FCP:', {
               selectedRole: selectedRole.role,
               fcpId: selectedRole.fcpId
@@ -201,7 +202,7 @@ export function useUserRole(fcpId: string | null): UseUserRoleResult {
     return () => {
       cancelled = true
     }
-  }, [fcpId, selectedRole, roleContextLoading])
+  }, [resolvedFcpId, selectedRole, roleContextLoading])
 
   const isFacilitador = role === 'facilitador'
   const isDirector = role === 'director'
