@@ -210,7 +210,8 @@ export default async function DashboardPage() {
     redirect('/pendiente')
   }
 
-  if (!fcps || fcps.length === 0) {
+  // No redirigir facilitadores sin FCPs: deben poder ver el dashboard y crear su primera FCP
+  if ((!fcps || fcps.length === 0) && !esFacilitador) {
     redirect('/pendiente')
   }
 
