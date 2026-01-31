@@ -29,13 +29,10 @@ export async function checkUserAccess(userId?: string): Promise<UserAccessCheck>
     const actualUserId = userId || user.id
     let roleCount = 0
 
-    const { data: facRow } = await supabase
-      .from('facilitadores')
-      .select('usuario_id')
-      .eq('usuario_id', actualUserId)
-      .maybeSingle()
+    // Usar RPC es_facilitador (SECURITY DEFINER) para evitar problemas de RLS/cookies en callback
+    const { data: isFacilitador } = await supabase.rpc('es_facilitador', { p_usuario_id: actualUserId })
 
-    if (facRow) {
+    if (isFacilitador) {
       const { count } = await supabase
         .from('fcps')
         .select('id', { count: 'exact', head: true })
