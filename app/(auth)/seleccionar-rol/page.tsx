@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { useAuth } from '@/contexts/AuthContext'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Building2, User, Loader2, LogOut } from 'lucide-react'
@@ -26,6 +27,7 @@ interface RolFCP {
 
 export default function SeleccionarRolPage() {
   const router = useRouter()
+  const { signOut } = useAuth()
   const [loading, setLoading] = useState(true)
   const [roles, setRoles] = useState<RolFCP[]>([])
   const [selectedRole, setSelectedRole] = useState<string | null>(null)
@@ -262,16 +264,10 @@ export default function SeleccionarRolPage() {
 
   const handleSignOut = async () => {
     try {
-      const supabase = createClient()
-      await supabase.auth.signOut()
-      
-      // Limpiar localStorage
       localStorage.removeItem('selectedRoleId')
       localStorage.removeItem('selectedRole')
       localStorage.removeItem('selectedFcpId')
-      
-      // Redirigir al login
-      router.push('/login')
+      await signOut()
     } catch (err) {
       console.error('Error signing out:', err)
       toast.error('Error al cerrar sesión', 'Por favor, intenta nuevamente.')

@@ -92,6 +92,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     applyToDom(theme)
     try {
       localStorage.setItem(storageKey, theme)
+      // Mantener app-theme (guest) en sync para evitar flash al cerrar sesión
+      if (storageKey !== THEME_STORAGE_GUEST) {
+        localStorage.setItem(THEME_STORAGE_GUEST, theme)
+      }
     } catch (e) {
       console.error('Error saving theme to localStorage:', e)
     }

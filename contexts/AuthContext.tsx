@@ -49,7 +49,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     try {
-      // Limpiar estado local primero
+      // Sincronizar tema del usuario a guest para evitar flash de colores al cerrar sesión
+      if (user?.id && typeof window !== 'undefined') {
+        try {
+          const userThemeKey = `app-theme-user-${user.id}`
+          const userTheme = localStorage.getItem(userThemeKey)
+          const validThemes = ['blue', 'green', 'purple', 'gray', 'dark-blue', 'dark-green', 'dark-purple']
+          if (userTheme && validThemes.includes(userTheme)) {
+            localStorage.setItem('app-theme', userTheme)
+          }
+        } catch {
+          /* ignorar errores de localStorage */
+        }
+      }
+
+      // Limpiar estado local
       setUser(null)
 
       // Crear cliente para signOut

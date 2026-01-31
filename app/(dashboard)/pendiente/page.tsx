@@ -11,7 +11,7 @@ import { useAuth } from '@/contexts/AuthContext'
 
 export default function SinRolPage() {
   const router = useRouter()
-  const { user } = useAuth()
+  const { user, signOut } = useAuth()
   const [isChecking, setIsChecking] = useState(false)
   const [usuarioData, setUsuarioData] = useState<{ nombre_completo?: string; email?: string } | null>(null)
   const [checkInterval, setCheckInterval] = useState<NodeJS.Timeout | null>(null)
@@ -112,9 +112,7 @@ export default function SinRolPage() {
   }, [user])
 
   const handleSignOut = async () => {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/login?logout=true')
+    await signOut()
   }
 
   const handleManualCheck = async () => {
