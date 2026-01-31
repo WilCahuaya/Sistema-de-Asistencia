@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
@@ -31,11 +31,23 @@ const allNavigation = [
   { name: 'Reportes', href: '/reportes', icon: BarChart3 },
 ]
 
+const OVERLAP_BREAKPOINT = 1100 // px: usar menú hamburguesa cuando el ancho sea menor
+
 export function DashboardNav() {
   const pathname = usePathname()
   const { selectedRole, loading: roleLoading } = useSelectedRole()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  
+  const [useCompactNav, setUseCompactNav] = useState(true) // Inicial true para evitar flash de solapamiento en móvil
+
+  useEffect(() => {
+    const check = () => {
+      setUseCompactNav(typeof window !== 'undefined' && window.innerWidth < OVERLAP_BREAKPOINT)
+    }
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
   const isTutor = selectedRole?.role === 'tutor'
   const navigation = (!roleLoading && isTutor)
     ? allNavigation.filter(item => item.name !== 'Reportes')
@@ -74,20 +86,23 @@ export function DashboardNav() {
               <GraduationCap className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
               <span className="truncate text-base font-bold sm:text-xl">Sistema de Asistencias</span>
             </Link>
-            <div className="hidden md:flex md:gap-1">
-              <NavLinks />
-            </div>
+            {!useCompactNav && (
+              <div className="flex gap-1">
+                <NavLinks />
+              </div>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="md:hidden"
-              onClick={() => setMobileMenuOpen(true)}
-              aria-label="Abrir menú de navegación"
-            >
-              <Menu className="h-6 w-6" />
-            </Button>
+            {useCompactNav && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setMobileMenuOpen(true)}
+                aria-label="Abrir menú de navegación"
+              >
+                <Menu className="h-6 w-6" />
+              </Button>
+            )}
             <UserMenu />
           </div>
         </div>
