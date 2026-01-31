@@ -95,6 +95,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const [selectedAsistenciaForHistorial, setSelectedAsistenciaForHistorial] = useState<Asistencia | null>(null)
   const [habilitarCorreccionOpen, setHabilitarCorreccionOpen] = useState(false)
   const [fechaParaEliminar, setFechaParaEliminar] = useState<string | null>(null)
+  const [showAbbreviatedSticky, setShowAbbreviatedSticky] = useState(false) // En móvil: true cuando scroll left, false cuando scroll right (ver info completa)
   const tableContainerRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const defaultWidthRef = useRef<number | null>(null) // Ancho por defecto del contenedor
@@ -149,6 +150,21 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       window.removeEventListener('resize', updateDefaultWidth)
     }
   }, [tableWidth])
+
+  // Sincronizar showAbbreviatedSticky con scroll en móvil; en desktop siempre full
+  useEffect(() => {
+    const sync = () => {
+      if (typeof window !== 'undefined' && window.innerWidth >= 640) {
+        setShowAbbreviatedSticky(false)
+      } else {
+        const el = tableContainerRef.current
+        if (el) setShowAbbreviatedSticky(el.scrollLeft >= 40)
+      }
+    }
+    sync()
+    window.addEventListener('resize', sync)
+    return () => window.removeEventListener('resize', sync)
+  }, [estudiantes.length])
   
   // Efecto para manejar el resize de la tabla
   useEffect(() => {
@@ -1496,16 +1512,21 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                 setIsDragging(false)
               }
             }}
+            onScroll={() => {
+              const el = tableContainerRef.current
+              if (!el || typeof window === 'undefined' || window.innerWidth >= 640) return
+              setShowAbbreviatedSticky(el.scrollLeft >= 40)
+            }}
           >
             <div style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'top left', width: `${100 / zoomLevel}%` }}>
             <table className="border-collapse border border-border text-sm" style={{ width: 'max-content', minWidth: '100%' }}>
               <thead>
                 <tr>
-                  <th className="border border-border p-2 bg-muted sticky left-0 z-20 min-w-[52px] sm:min-w-[120px] text-left shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+                  <th className={`border border-border p-2 bg-muted sticky left-0 z-20 text-left shadow-[2px_0_4px_rgba(0,0,0,0.1)] ${showAbbreviatedSticky ? 'min-w-[52px]' : 'min-w-[120px]'} sm:min-w-[120px]`}>
                     <span className="hidden sm:inline">Código</span>
-                    <span className="sm:hidden" title="Código">Cod</span>
+                    <span className="sm:hidden" title="Código">{showAbbreviatedSticky ? 'Cod' : 'Código'}</span>
                   </th>
-                  <th className="border border-border p-2 bg-muted sticky left-[52px] sm:left-[120px] z-20 min-w-[72px] sm:min-w-[180px] text-left shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+                  <th className={`border border-border p-2 bg-muted sticky z-20 text-left shadow-[2px_0_4px_rgba(0,0,0,0.1)] ${showAbbreviatedSticky ? 'left-[52px] min-w-[72px]' : 'left-[120px] min-w-[180px]'} sm:left-[120px] sm:min-w-[180px]`}>
                     Participante
                   </th>
                   {daysInMonth.map(({ day, date, dayName, fechaStr }) => {
@@ -1600,12 +1621,12 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
               <tbody>
                 {estudiantes.map((estudiante) => (
                   <tr key={estudiante.id}>
-                    <td className="border border-border p-2 bg-muted sticky left-0 z-10 font-mono text-xs min-w-[52px] sm:min-w-[120px] shadow-[2px_0_4px_rgba(0,0,0,0.1)]" title={estudiante.codigo}>
+                    <td className={`border border-border p-2 bg-muted sticky left-0 z-10 font-mono text-xs shadow-[2px_0_4px_rgba(0,0,0,0.1)] ${showAbbreviatedSticky ? 'min-w-[52px]' : 'min-w-[120px]'} sm:min-w-[120px]`} title={estudiante.codigo}>
                       <span className="hidden sm:inline">{estudiante.codigo}</span>
-                      <span className="sm:hidden">{estudiante.codigo.length >= 3 ? estudiante.codigo.slice(-3) : estudiante.codigo}</span>
+                      <span className="sm:hidden">{showAbbreviatedSticky ? (estudiante.codigo.length >= 3 ? estudiante.codigo.slice(-3) : estudiante.codigo) : estudiante.codigo}</span>
                     </td>
-                    <td className="border border-border p-2 bg-muted sticky left-[52px] sm:left-[120px] z-10 text-xs min-w-[72px] sm:min-w-[180px] shadow-[2px_0_4px_rgba(0,0,0,0.1)]" title={estudiante.nombre_completo}>
-                      <span className="block truncate max-w-[80px] sm:max-w-[172px]">{estudiante.nombre_completo}</span>
+                    <td className={`border border-border p-2 bg-muted sticky z-10 text-xs shadow-[2px_0_4px_rgba(0,0,0,0.1)] ${showAbbreviatedSticky ? 'left-[52px] min-w-[72px]' : 'left-[120px] min-w-[180px]'} sm:left-[120px] sm:min-w-[180px]`} title={estudiante.nombre_completo}>
+                      <span className={`block ${showAbbreviatedSticky ? 'truncate max-w-[80px]' : 'whitespace-normal break-words'} sm:truncate sm:max-w-[172px]`}>{estudiante.nombre_completo}</span>
                     </td>
                     {daysInMonth.map(({ day, date, fechaStr }) => {
                       const estado = getAsistenciaEstado(estudiante.id, fechaStr)
