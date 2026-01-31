@@ -160,11 +160,11 @@ export function AulaTutorDialog({
 
         if (deleteError) throw deleteError
 
-        // Crear nueva asignación
+        // Crear nueva asignación (tutor_aula usa fcp_miembro_id, no usuario_fcp_id)
         const { error: insertError } = await supabase
           .from('tutor_aula')
           .insert({
-            usuario_fcp_id: selectedTutorUsuarioOngId,
+            fcp_miembro_id: selectedTutorUsuarioOngId,
             aula_id: aulaId,
             fcp_id: fcpId,
             activo: true,

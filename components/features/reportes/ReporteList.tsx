@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -30,6 +30,12 @@ import {
   getPDFTotalRowColor,
   getPDFCellTextColor,
 } from '@/lib/utils/exportStyles'
+import {
+  getAvailableTableWidth,
+  getFontSizeForColumns,
+  getProportionalColumnStyles,
+  type PDFTableColumnConfig,
+} from '@/lib/utils/pdfTableUtils'
 
 interface ReporteData {
   fcp: {
@@ -107,6 +113,82 @@ export function ReporteList() {
   // Determinar el fcpId a usar: el seleccionado o el del facilitador (se actualizará después del useEffect)
   const [fcpIdFinal, setFcpIdFinal] = useState<string | null>(fcpIdParaReporte || null)
   const { canViewReports, loading: roleLoading, isFacilitador: isFacilitadorFromHook } = useUserRole(fcpIdFinal)
+
+  // Scroll horizontal: Shift+scroll o click sostenido (igual que en Asistencias)
+  const tableContainerRef = useRef<HTMLDivElement>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [startX, setStartX] = useState(0)
+  const [scrollLeft, setScrollLeft] = useState(0)
+
+  // Resize horizontal de la tabla (igual que en Asistencias y Estudiantes)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const defaultWidthRef = useRef<number | null>(null)
+  const [tableWidth, setTableWidth] = useState<number | null>(null)
+  const [isResizingTable, setIsResizingTable] = useState(false)
+  const [resizeStartX, setResizeStartX] = useState(0)
+  const [resizeStartWidth, setResizeStartWidth] = useState(0)
+
+  // Efecto para obtener el ancho por defecto del contenedor
+  useEffect(() => {
+    const updateDefaultWidth = () => {
+      const container = document.querySelector('div.mx-auto.max-w-7xl') || document.querySelector('div.mb-8.mx-auto.max-w-7xl')
+      if (container) {
+        const rect = (container as HTMLElement).getBoundingClientRect()
+        if (defaultWidthRef.current === null || defaultWidthRef.current !== rect.width) {
+          defaultWidthRef.current = rect.width
+          if (!tableWidth) setTableWidth(null)
+        }
+      } else {
+        const fallbackWidth = Math.min(1280, window.innerWidth - 64)
+        if (defaultWidthRef.current === null || defaultWidthRef.current !== fallbackWidth) {
+          defaultWidthRef.current = fallbackWidth
+          if (!tableWidth) setTableWidth(null)
+        }
+      }
+    }
+    updateDefaultWidth()
+    const timer = setTimeout(updateDefaultWidth, 50)
+    window.addEventListener('resize', updateDefaultWidth)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('resize', updateDefaultWidth)
+    }
+  }, [tableWidth])
+
+  // Efecto para manejar el resize de la tabla
+  useEffect(() => {
+    if (!isResizingTable) return
+    const handleMouseMove = (e: MouseEvent) => {
+      e.preventDefault()
+      if (cardRef.current) {
+        const diff = e.pageX - resizeStartX
+        const newWidth = Math.max(800, Math.min(window.innerWidth * 2, resizeStartWidth + diff))
+        setTableWidth(newWidth)
+      }
+    }
+    const handleMouseUp = () => setIsResizingTable(false)
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizingTable, resizeStartX, resizeStartWidth])
+
+  // Listener nativo con passive: false para poder llamar preventDefault en Shift+scroll
+  useEffect(() => {
+    const el = tableContainerRef.current
+    if (!el) return
+    const handler = (e: WheelEvent) => {
+      if (e.shiftKey) {
+        e.preventDefault()
+        e.stopPropagation()
+        el.scrollLeft += e.deltaY
+      }
+    }
+    el.addEventListener('wheel', handler, { passive: false })
+    return () => el.removeEventListener('wheel', handler)
+  }, [reporteData?.reporteDetallado])
 
   // Verificar si el usuario es facilitador y obtener su primera FCP si no hay fcpId seleccionado
   useEffect(() => {
@@ -1348,7 +1430,7 @@ export function ReporteList() {
           (autotableModule as any).applyPlugin(jsPDF)
         }
         
-        const doc = new jsPDF('landscape')
+        const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
         const pageWidth = doc.internal.pageSize.getWidth()
 
         const monthNames = [
@@ -1356,16 +1438,16 @@ export function ReporteList() {
           'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
         ]
 
-        let y = 15
+        let y = 12
 
         // Título
-        doc.setFontSize(16)
+        doc.setFontSize(12)
         doc.setFont('helvetica', 'bold')
         doc.text('Reporte General de Asistencia', pageWidth / 2, y, { align: 'center' })
-        y += 8
+        y += 4
 
       // Información general (tres columnas)
-      doc.setFontSize(10)
+      doc.setFontSize(8)
       doc.setFont('helvetica', 'normal')
       const col1 = 15
       const col2 = pageWidth / 3 + 10
@@ -1374,14 +1456,14 @@ export function ReporteList() {
       doc.text(`PROYECTO: ${reporteData.fcp.numero_identificacion || ''} ${reporteData.fcp.razon_social}`, col1, y)
       doc.text(`AÑO: ${selectedYear}`, col2, y)
       doc.text(`MES: ${monthNames[selectedMonth].toUpperCase()}`, col3, y)
-      y += 6
+      y += 4
       if (responsable) {
         doc.text(`RESPONSABLE: ${responsable.nombre.toUpperCase()}`, col1, y)
         doc.text(`EMAIL: ${responsable.email.toUpperCase()}`, col2, y)
         doc.text(`ROL: ${responsable.rol.toUpperCase()}`, col3, y)
-        y += 6
+        y += 4
       }
-      y += 8
+      y += 4
 
         // Preparar datos para la tabla
         const headers: string[] = [
@@ -1418,41 +1500,44 @@ export function ReporteList() {
           body.push(rowData)
         })
 
-        // Generar tabla con autoTable
+        // Configuración de columnas: No(numeric), ESTUDIANTE(text), Cod(numeric), Niv(numeric), TUTOR(text), fechas(compact)
+        const numCols = headers.length
+        const availableWidth = getAvailableTableWidth(doc, 15)
+        const fontSize = getFontSizeForColumns(numCols)
+        const columnConfigs: PDFTableColumnConfig[] = [
+          { type: 'compact', halign: 'center' },
+          { type: 'text', weight: 1.5, halign: 'left' },
+          { type: 'compact', halign: 'center' },
+          { type: 'compact', halign: 'center' },
+          { type: 'text', weight: 1.2, halign: 'left' },
+          ...reporteData.fechasUnicas.map(() => ({ type: 'compact' as const, weight: 0.5, halign: 'center' as const })),
+        ]
+        const columnStyles = getProportionalColumnStyles(numCols, availableWidth, columnConfigs)
+
         const tableOptions = {
           startY: y,
           head: [headers],
           body: body,
           theme: 'grid',
+          tableWidth: availableWidth,
+          margin: { left: 15, right: 15 },
           headStyles: {
             ...getPDFHeaderStyles(),
-            fontSize: 7,
+            fontSize,
             cellPadding: 1.5,
           },
           bodyStyles: {
             ...getPDFBodyStyles(),
-            fontSize: 6.5,
+            fontSize: Math.max(5, fontSize - 0.5),
             cellPadding: 1.5,
           },
           alternateRowStyles: getPDFAlternateRowStyles(),
           styles: {
             cellPadding: 1.5,
             overflow: 'linebreak',
-            fontSize: 6.5,
+            fontSize: Math.max(5, fontSize - 0.5),
           },
-          columnStyles: {
-            0: { cellWidth: 10 }, // No - más corto
-            1: { cellWidth: 'auto', minCellWidth: 35, overflow: 'linebreak' }, // ESTUDIANTE - más corto
-            2: { cellWidth: 15, halign: 'center' }, // Cod
-            3: { cellWidth: 15, halign: 'center' }, // Niv - más corto
-            4: { cellWidth: 35, cellPadding: 1, overflow: 'linebreak' }, // TUTOR
-            // Fechas: ancho más pequeño
-            ...Object.fromEntries(
-              reporteData.fechasUnicas.map((_, idx) => [5 + idx, { cellWidth: 8, halign: 'center' }])
-            ),
-          },
-          tableWidth: 'wrap',
-          margin: { top: y, left: 15, right: 15 },
+          columnStyles,
         }
 
         if (typeof (doc as any).autoTable === 'function') {
@@ -1463,21 +1548,20 @@ export function ReporteList() {
           throw new Error('autoTable no está disponible. Verifica la instalación de jspdf-autotable.')
         }
 
-        // Descargar
-        const nombreArchivo = `Reporte_General_PE0530_RESCATANDO_VALORES_ENERO_2026.pdf`
+        const nombreArchivo = `Reporte_General_${(reporteData.fcp.razon_social || 'FCP').replace(/\s+/g, '_')}_${monthNames[selectedMonth]}_${selectedYear}.pdf`
         doc.save(nombreArchivo)
       } else {
         // Formato anterior para reportes sin detalle (no debería llegar aquí)
         const jsPDF = (await import('jspdf')).default
         const doc = new jsPDF()
-        let y = 20
+        let y = 12
 
-        doc.setFontSize(18)
+        doc.setFontSize(12)
         doc.text('Reporte de Asistencias', 105, y, { align: 'center' })
-        y += 10
+        y += 4
 
         // Información del proyecto (tres columnas)
-        doc.setFontSize(12)
+        doc.setFontSize(8)
         const pageWidth = doc.internal.pageSize.getWidth()
         const col1 = 20
         const col2 = pageWidth / 3 + 10
@@ -1488,12 +1572,12 @@ export function ReporteList() {
         doc.text(`PROYECTO: ${reporteData.fcp.numero_identificacion || ''} ${reporteData.fcp.razon_social}`, col1, y)
         doc.text(`AÑO: ${year}`, col2, y)
         doc.text(`MES: ${monthNames[month].toUpperCase()}`, col3, y)
-        y += 6
+        y += 4
         if (responsable) {
           doc.text(`RESPONSABLE: ${responsable.nombre.toUpperCase()}`, col1, y)
           doc.text(`EMAIL: ${responsable.email.toUpperCase()}`, col2, y)
           doc.text(`ROL: ${responsable.rol.toUpperCase()}`, col3, y)
-          y += 6
+          y += 4
         }
 
         const nombreArchivo = `Reporte_General_${reporteData.fcp.razon_social}_${reporteData.fechaInicio}_${reporteData.fechaFin}.pdf`
@@ -1607,10 +1691,44 @@ export function ReporteList() {
       </Card>
 
       {reporteData && (
-        <Card>
+        <div className="flex justify-center w-full">
+        <Card
+          ref={cardRef}
+          className="relative"
+          style={
+            reporteData.reporteDetallado && reporteData.fechasUnicas
+              ? {
+                  width: tableWidth ? `${tableWidth}px` : defaultWidthRef.current ? `${defaultWidthRef.current}px` : '100%',
+                  maxWidth: tableWidth ? `${tableWidth}px` : defaultWidthRef.current ? `${defaultWidthRef.current}px` : '100%',
+                  overflow: 'visible',
+                }
+              : undefined
+          }
+        >
+          {reporteData.reporteDetallado && reporteData.fechasUnicas && (
+            <div
+              className="absolute top-0 right-0 w-4 h-full cursor-col-resize hover:bg-primary/60 opacity-0 hover:opacity-100 transition-opacity z-50"
+              onMouseDown={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setIsResizingTable(true)
+                setResizeStartX(e.pageX)
+                if (cardRef.current) {
+                  const currentWidth = cardRef.current.offsetWidth
+                  setResizeStartWidth(currentWidth)
+                  if (defaultWidthRef.current === null) defaultWidthRef.current = currentWidth
+                } else {
+                  setResizeStartWidth(defaultWidthRef.current || Math.min(1280, window.innerWidth - 64))
+                }
+              }}
+              style={{ cursor: 'col-resize' }}
+              title="Arrastra para expandir la tabla horizontalmente"
+            />
+          )}
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Reporte Generado</CardTitle>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between">
+                <CardTitle>Reporte Generado</CardTitle>
               <RoleGuard fcpId={fcpIdFinal || undefined} allowedRoles={['facilitador', 'director', 'secretario']}>
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={exportarExcel}>
@@ -1623,6 +1741,13 @@ export function ReporteList() {
                   </Button>
                 </div>
               </RoleGuard>
+              </div>
+              {reporteData.reporteDetallado && reporteData.fechasUnicas && (
+                <span className="text-xs text-muted-foreground">
+                  {tableWidth ? `Ancho tabla: ${tableWidth}px | ` : ''}
+                  Arrastra el borde derecho de la tarjeta para expandir la tabla
+                </span>
+              )}
             </div>
           </CardHeader>
           <CardContent>
@@ -1699,8 +1824,41 @@ export function ReporteList() {
                 })()}
 
                 <div className="border border-border rounded-lg overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse border border-border text-sm">
+                  <div
+                    ref={tableContainerRef}
+                    className="overflow-x-auto select-none"
+                    style={{
+                      cursor: isDragging ? 'grabbing' : 'grab',
+                    }}
+                    title="Shift + scroll o arrastra con el mouse para desplazamiento horizontal"
+                    onMouseDown={(e) => {
+                      if (e.button === 0) {
+                        setIsDragging(true)
+                        const rect = tableContainerRef.current?.getBoundingClientRect()
+                        setStartX(e.pageX - (rect?.left || 0))
+                        setScrollLeft(tableContainerRef.current?.scrollLeft || 0)
+                        e.preventDefault()
+                        e.stopPropagation()
+                      }
+                    }}
+                    onMouseMove={(e) => {
+                      if (isDragging && tableContainerRef.current) {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        const rect = tableContainerRef.current.getBoundingClientRect()
+                        const x = e.pageX - rect.left
+                        const walk = (x - startX) * 2
+                        tableContainerRef.current.scrollLeft = scrollLeft - walk
+                      }
+                    }}
+                    onMouseUp={() => {
+                      if (isDragging) setIsDragging(false)
+                    }}
+                    onMouseLeave={() => {
+                      if (isDragging) setIsDragging(false)
+                    }}
+                  >
+                    <table className="w-full border-collapse border border-border text-sm" style={{ minWidth: 'max-content' }}>
                       <thead>
                         <tr className="bg-muted/50">
                           <th className="border border-border p-2 bg-muted/50 text-center w-12 text-foreground">No</th>
@@ -1841,6 +1999,7 @@ export function ReporteList() {
             )}
           </CardContent>
         </Card>
+        </div>
       )}
     </div>
   )

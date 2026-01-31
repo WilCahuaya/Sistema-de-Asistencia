@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -30,6 +30,12 @@ import {
   getPDFTotalRowColor,
   getPDFCellTextColor,
 } from '@/lib/utils/exportStyles'
+import {
+  getAvailableTableWidth,
+  getFontSizeForColumns,
+  getProportionalColumnStyles,
+  type PDFTableColumnConfig,
+} from '@/lib/utils/pdfTableUtils'
 
 interface ReporteAsistenciaPorNivelProps {
   fcpId: string | null
@@ -110,6 +116,18 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
   const router = useRouter()
   const { selectedRole } = useSelectedRole()
 
+  // Scroll horizontal y resize (igual que Reporte General)
+  const tableContainerRef = useRef<HTMLDivElement>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [startX, setStartX] = useState(0)
+  const [scrollLeft, setScrollLeft] = useState(0)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const defaultWidthRef = useRef<number | null>(null)
+  const [tableWidth, setTableWidth] = useState<number | null>(null)
+  const [isResizingTable, setIsResizingTable] = useState(false)
+  const [resizeStartX, setResizeStartX] = useState(0)
+  const [resizeStartWidth, setResizeStartWidth] = useState(0)
+
   useEffect(() => {
     const initialize = async () => {
       await checkIfFacilitador()
@@ -120,6 +138,66 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
     }
     initialize()
   }, [fcpIdProp, selectedRole?.role, selectedRole?.fcpId])
+
+  // Ancho por defecto y resize
+  useEffect(() => {
+    const updateDefaultWidth = () => {
+      const container = document.querySelector('div.mx-auto.max-w-7xl') || document.querySelector('div.mb-8.mx-auto.max-w-7xl')
+      if (container) {
+        const rect = (container as HTMLElement).getBoundingClientRect()
+        if (defaultWidthRef.current === null || defaultWidthRef.current !== rect.width) {
+          defaultWidthRef.current = rect.width
+          if (!tableWidth) setTableWidth(null)
+        }
+      } else {
+        const fallbackWidth = Math.min(1280, window.innerWidth - 64)
+        if (defaultWidthRef.current === null || defaultWidthRef.current !== fallbackWidth) {
+          defaultWidthRef.current = fallbackWidth
+          if (!tableWidth) setTableWidth(null)
+        }
+      }
+    }
+    updateDefaultWidth()
+    const timer = setTimeout(updateDefaultWidth, 50)
+    window.addEventListener('resize', updateDefaultWidth)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('resize', updateDefaultWidth)
+    }
+  }, [tableWidth])
+
+  useEffect(() => {
+    if (!isResizingTable) return
+    const handleMouseMove = (e: MouseEvent) => {
+      e.preventDefault()
+      if (cardRef.current) {
+        const diff = e.pageX - resizeStartX
+        const newWidth = Math.max(800, Math.min(window.innerWidth * 2, resizeStartWidth + diff))
+        setTableWidth(newWidth)
+      }
+    }
+    const handleMouseUp = () => setIsResizingTable(false)
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizingTable, resizeStartX, resizeStartWidth])
+
+  useEffect(() => {
+    const el = tableContainerRef.current
+    if (!el || !reporteData) return
+    const handler = (e: WheelEvent) => {
+      if (e.shiftKey) {
+        e.preventDefault()
+        e.stopPropagation()
+        el.scrollLeft += e.deltaY
+      }
+    }
+    el.addEventListener('wheel', handler, { passive: false })
+    return () => el.removeEventListener('wheel', handler)
+  }, [reporteData])
 
   const checkIfFacilitador = async () => {
     try {
@@ -1094,7 +1172,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         (autotableModule as any).applyPlugin(jsPDF)
       }
       
-      const doc = new jsPDF('landscape') // Orientación horizontal para más espacio
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
       
       // Log para debugging (remover en producción si es necesario)
       console.log('autoTable disponible:', typeof autoTable === 'function')
@@ -1106,16 +1184,16 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
       ]
 
-      let y = 15
+      let y = 12
 
       // Título
-      doc.setFontSize(16)
+      doc.setFontSize(12)
       doc.setFont(undefined, 'bold')
       doc.text('Reporte de Asistencia por Nivel', pageWidth / 2, y, { align: 'center' })
-      y += 8
+      y += 4
 
       // Información general (dos columnas)
-      doc.setFontSize(10)
+      doc.setFontSize(8)
       doc.setFont(undefined, 'normal')
       const col1 = 15
       const col2 = pageWidth / 3 + 10
@@ -1124,14 +1202,14 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
       doc.text(`PROYECTO: ${reporteData.fcp.numero_identificacion || ''} ${reporteData.fcp.razon_social}`, col1, y)
       doc.text(`AÑO: ${reporteData.year}`, col2, y)
       doc.text(`MES: ${monthNames[reporteData.month].toUpperCase()}`, col3, y)
-      y += 6
+      y += 4
       if (responsable) {
         doc.text(`RESPONSABLE: ${responsable.nombre.toUpperCase()}`, col1, y)
         doc.text(`EMAIL: ${responsable.email.toUpperCase()}`, col2, y)
         doc.text(`ROL: ${responsable.rol.toUpperCase()}`, col3, y)
-        y += 6
+        y += 4
       }
-      y += 8
+      y += 4
 
       // Advertencia de días incompletos si existen
       if (reporteData.diasIncompletos.length > 0) {
@@ -1285,51 +1363,45 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
 
       body.push(totalGeneralRow)
 
-      // Generar tabla con autoTable (función independiente en versión 5.x)
-      // Si autoTable está disponible como método del doc, usarlo; si no, como función
+      const numCols = headers.length
+      const availableWidth = getAvailableTableWidth(doc, 15)
+      const fontSize = getFontSizeForColumns(numCols)
+      const columnConfigs: PDFTableColumnConfig[] = [
+        { type: 'text', weight: 0.8, halign: 'left' },
+        { type: 'text', weight: 1.2, halign: 'left' },
+        ...reporteData.fechasUnicas.map(() => ({ type: 'compact' as const, weight: 0.4, halign: 'center' as const })),
+        { type: 'numeric', weight: 0.6, halign: 'center' },
+        { type: 'numeric', weight: 0.6, halign: 'center' },
+        { type: 'numeric', weight: 0.5, halign: 'center' },
+        { type: 'numeric', weight: 0.5, halign: 'center' },
+        { type: 'numeric', weight: 0.5, halign: 'center' },
+      ]
+      const columnStyles = getProportionalColumnStyles(numCols, availableWidth, columnConfigs)
+
       const tableOptions = {
         startY: y,
         head: [headers],
         body: body,
         theme: 'grid',
+        tableWidth: availableWidth,
+        margin: { left: 15, right: 15 },
         headStyles: {
           ...getPDFHeaderStyles(),
-          fontSize: 8,
+          fontSize,
+          cellPadding: 1.5,
         },
         bodyStyles: {
           ...getPDFBodyStyles(),
-          fontSize: 7,
+          fontSize: Math.max(5, fontSize - 0.5),
+          cellPadding: 1.5,
         },
         alternateRowStyles: getPDFAlternateRowStyles(),
         styles: {
           cellPadding: 1.5,
           overflow: 'linebreak',
-          fontSize: 6.5,
+          fontSize: Math.max(5, fontSize - 0.5),
         },
-        headStyles: {
-          ...getPDFHeaderStyles(),
-          fontSize: 7,
-          cellPadding: 1.5,
-        },
-        bodyStyles: {
-          ...getPDFBodyStyles(),
-          fontSize: 6.5,
-          cellPadding: 1.5,
-        },
-        columnStyles: {
-          0: { cellWidth: 18 }, // Nivel - más corto
-          1: { cellWidth: 35, cellPadding: 1, overflow: 'linebreak' }, // TUTOR - más corto, permite wrap de texto
-          // Fechas: ancho más pequeño
-          ...Object.fromEntries(
-            reporteData.fechasUnicas.map((_, idx) => [2 + idx, { cellWidth: 8, halign: 'center' }])
-          ),
-          [2 + reporteData.fechasUnicas.length]: { cellWidth: 'auto', minCellWidth: 18, halign: 'center' }, // Asis.Pro.m
-          [3 + reporteData.fechasUnicas.length]: { cellWidth: 'auto', minCellWidth: 18, halign: 'center' }, // Reg.Pro.m
-          [4 + reporteData.fechasUnicas.length]: { cellWidth: 'auto', minCellWidth: 16, halign: 'center' }, // % Asistió
-          [5 + reporteData.fechasUnicas.length]: { cellWidth: 'auto', minCellWidth: 16, halign: 'center' }, // % Permiso
-          [6 + reporteData.fechasUnicas.length]: { cellWidth: 'auto', minCellWidth: 16, halign: 'center' }, // % Faltó
-        },
-        tableWidth: 'wrap',
+        columnStyles,
         didParseCell: function (data: any) {
           // Resaltar filas de subtotal y total general
           // En versión 5.x, verificar el texto de la celda actual o el contenido de la fila
@@ -1532,9 +1604,37 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
       </Card>
 
       {reporteData && (
-        <Card>
+        <div className="flex justify-center w-full">
+        <Card
+          ref={cardRef}
+          className="relative"
+          style={{
+            width: tableWidth ? `${tableWidth}px` : defaultWidthRef.current ? `${defaultWidthRef.current}px` : '100%',
+            maxWidth: tableWidth ? `${tableWidth}px` : defaultWidthRef.current ? `${defaultWidthRef.current}px` : '100%',
+            overflow: 'visible',
+          }}
+        >
+          <div
+            className="absolute top-0 right-0 w-4 h-full cursor-col-resize hover:bg-primary/60 opacity-0 hover:opacity-100 transition-opacity z-50"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              setIsResizingTable(true)
+              setResizeStartX(e.pageX)
+              if (cardRef.current) {
+                const currentWidth = cardRef.current.offsetWidth
+                setResizeStartWidth(currentWidth)
+                if (defaultWidthRef.current === null) defaultWidthRef.current = currentWidth
+              } else {
+                setResizeStartWidth(defaultWidthRef.current || Math.min(1280, window.innerWidth - 64))
+              }
+            }}
+            style={{ cursor: 'col-resize' }}
+            title="Arrastra para expandir la tabla horizontalmente"
+          />
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between">
               <div>
                 <CardTitle>Reporte de Asistencia por Nivel</CardTitle>
                 <div className="text-sm text-muted-foreground mt-1 grid grid-cols-3 gap-x-8 gap-y-1">
@@ -1562,6 +1662,11 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                   </Button>
                 </div>
               </RoleGuard>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {tableWidth ? `Ancho tabla: ${tableWidth}px | ` : ''}
+                Arrastra el borde derecho para expandir. Shift + scroll o arrastra para desplazamiento horizontal.
+              </span>
             </div>
           </CardHeader>
           <CardContent>
@@ -1606,8 +1711,35 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
               </div>
             )}
 
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse border border-border text-sm">
+            <div
+              ref={tableContainerRef}
+              className="overflow-x-auto select-none"
+              style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+              title="Shift + scroll o arrastra con el mouse para desplazamiento horizontal"
+              onMouseDown={(e) => {
+                if (e.button === 0) {
+                  setIsDragging(true)
+                  const rect = tableContainerRef.current?.getBoundingClientRect()
+                  setStartX(e.pageX - (rect?.left || 0))
+                  setScrollLeft(tableContainerRef.current?.scrollLeft || 0)
+                  e.preventDefault()
+                  e.stopPropagation()
+                }
+              }}
+              onMouseMove={(e) => {
+                if (isDragging && tableContainerRef.current) {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  const rect = tableContainerRef.current.getBoundingClientRect()
+                  const x = e.pageX - rect.left
+                  const walk = (x - startX) * 2
+                  tableContainerRef.current.scrollLeft = scrollLeft - walk
+                }
+              }}
+              onMouseUp={() => { if (isDragging) setIsDragging(false) }}
+              onMouseLeave={() => { if (isDragging) setIsDragging(false) }}
+            >
+              <table className="w-full border-collapse border border-border text-sm" style={{ minWidth: 'max-content' }}>
                 <thead>
                   <tr className="bg-muted/50">
                     <th className="border border-border p-2 bg-muted/50 text-left text-foreground">Nivel</th>
@@ -1618,7 +1750,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                       return (
                         <th
                           key={fecha}
-                          className="border border-border p-2 bg-muted/50 text-center min-w-[50px] text-foreground"
+                          className="border border-border px-1.5 py-2 bg-muted/50 text-center min-w-[28px] w-9 text-foreground"
                         >
                           {day}
                         </th>
@@ -1645,7 +1777,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                             return (
                               <td
                                 key={fecha}
-                                className="border border-border p-2 text-center text-foreground"
+                                className="border border-border px-1.5 py-2 text-center text-foreground min-w-[28px] w-9"
                               >
                                 {asistenciaFecha ? asistenciaFecha.presente : ''}
                               </td>
@@ -1719,7 +1851,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                           return (
                             <td
                               key={fecha}
-                              className="border border-border p-2 text-center text-foreground"
+                              className="border border-border px-1.5 py-2 text-center text-foreground min-w-[28px] w-9"
                             >
                               {totalFecha}
                             </td>
@@ -1805,7 +1937,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                           return (
                             <td
                               key={fecha}
-                              className="border border-border p-2 text-center text-foreground"
+                              className="border border-border px-1.5 py-2 text-center text-foreground min-w-[28px] w-9"
                             >
                               {totalFecha}
                             </td>
@@ -1869,6 +2001,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
             </div>
           </CardContent>
         </Card>
+        </div>
       )}
     </div>
   )

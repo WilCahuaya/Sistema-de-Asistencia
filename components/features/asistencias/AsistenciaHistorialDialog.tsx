@@ -1,5 +1,7 @@
 'use client'
 
+import { useState, useEffect } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import {
   Dialog,
   DialogContent,
@@ -9,7 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { User, Calendar, Edit, Clock } from 'lucide-react'
+import { User, Calendar, Edit, Clock, GraduationCap, BookOpen } from 'lucide-react'
 import { getRolDisplayName, getRolBadgeColor } from '@/lib/utils/roles'
 
 interface AsistenciaHistorial {
@@ -33,6 +35,7 @@ interface AsistenciaHistorial {
   updated_by_rol?: string | null
   registro_tardio?: boolean
   fcp_id?: string
+  aula?: { id: string; nombre: string }
   // Campos legacy (para compatibilidad)
   creador?: {
     email?: string
@@ -50,13 +53,42 @@ interface AsistenciaHistorialDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   asistencia: AsistenciaHistorial | null
+  fcpId?: string
 }
 
 export function AsistenciaHistorialDialog({
   open,
   onOpenChange,
   asistencia,
+  fcpId,
 }: AsistenciaHistorialDialogProps) {
+  const [tutorNombre, setTutorNombre] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open || !asistencia?.aula?.id || !fcpId) {
+      setTutorNombre(null)
+      return
+    }
+    const loadTutor = async () => {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('tutor_aula')
+        .select(`
+          fcp_miembro:fcp_miembros!inner(
+            usuario:usuarios!inner(nombre_completo, email)
+          )
+        `)
+        .eq('aula_id', asistencia.aula!.id)
+        .eq('fcp_id', fcpId)
+        .eq('activo', true)
+        .limit(1)
+        .maybeSingle()
+      const tutor = (data as any)?.fcp_miembro?.usuario
+      setTutorNombre(tutor?.nombre_completo || tutor?.email || null)
+    }
+    loadTutor()
+  }, [open, asistencia?.aula?.id, fcpId])
+
   if (!asistencia) return null
 
   const formatDate = (dateString?: string) => {
@@ -105,6 +137,34 @@ export function AsistenciaHistorialDialog({
                   <p className="text-sm text-muted-foreground font-mono">
                     Código: {asistencia.estudiante.codigo}
                   </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Aula y tutor asignado cuando se registró */}
+          {(asistencia.aula || tutorNombre) && (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="space-y-3">
+                  {asistencia.aula && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <BookOpen className="h-4 w-4 text-muted-foreground" />
+                        <p className="text-sm font-medium text-muted-foreground">Aula</p>
+                      </div>
+                      <p className="text-base font-semibold">{asistencia.aula.nombre}</p>
+                    </div>
+                  )}
+                  {tutorNombre !== null && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <GraduationCap className="h-4 w-4 text-muted-foreground" />
+                        <p className="text-sm font-medium text-muted-foreground">Tutor asignado</p>
+                      </div>
+                      <p className="text-base">{tutorNombre || 'Sin tutor asignado'}</p>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

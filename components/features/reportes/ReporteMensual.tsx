@@ -31,6 +31,7 @@ import {
   getPDFTotalRowColor,
   getPDFCellTextColor,
 } from '@/lib/utils/exportStyles'
+import { getAvailableTableWidth, getProportionalColumnStyles, type PDFTableColumnConfig } from '@/lib/utils/pdfTableUtils'
 
 interface ReporteMensualProps {
   fcpId: string | null
@@ -651,7 +652,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         (autotableModule as any).applyPlugin(jsPDF)
       }
 
-      const doc = new jsPDF()
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
       const pageWidth = doc.internal.pageSize.getWidth()
 
       const monthNames = [
@@ -659,16 +660,16 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
       ]
 
-      let y = 20
+      let y = 12
 
       // Título
-      doc.setFontSize(14)
+      doc.setFontSize(12)
       doc.setFont('helvetica', 'bold')
       doc.text('RESUMEN MENSUAL DE PROYECTO', pageWidth / 2, y, { align: 'center' })
-      y += 10
+      y += 4
 
       // Información del proyecto (tres columnas)
-      doc.setFontSize(10)
+      doc.setFontSize(8)
       doc.setFont('helvetica', 'normal')
       const col1 = 20
       const col2 = pageWidth / 3 + 10
@@ -677,20 +678,20 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       doc.text(`PROYECTO: ${reporteData.fcp.numero_identificacion || ''} ${reporteData.fcp.razon_social}`, col1, y)
       doc.text(`AÑO: ${reporteData.year}`, col2, y)
       doc.text(`MES: ${monthNames[reporteData.month].toUpperCase()}`, col3, y)
-      y += 6
+      y += 4
       if (responsable) {
         doc.text(`RESPONSABLE: ${responsable.nombre.toUpperCase()}`, col1, y)
         doc.text(`EMAIL: ${responsable.email.toUpperCase()}`, col2, y)
         doc.text(`ROL: ${responsable.rol.toUpperCase()}`, col3, y)
-        y += 6
+        y += 4
       }
-      y += 10
+      y += 4
 
       // Sección I
-      doc.setFontSize(11)
+      doc.setFontSize(9)
       doc.setFont('helvetica', 'bold')
       doc.text('I. ASISTENCIA CONTACTO ESENCIAL', 20, y)
-      y += 8
+      y += 5
 
       // Preparar datos para la tabla
       const headers: string[] = ['Niveles', 'Asisten. Promed', 'Registrados', 'Porcentaje']
@@ -713,12 +714,22 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         `${reporteData.totalPorcentaje.toFixed(2)}%`,
       ])
 
-      // Generar tabla con autoTable usando colores del tema
+      const availableWidth = getAvailableTableWidth(doc, 20)
+      const columnConfigs: PDFTableColumnConfig[] = [
+        { type: 'text', weight: 1.5, halign: 'left' },
+        { type: 'numeric', weight: 1, halign: 'center' },
+        { type: 'numeric', weight: 1, halign: 'center' },
+        { type: 'numeric', weight: 1, halign: 'center' },
+      ]
+      const columnStyles = getProportionalColumnStyles(4, availableWidth, columnConfigs)
+
       const tableOptions = {
         startY: y,
         head: [headers],
         body: body,
         theme: 'grid',
+        tableWidth: availableWidth,
+        margin: { left: 20, right: 20 },
         headStyles: getPDFHeaderStyles(),
         bodyStyles: getPDFBodyStyles(),
         alternateRowStyles: getPDFAlternateRowStyles(),
@@ -726,12 +737,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
           cellPadding: 3,
           overflow: 'linebreak',
         },
-        columnStyles: {
-          0: { cellWidth: 60 }, // Niveles
-          1: { cellWidth: 40, halign: 'right' }, // Asisten. Promed
-          2: { cellWidth: 40, halign: 'right' }, // Registrados
-          3: { cellWidth: 40, halign: 'right' }, // Porcentaje
-        },
+        columnStyles,
         didParseCell: function (data: any) {
           // Resaltar fila de totales
           try {
@@ -768,7 +774,6 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
             console.warn('Error en didParseCell:', e)
           }
         },
-        margin: { top: y, left: 20, right: 20 },
       }
 
       if (typeof (doc as any).autoTable === 'function') {

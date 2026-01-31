@@ -948,11 +948,13 @@ export function EstudianteList() {
           <CardContent className="flex flex-col items-center justify-center py-12">
             <GraduationCap className="h-12 w-12 text-muted-foreground mb-4" />
             <p className="text-muted-foreground mb-4">
-              No hay aulas registradas. Primero crea aulas para esta FCP.
+              {isFacilitador ? 'No hay aulas registradas.' : 'No hay aulas registradas. Primero crea aulas para esta FCP.'}
             </p>
-            <Button onClick={() => router.push('/aulas')}>
-              Ir a Aulas
-            </Button>
+            {!isFacilitador && (
+              <Button onClick={() => router.push('/aulas')}>
+                Ir a Aulas
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : displayEstudiantes.length === 0 ? (

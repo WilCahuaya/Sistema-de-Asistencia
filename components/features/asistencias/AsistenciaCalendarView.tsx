@@ -36,6 +36,7 @@ interface Asistencia {
   estudiante_id: string
   fecha: string
   estado: 'presente' | 'falto' | 'permiso'
+  aula_id?: string
   observaciones?: string
   fcp_id?: string
   created_by?: string | null
@@ -544,6 +545,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
           estudiante_id, 
           fecha, 
           estado, 
+          aula_id,
           fcp_id,
           created_by,
           updated_by,
@@ -1687,8 +1689,12 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
           estudiante: {
             codigo: estudiantes.find(e => e.id === selectedAsistenciaForHistorial.estudiante_id)?.codigo || '',
             nombre_completo: estudiantes.find(e => e.id === selectedAsistenciaForHistorial.estudiante_id)?.nombre_completo || '',
-          }
+          },
+          aula: selectedAsistenciaForHistorial.aula_id
+            ? { id: selectedAsistenciaForHistorial.aula_id, nombre: aulas.find(a => a.id === selectedAsistenciaForHistorial.aula_id)?.nombre || 'Sin aula' }
+            : undefined,
         } : null}
+        fcpId={fcpId}
       />
 
       {/* Diálogo habilitar corrección (solo facilitador, mes anterior) */}

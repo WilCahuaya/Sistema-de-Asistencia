@@ -28,6 +28,12 @@ import {
   getPDFTotalRowColor,
   getPDFCellTextColor,
 } from '@/lib/utils/exportStyles'
+import {
+  getAvailableTableWidth,
+  getFontSizeForColumns,
+  getProportionalColumnStyles,
+  type PDFTableColumnConfig,
+} from '@/lib/utils/pdfTableUtils'
 import { toast } from '@/lib/toast'
 
 interface ReporteParticipantesPorMesProps {
@@ -695,7 +701,7 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
         ;(autotableModule as any).applyPlugin(jsPDF)
       }
 
-      const doc = new jsPDF('landscape')
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
       const pageWidth = doc.internal.pageSize.getWidth()
 
       const monthNames = [
@@ -713,10 +719,10 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
         'DICIEMBRE',
       ]
 
-      let y = 15
+      let y = 12
 
       // Título
-      doc.setFontSize(16)
+      doc.setFontSize(12)
       doc.setFont('helvetica', 'bold')
       doc.text(
         `% de la asistencia por mes - ${reporteData.year}`,
@@ -724,10 +730,10 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
         y,
         { align: 'center' }
       )
-      y += 8
+      y += 4
 
       // Información del responsable (tres columnas)
-      doc.setFontSize(10)
+      doc.setFontSize(8)
       doc.setFont('helvetica', 'normal')
       const col1 = 20
       const col2 = pageWidth / 3 + 10
@@ -736,14 +742,14 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
       doc.text(`PROYECTO: TODAS LAS FCPs`, col1, y)
       doc.text(`AÑO: ${reporteData.year}`, col2, y)
       doc.text(`MES: TODOS LOS MESES`, col3, y)
-      y += 6
+      y += 4
       if (responsable) {
         doc.text(`RESPONSABLE: ${responsable.nombre.toUpperCase()}`, col1, y)
         doc.text(`EMAIL: ${responsable.email.toUpperCase()}`, col2, y)
         doc.text(`ROL: ${responsable.rol.toUpperCase()}`, col3, y)
-        y += 6
+        y += 4
       }
-      y += 5
+      y += 4
 
       // Preparar datos para la tabla
       const headers: string[] = ['Código', 'FCP', ...monthNames]
@@ -769,35 +775,40 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
       ]
       body.push(totalRow)
 
-      // Generar tabla
+      const numCols = headers.length
+      const availableWidth = getAvailableTableWidth(doc, 15)
+      const fontSize = getFontSizeForColumns(numCols)
+      const columnConfigs: PDFTableColumnConfig[] = [
+        { type: 'compact', weight: 0.6, halign: 'left' },
+        { type: 'text', weight: 1.2, halign: 'left' },
+        ...monthNames.map(() => ({ type: 'compact' as const, weight: 0.5, halign: 'center' as const })),
+      ]
+      const columnStyles = getProportionalColumnStyles(numCols, availableWidth, columnConfigs)
+
       const tableOptions = {
         startY: y,
         head: [headers],
         body: body,
         theme: 'grid',
+        tableWidth: availableWidth,
+        margin: { left: 15, right: 15 },
         headStyles: {
           ...getPDFHeaderStyles(),
-          fontSize: 8,
+          fontSize,
           cellPadding: 2,
         },
         bodyStyles: {
           ...getPDFBodyStyles(),
-          fontSize: 7,
+          fontSize: Math.max(5, fontSize - 0.5),
           cellPadding: 1.5,
         },
         alternateRowStyles: getPDFAlternateRowStyles(),
         styles: {
           cellPadding: 1.5,
           overflow: 'linebreak',
-          fontSize: 7,
+          fontSize: Math.max(5, fontSize - 0.5),
         },
-        columnStyles: {
-          0: { cellWidth: 20 }, // Código
-          1: { cellWidth: 40 }, // FCP
-          ...Object.fromEntries(
-            monthNames.map((_, idx) => [2 + idx, { cellWidth: 15, halign: 'center' }])
-          ),
-        },
+        columnStyles,
         didParseCell: function (data: any) {
           try {
             if (data.table && data.table.body) {
@@ -805,8 +816,7 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
               if (rowIndex !== undefined && rowIndex >= 0) {
                 const row = data.table.body[rowIndex]
                 if (row && rowIndex === data.table.body.length - 1) {
-                  // Última fila (totales)
-                  data.cell.styles.fillColor = [200, 200, 200] // Gris medio
+                  data.cell.styles.fillColor = getPDFTotalRowColor()
                   data.cell.styles.fontStyle = 'bold'
                 }
               }
@@ -815,7 +825,6 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
             console.warn('Error en didParseCell:', e)
           }
         },
-        margin: { top: y, left: 15, right: 15 },
       }
 
       if (typeof (doc as any).autoTable === 'function') {
