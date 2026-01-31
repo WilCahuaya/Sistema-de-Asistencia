@@ -1726,11 +1726,13 @@ export function ReporteList() {
             />
           )}
           <CardHeader>
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between">
-                <CardTitle>Reporte Generado</CardTitle>
+            <div className="flex flex-col gap-4 sm:gap-1">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 flex-1">
+                  <CardTitle>Reporte Generado</CardTitle>
+                </div>
               <RoleGuard fcpId={fcpIdFinal || undefined} allowedRoles={['facilitador', 'director', 'secretario']}>
-                <div className="flex gap-2">
+                <div className="flex flex-shrink-0 flex-wrap gap-2">
                   <Button variant="outline" onClick={exportarExcel}>
                     <FileSpreadsheet className="mr-2 h-4 w-4" />
                     Excel
@@ -1754,7 +1756,7 @@ export function ReporteList() {
             {reporteData.reporteDetallado && reporteData.fechasUnicas ? (
               // Reporte General Detallado
               <div className="space-y-4">
-                <div className="text-sm text-muted-foreground mb-4 grid grid-cols-3 gap-x-8 gap-y-2">
+                <div className="text-sm text-muted-foreground mb-4 grid grid-cols-1 gap-y-1 gap-x-8 sm:grid-cols-2 lg:grid-cols-3">
                   <p><strong>PROYECTO:</strong> {reporteData.fcp.numero_identificacion || ''} {reporteData.fcp.razon_social}</p>
                   <p><strong>AÑO:</strong> {selectedYear}</p>
                   <p><strong>MES:</strong> {new Date(selectedYear, selectedMonth).toLocaleDateString('es-ES', { month: 'long' }).toUpperCase()}</p>

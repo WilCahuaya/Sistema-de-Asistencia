@@ -1501,10 +1501,11 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
             <table className="border-collapse border border-border text-sm" style={{ width: 'max-content', minWidth: '100%' }}>
               <thead>
                 <tr>
-                  <th className="border border-border p-2 bg-muted sticky left-0 z-20 min-w-[120px] text-left shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
-                    Código
+                  <th className="border border-border p-2 bg-muted sticky left-0 z-20 min-w-[52px] sm:min-w-[120px] text-left shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+                    <span className="hidden sm:inline">Código</span>
+                    <span className="sm:hidden" title="Código">Cod</span>
                   </th>
-                  <th className="border border-border p-2 bg-muted sm:sticky sm:left-[120px] z-20 min-w-[180px] text-left sm:shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+                  <th className="border border-border p-2 bg-muted sticky left-[52px] sm:left-[120px] z-20 min-w-[72px] sm:min-w-[180px] text-left shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
                     Participante
                   </th>
                   {daysInMonth.map(({ day, date, dayName, fechaStr }) => {
@@ -1599,11 +1600,12 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
               <tbody>
                 {estudiantes.map((estudiante) => (
                   <tr key={estudiante.id}>
-                    <td className="border border-border p-2 bg-muted sticky left-0 z-10 font-mono text-xs min-w-[120px] shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
-                      {estudiante.codigo}
+                    <td className="border border-border p-2 bg-muted sticky left-0 z-10 font-mono text-xs min-w-[52px] sm:min-w-[120px] shadow-[2px_0_4px_rgba(0,0,0,0.1)]" title={estudiante.codigo}>
+                      <span className="hidden sm:inline">{estudiante.codigo}</span>
+                      <span className="sm:hidden">{estudiante.codigo.length >= 3 ? estudiante.codigo.slice(-3) : estudiante.codigo}</span>
                     </td>
-                    <td className="border border-border p-2 bg-muted sm:sticky sm:left-[120px] z-10 text-xs min-w-[180px] sm:shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
-                      {estudiante.nombre_completo}
+                    <td className="border border-border p-2 bg-muted sticky left-[52px] sm:left-[120px] z-10 text-xs min-w-[72px] sm:min-w-[180px] shadow-[2px_0_4px_rgba(0,0,0,0.1)]" title={estudiante.nombre_completo}>
+                      <span className="block truncate max-w-[80px] sm:max-w-[172px]">{estudiante.nombre_completo}</span>
                     </td>
                     {daysInMonth.map(({ day, date, fechaStr }) => {
                       const estado = getAsistenciaEstado(estudiante.id, fechaStr)

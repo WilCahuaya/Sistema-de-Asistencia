@@ -1633,11 +1633,11 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
             title="Arrastra para expandir la tabla horizontalmente"
           />
           <CardHeader>
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between">
-              <div>
+            <div className="flex flex-col gap-4 sm:gap-1">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0 flex-1">
                 <CardTitle>Reporte de Asistencia por Nivel</CardTitle>
-                <div className="text-sm text-muted-foreground mt-1 grid grid-cols-3 gap-x-8 gap-y-1">
+                <div className="text-sm text-muted-foreground mt-1 grid grid-cols-1 gap-y-1 gap-x-8 sm:grid-cols-2 lg:grid-cols-3">
                   <p><strong>PROYECTO:</strong> {reporteData.fcp.numero_identificacion || ''} {reporteData.fcp.razon_social}</p>
                   <p><strong>AÑO:</strong> {reporteData.year}</p>
                   <p><strong>MES:</strong> {formatMonthYear(reporteData.month, reporteData.year).split(' ')[0].toUpperCase()}</p>
@@ -1651,7 +1651,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                 </div>
               </div>
               <RoleGuard fcpId={selectedFCP} allowedRoles={['facilitador', 'director', 'secretario']}>
-                <div className="flex gap-2">
+                <div className="flex flex-shrink-0 flex-wrap gap-2">
                   <Button variant="outline" onClick={exportarExcel}>
                     <FileSpreadsheet className="mr-2 h-4 w-4" />
                     Excel
