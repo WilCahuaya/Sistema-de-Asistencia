@@ -1711,9 +1711,10 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
               </div>
             )}
 
+            <p className="mb-2 text-xs text-muted-foreground sm:hidden">Desliza para ver más columnas →</p>
             <div
               ref={tableContainerRef}
-              className="overflow-x-auto select-none"
+              className="table-responsive overflow-x-auto select-none"
               style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
               title="Shift + scroll o arrastra con el mouse para desplazamiento horizontal"
               onMouseDown={(e) => {

@@ -358,17 +358,17 @@ export default async function DashboardPage() {
   // Si es facilitador, mostrar solo reportes mensuales y perfil
   if (isFacilitador) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground">
+      <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-8 lg:px-8">
+        <div className="mb-4 sm:mb-8">
+          <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
             Dashboard
           </h1>
-          <p className="mt-2 text-foreground/80">
+          <p className="mt-2 text-sm text-foreground/80 sm:text-base">
             Bienvenido, {usuario?.nombre_completo || user.user_metadata?.full_name || user.user_metadata?.name || user.email}
           </p>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
           {/* Reportes Mensuales del Mes Actual */}
           <div>
             <ReportesMensualesResumen />
@@ -545,17 +545,17 @@ export default async function DashboardPage() {
     }
 
     return (
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground">
+      <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-8 lg:px-8">
+        <div className="mb-4 sm:mb-8">
+          <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
             Dashboard
           </h1>
-          <p className="mt-2 text-foreground/80">
+          <p className="mt-2 text-sm text-foreground/80 sm:text-base">
             Bienvenido, {usuario?.nombre_completo || user.user_metadata?.full_name || user.user_metadata?.name || user.email}
           </p>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-4 sm:gap-6 grid-cols-1 md:grid-cols-2">
           {/* Card de Mis Aulas */}
           <Link href="/aulas">
             <Card className="cursor-pointer transition-shadow hover:shadow-lg">
@@ -592,8 +592,9 @@ export default async function DashboardPage() {
                 <CardDescription>Estadísticas de asistencia del mes actual</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
-                  <Table>
+                <p className="mb-2 text-xs text-muted-foreground sm:hidden">Desliza para ver más columnas →</p>
+                <div className="table-responsive">
+                  <Table className="min-w-[400px]">
                     <TableHeader>
                       <TableRow>
                         <TableHead>Salón</TableHead>
@@ -696,17 +697,17 @@ export default async function DashboardPage() {
     'Condición Tutor': isTutor && !isDirector && !isSecretario && !isFacilitador
   })
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-foreground">
+    <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-8 lg:px-8">
+      <div className="mb-4 sm:mb-8">
+        <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
           Dashboard
         </h1>
-        <p className="mt-2 text-muted-foreground">
+        <p className="mt-2 text-sm text-muted-foreground sm:text-base">
           Bienvenido, {usuario?.nombre_completo || user.user_metadata?.full_name || user.user_metadata?.name || user.email}
         </p>
       </div>
 
-      <div className={`grid gap-6 ${(isDirector || isSecretario) ? 'md:grid-cols-2' : 'md:grid-cols-2 lg:grid-cols-4'}`}>
+      <div className={`grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 ${(isDirector || isSecretario) ? 'lg:grid-cols-2' : 'lg:grid-cols-4'}`}>
         {/* Card de FCPs - Solo para usuarios que no son director ni secretario */}
         {!isDirector && !isSecretario && (
           <Link href="/fcps">

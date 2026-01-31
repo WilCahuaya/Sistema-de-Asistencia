@@ -129,8 +129,8 @@ export default function AsistenciasPage() {
   }
 
   return (
-    <div className="w-full px-4 py-8 sm:px-6 lg:px-8 overflow-x-auto">
-      <div className="mb-8 mx-auto max-w-7xl">
+    <div className="w-full px-3 py-6 sm:px-6 sm:py-8 lg:px-8 overflow-x-auto">
+      <div className="mb-4 sm:mb-8 mx-auto max-w-7xl">
         {/* El selector de FCP no se muestra para directores ni secretarios, solo ven su FCP asignada */}
         {!isDirector && !isSecretario && userFCPs.length > 1 && (
           <div className="mb-4">

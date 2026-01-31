@@ -778,6 +778,17 @@ html.theme-dark-purple [role="option"][aria-selected="true"] {
   animation-delay: 2s;
 }
 
+/* Tablas responsivas: scroll horizontal en móvil/tablet */
+.table-responsive {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+}
+
+.table-responsive table {
+  min-width: 500px; /* Evita que la tabla se comprima demasiado */
+}
+
 
 
 

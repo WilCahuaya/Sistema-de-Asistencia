@@ -1425,9 +1425,11 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
             No hay estudiantes en esta aula.
           </div>
         ) : (
-          <div 
-            ref={tableContainerRef}
-            className="overflow-x-auto select-none"
+          <>
+            <p className="mb-2 text-xs text-muted-foreground sm:hidden">Desliza para ver más columnas →</p>
+            <div 
+              ref={tableContainerRef}
+              className="table-responsive overflow-x-auto select-none"
             style={{ 
               cursor: isDragging ? 'grabbing' : (role === 'facilitador' || role === 'director' || role === 'secretario') ? 'grab' : 'default'
             }}
@@ -1681,6 +1683,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
             </table>
             </div>
           </div>
+          </>
         )}
       </CardContent>
 

@@ -981,7 +981,7 @@ export function EstudianteList() {
           </CardContent>
         </Card>
       ) : (
-        <Card ref={cardRef} className="relative mx-auto" style={{ 
+        <Card ref={cardRef} className="relative mx-auto w-full overflow-visible md:max-w-[100%]" style={{ 
           width: tableWidth 
             ? `${tableWidth}px` 
             : (defaultWidthRef.current 
@@ -994,9 +994,9 @@ export function EstudianteList() {
               : '100%'), 
           overflow: 'visible' 
         }}>
-          {/* Resizer handle para la tarjeta completa */}
+          {/* Resizer handle - oculto en móvil */}
           <div
-            className="absolute top-0 right-0 w-4 h-full cursor-col-resize hover:bg-primary/60 opacity-0 hover:opacity-100 transition-opacity z-50"
+            className="absolute top-0 right-0 hidden w-4 h-full cursor-col-resize hover:bg-primary/60 opacity-0 hover:opacity-100 transition-opacity z-50 md:block"
             onMouseDown={(e) => {
               e.preventDefault()
               e.stopPropagation()
@@ -1027,20 +1027,21 @@ export function EstudianteList() {
               )}
             </CardTitle>
               {tableWidth && (
-                <span className="text-xs text-muted-foreground">
+                <span className="hidden text-xs text-muted-foreground md:inline">
                   Ancho tabla: {tableWidth}px | Arrastra el borde derecho para ajustar
                 </span>
               )}
               {!tableWidth && (
-                <span className="text-xs text-muted-foreground opacity-60">
+                <span className="hidden text-xs text-muted-foreground opacity-60 md:inline">
                   Arrastra el borde derecho de la tarjeta para expandir la tabla
                 </span>
               )}
             </div>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
-              <Table>
+            <p className="mb-2 text-xs text-muted-foreground sm:hidden">Desliza para ver más columnas →</p>
+            <div className="table-responsive overflow-x-auto">
+              <Table className="min-w-[500px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Código</TableHead>

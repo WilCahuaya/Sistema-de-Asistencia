@@ -295,8 +295,9 @@ export function ReporteMensualResumen() {
         <CardTitle>Reporte Mensual - Mes Actual</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="border border-border rounded-lg overflow-hidden">
-          <table className="w-full border-collapse border border-border text-sm">
+        <p className="mb-2 text-xs text-muted-foreground sm:hidden">Desliza para ver más columnas →</p>
+        <div className="table-responsive border border-border rounded-lg overflow-hidden">
+          <table className="w-full min-w-[320px] border-collapse border border-border text-sm">
             <thead>
               <tr>
                 <th className="border border-border p-2 bg-muted/50 text-left text-foreground">Niveles</th>

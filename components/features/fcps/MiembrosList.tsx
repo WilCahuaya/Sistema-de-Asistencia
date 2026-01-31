@@ -411,8 +411,10 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
               </RoleGuard>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
+            <>
+              <p className="mb-2 text-xs text-muted-foreground sm:hidden">Desliza para ver más columnas →</p>
+              <div className="table-responsive">
+                <Table className="min-w-[700px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Nombre</TableHead>
@@ -536,7 +538,8 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                   )})}
                 </TableBody>
               </Table>
-            </div>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

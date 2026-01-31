@@ -1824,9 +1824,10 @@ export function ReporteList() {
                 })()}
 
                 <div className="border border-border rounded-lg overflow-hidden">
+                  <p className="mb-2 px-4 pt-4 text-xs text-muted-foreground sm:hidden">Desliza para ver más columnas →</p>
                   <div
                     ref={tableContainerRef}
-                    className="overflow-x-auto select-none"
+                    className="table-responsive overflow-x-auto select-none"
                     style={{
                       cursor: isDragging ? 'grabbing' : 'grab',
                     }}

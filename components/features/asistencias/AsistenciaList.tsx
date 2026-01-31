@@ -397,7 +397,10 @@ export function AsistenciaList() {
         </Card>
       ) : (
         <Card>
-          <Table>
+          <CardContent className="pt-6">
+            <p className="mb-2 text-xs text-muted-foreground sm:hidden">Desliza para ver más columnas →</p>
+            <div className="table-responsive">
+              <Table className="min-w-[500px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Código</TableHead>
@@ -437,6 +440,8 @@ export function AsistenciaList() {
               ))}
             </TableBody>
           </Table>
+            </div>
+          </CardContent>
         </Card>
       )}
 

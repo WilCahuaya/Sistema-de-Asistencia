@@ -30,7 +30,7 @@ export default function ReportesPage() {
   // Si es tutor, mostrar mensaje de acceso denegado
   if (isTutor) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-8 lg:px-8">
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <BarChart3 className="h-12 w-12 text-muted-foreground mb-4" />
@@ -44,12 +44,12 @@ export default function ReportesPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-foreground">Reportes</h1>
+    <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-8 lg:px-8">
+      <div className="mb-4 sm:mb-8">
+        <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Reportes</h1>
       </div>
       
-      <div className="mb-6 flex gap-2">
+      <div className="mb-4 sm:mb-6 flex flex-wrap gap-2">
         <Button
           variant={viewType === 'general' ? 'default' : 'outline'}
           onClick={() => setViewType('general')}

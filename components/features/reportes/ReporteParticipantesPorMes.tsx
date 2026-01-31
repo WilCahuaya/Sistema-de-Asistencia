@@ -1043,7 +1043,8 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
               </div>
             )}
             
-            <div className="overflow-x-auto">
+            <p className="mb-2 text-xs text-muted-foreground sm:hidden">Desliza para ver más columnas →</p>
+            <div className="table-responsive overflow-x-auto">
               <table className="w-full border-collapse border border-border text-sm">
                 <thead>
                   <tr className="bg-muted/50">

@@ -1091,8 +1091,9 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
 
               <div>
                 <h3 className="text-lg font-semibold mb-4">I. ASISTENCIA CONTACTO ESENCIAL</h3>
-                <div className="border border-border rounded-lg overflow-hidden">
-                  <table className="w-full border-collapse border border-border text-sm">
+                <p className="mb-2 text-xs text-muted-foreground sm:hidden">Desliza para ver más columnas →</p>
+                <div className="table-responsive border border-border rounded-lg overflow-hidden">
+                  <table className="w-full min-w-[320px] border-collapse border border-border text-sm">
                     <thead>
                       <tr className="bg-muted/50">
                         <th className="border border-border p-2 bg-muted/50 text-left text-foreground">Niveles</th>
