@@ -174,27 +174,27 @@ export default function SinRolPage() {
           <CardContent className="p-6 space-y-6">
 
             {/* Sección de contacto con administración */}
-            <div className="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-xl p-6 border-2 border-purple-200 dark:border-purple-800">
-              <div className="flex items-start gap-4">
-                <div className="flex-shrink-0">
+            <div className="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-xl p-4 sm:p-6 border-2 border-purple-200 dark:border-purple-800">
+              <div className="flex flex-col sm:flex-row items-start gap-4">
+                <div className="flex-shrink-0 mx-auto sm:mx-0">
                   <div className="flex h-12 w-12 items-center justify-center rounded-full bg-purple-500 text-white">
                     <MessageCircle className="h-6 w-6" />
                   </div>
                 </div>
-                <div className="flex-1 space-y-4">
+                <div className="flex-1 space-y-4 w-full">
                   <div>
-                    <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+                    <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2 justify-center sm:justify-start">
                       <Mail className="h-5 w-5 text-purple-600 dark:text-purple-400" />
                       Contacta con la Administración
                     </h3>
-                    <p className="text-gray-700 dark:text-gray-300">
+                    <p className="text-sm sm:text-base text-gray-700 dark:text-gray-300 text-center sm:text-left">
                       Para poder navegar y cumplir tus funciones correspondientes, 
                       debes comunicarte con el administrador del sistema para que te asigne un rol.
                     </p>
                   </div>
 
                   {/* Pasos a seguir */}
-                  <div className="bg-white dark:bg-gray-800 rounded-lg p-4 space-y-3">
+                  <div className="bg-white dark:bg-gray-800 rounded-lg p-3 sm:p-4 space-y-3">
                     <p className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
                       Pasos a seguir:
                     </p>
@@ -211,25 +211,25 @@ export default function SinRolPage() {
                         <Badge variant="outline" className="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center p-0 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700">
                           2
                         </Badge>
-                        <p className="text-sm text-gray-700 dark:text-gray-300 pt-0.5">
-                          Proporciona tu correo electrónico: 
-                          <code className="ml-2 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded font-mono text-xs border border-gray-300 dark:border-gray-600">
+                        <div className="text-sm text-gray-700 dark:text-gray-300 pt-0.5 flex-1 min-w-0">
+                          <p className="mb-2">Proporciona tu correo electrónico:</p>
+                          <code className="block bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded font-mono text-xs border border-gray-300 dark:border-gray-600 break-all">
                             {user.email}
                           </code>
-                        </p>
+                        </div>
                       </div>
                       <div className="flex items-start gap-3">
                         <Badge variant="outline" className="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center p-0 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700">
                           3
                         </Badge>
-                        <div className="text-sm text-gray-700 dark:text-gray-300 pt-0.5">
-                          El administrador te asignará el rol correspondiente 
-                          <span className="inline-flex gap-1 ml-2">
+                        <div className="text-sm text-gray-700 dark:text-gray-300 pt-0.5 flex-1 min-w-0">
+                          <p className="mb-2">El administrador te asignará el rol correspondiente:</p>
+                          <div className="flex flex-wrap gap-1">
                             <Badge variant="secondary" className="text-xs">Facilitador</Badge>
                             <Badge variant="secondary" className="text-xs">Director</Badge>
                             <Badge variant="secondary" className="text-xs">Secretario</Badge>
                             <Badge variant="secondary" className="text-xs">Tutor</Badge>
-                          </span>
+                          </div>
                         </div>
                       </div>
                       <div className="flex items-start gap-3">

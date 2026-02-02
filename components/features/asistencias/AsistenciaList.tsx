@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Calendar, Edit, Search, ClipboardList } from 'lucide-react'
+import { Calendar, Edit, Search, ClipboardList, ChevronDown, ChevronUp } from 'lucide-react'
 import { AsistenciaRegistroDialog } from './AsistenciaRegistroDialog'
 import { AsistenciaEditDialog } from './AsistenciaEditDialog'
 import { useRouter } from 'next/navigation'
@@ -19,6 +19,15 @@ import {
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { useUserRole } from '@/hooks/useUserRole'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import {
   Select,
@@ -57,6 +66,9 @@ export function AsistenciaList() {
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string }>>([])
   const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
   const [searchTerm, setSearchTerm] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [isMobile, setIsMobile] = useState(false)
+  const [expandedCardId, setExpandedCardId] = useState<string | null>(null)
   const router = useRouter()
   const { canEdit } = useUserRole(selectedFCP)
 
@@ -255,6 +267,20 @@ export function AsistenciaList() {
     )
   })
 
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  const itemsPerPage = isMobile ? 8 : 50
+  const totalPages = Math.max(1, Math.ceil(filteredAsistencias.length / itemsPerPage))
+  const displayAsistencias = filteredAsistencias.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+  const shouldShowPagination = filteredAsistencias.length > itemsPerPage
+
+  useEffect(() => setCurrentPage(1), [searchTerm])
+
   if (userFCPs.length === 0) {
     return (
       <Card>
@@ -398,49 +424,109 @@ export function AsistenciaList() {
       ) : (
         <Card>
           <CardContent className="pt-6">
-            <p className="mb-2 text-xs text-muted-foreground sm:hidden">Desliza para ver más columnas →</p>
-            <div className="table-responsive">
-              <Table className="min-w-[500px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Código</TableHead>
-                <TableHead>Estudiante</TableHead>
-                <TableHead>Aula</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead>Observaciones</TableHead>
-                <TableHead>Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredAsistencias.map((asistencia) => (
-                <TableRow key={asistencia.id}>
-                  <TableCell className="font-mono">{asistencia.estudiante?.codigo}</TableCell>
-                  <TableCell>{asistencia.estudiante?.nombre_completo}</TableCell>
-                  <TableCell>{asistencia.estudiante?.aula?.nombre}</TableCell>
-                  <TableCell>{getEstadoBadge(asistencia.estado)}</TableCell>
-                  <TableCell className="max-w-xs truncate">
-                    {asistencia.observaciones || '-'}
-                  </TableCell>
-                  <TableCell>
-                    <RoleGuard 
-                      fcpId={selectedFCP} 
-                      allowedRoles={['director', 'secretario']}
-                      fallback={<span className="text-sm text-muted-foreground">Solo lectura</span>}
-                    >
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleEditAsistencia(asistencia)}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                    </RoleGuard>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-            </div>
+            {isMobile ? (
+              <div className="space-y-3">
+                {displayAsistencias.map((asistencia) => {
+                  const isExpanded = expandedCardId === asistencia.id
+                  return (
+                    <Card key={asistencia.id} className="overflow-hidden">
+                      <div className="p-4 cursor-pointer active:bg-muted/50" onClick={() => setExpandedCardId(isExpanded ? null : asistencia.id)}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-mono text-sm text-muted-foreground">{asistencia.estudiante?.codigo}</p>
+                            <p className="font-medium truncate">{asistencia.estudiante?.nombre_completo}</p>
+                          </div>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {getEstadoBadge(asistencia.estado)}
+                            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          </div>
+                        </div>
+                        {isExpanded && (
+                          <div className="mt-3 pt-3 border-t space-y-2" onClick={(e) => e.stopPropagation()}>
+                            <p className="text-sm text-muted-foreground">
+                              <span className="font-medium text-foreground">Aula:</span> {asistencia.estudiante?.aula?.nombre || '-'}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              <span className="font-medium text-foreground">Observaciones:</span> {asistencia.observaciones || '-'}
+                            </p>
+                            <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']} fallback={null}>
+                              <Button variant="outline" size="sm" onClick={() => handleEditAsistencia(asistencia)}>
+                                <Edit className="h-4 w-4 mr-1" />
+                                Editar
+                              </Button>
+                            </RoleGuard>
+                          </div>
+                        )}
+                      </div>
+                    </Card>
+                  )
+                })}
+              </div>
+            ) : (
+              <>
+                <p className="mb-2 text-xs text-muted-foreground md:hidden">Desliza para ver más columnas →</p>
+                <div className="table-responsive">
+                  <Table className="min-w-[500px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Código</TableHead>
+                        <TableHead>Estudiante</TableHead>
+                        <TableHead>Aula</TableHead>
+                        <TableHead>Estado</TableHead>
+                        <TableHead>Observaciones</TableHead>
+                        <TableHead>Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {displayAsistencias.map((asistencia) => (
+                        <TableRow key={asistencia.id}>
+                          <TableCell className="font-mono">{asistencia.estudiante?.codigo}</TableCell>
+                          <TableCell>{asistencia.estudiante?.nombre_completo}</TableCell>
+                          <TableCell>{asistencia.estudiante?.aula?.nombre}</TableCell>
+                          <TableCell>{getEstadoBadge(asistencia.estado)}</TableCell>
+                          <TableCell className="max-w-xs truncate">{asistencia.observaciones || '-'}</TableCell>
+                          <TableCell>
+                            <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']} fallback={<span className="text-sm text-muted-foreground">Solo lectura</span>}>
+                              <Button variant="ghost" size="sm" onClick={() => handleEditAsistencia(asistencia)}>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </RoleGuard>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            )}
+            {shouldShowPagination && (
+              <div className="mt-6 pt-4 border-t flex flex-col sm:flex-row items-center justify-between gap-4">
+                <p className="text-sm text-muted-foreground">
+                  Mostrando {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, filteredAsistencias.length)} de {filteredAsistencias.length}
+                </p>
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious href="#" onClick={(e) => { e.preventDefault(); if (currentPage > 1) { setCurrentPage(currentPage - 1); window.scrollTo({ top: 0 }) } }} className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'} />
+                    </PaginationItem>
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) =>
+                      page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1) ? (
+                        <PaginationItem key={page}>
+                          <PaginationLink href="#" onClick={(e) => { e.preventDefault(); setCurrentPage(page); window.scrollTo({ top: 0 }) }} isActive={currentPage === page} className="cursor-pointer min-w-[2.5rem]">
+                            {page}
+                          </PaginationLink>
+                        </PaginationItem>
+                      ) : page === currentPage - 2 || page === currentPage + 2 ? (
+                        <PaginationItem key={page}><PaginationEllipsis className="px-2" /></PaginationItem>
+                      ) : null
+                    )}
+                    <PaginationItem>
+                      <PaginationNext href="#" onClick={(e) => { e.preventDefault(); if (currentPage < totalPages) { setCurrentPage(currentPage + 1); window.scrollTo({ top: 0 }) } }} className={currentPage === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'} />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

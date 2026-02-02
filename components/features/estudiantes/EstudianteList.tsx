@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Plus, GraduationCap, Upload, Search, ArrowRight, UserX, UserCheck, Loader2, Edit } from 'lucide-react'
+import { Plus, GraduationCap, Upload, Search, ArrowRight, UserX, UserCheck, Loader2, Edit, ChevronDown, ChevronUp } from 'lucide-react'
 import { EstudianteDialog } from './EstudianteDialog'
 import { EstudianteEditDialog } from './EstudianteEditDialog'
 import { useRouter } from 'next/navigation'
@@ -81,8 +81,18 @@ export function EstudianteList() {
   const [isResizingTable, setIsResizingTable] = useState(false)
   const [resizeStartX, setResizeStartX] = useState(0)
   const [resizeStartWidth, setResizeStartWidth] = useState(0)
-  const itemsPerPage = 15
+  const [isMobile, setIsMobile] = useState(false)
+  const [expandedCardId, setExpandedCardId] = useState<string | null>(null)
   const router = useRouter()
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  const itemsPerPage = isMobile ? 8 : 15
   const { selectedRole } = useSelectedRole()
   
   // Usar el rol seleccionado para determinar los flags
@@ -237,45 +247,32 @@ export function EstudianteList() {
     }
   }, [selectedFCP, selectedAula, isTutorState, includeInactivos])
 
-  useEffect(() => {
-    if (selectedFCP || isTutorState) {
-      loadEstudiantes()
-    }
-  }, [currentPage])
+  // Fuente: filtrada por búsqueda o completa
+  const sourceList = (() => {
+    if (estudiantesCompletos.length === 0) return []
+    if (!searchTerm.trim()) return estudiantesCompletos
+    const term = searchTerm.toLowerCase().trim()
+    return estudiantesCompletos.filter(est =>
+      est.nombre_completo.toLowerCase().includes(term) || est.codigo.toLowerCase().includes(term)
+    )
+  })()
 
-  // Filtrar estudiantes en memoria cuando cambia el término de búsqueda (sin consultar BD)
+  // En móvil: siempre paginar. En desktop: paginar solo si no hay búsqueda o si la lista es larga
+  const effectiveItemsPerPage = isMobile ? itemsPerPage : (searchTerm.trim() ? 9999 : itemsPerPage)
+  const totalFiltered = sourceList.length
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / effectiveItemsPerPage))
+  const startIdx = (currentPage - 1) * effectiveItemsPerPage
+  const displayEstudiantes = sourceList.slice(startIdx, startIdx + effectiveItemsPerPage)
+  const effectiveTotal = totalEstudiantes > 0 && !searchTerm.trim() ? totalEstudiantes : totalFiltered
+  const startIndex = searchTerm.trim() ? startIdx + 1 : (currentPage - 1) * itemsPerPage + 1
+  const endIndex = searchTerm.trim() ? startIdx + displayEstudiantes.length : Math.min(currentPage * itemsPerPage, effectiveTotal)
+  const shouldShowPagination = totalFiltered > effectiveItemsPerPage
+  const displayTotal = searchTerm.trim() ? totalFiltered : (totalEstudiantes > 0 ? totalEstudiantes : totalFiltered)
+
+  // Reset página cuando cambia búsqueda
   useEffect(() => {
-    if (estudiantesCompletos.length === 0) {
-      // Si no hay estudiantes cargados, no hacer nada
-      return
-    }
-    
-    // Filtrar en memoria sin hacer consulta a BD
-    if (!searchTerm.trim()) {
-      // Si no hay término de búsqueda, aplicar paginación a los estudiantes cargados
-      const from = (currentPage - 1) * itemsPerPage
-      const to = from + itemsPerPage
-      setEstudiantes(estudiantesCompletos.slice(from, to))
-    } else {
-      // Si hay término de búsqueda, filtrar en memoria (sin paginación - mostrar todos los resultados)
-      const terminoBusqueda = searchTerm.toLowerCase().trim()
-      const estudiantesFiltrados = estudiantesCompletos.filter(est => 
-        est.nombre_completo.toLowerCase().includes(terminoBusqueda) ||
-        est.codigo.toLowerCase().includes(terminoBusqueda)
-      )
-      setEstudiantes(estudiantesFiltrados)
-      setCurrentPage(1) // Resetear a la primera página cuando se busca
-    }
-  }, [searchTerm, estudiantesCompletos])
-  
-  // Aplicar paginación cuando cambia la página (solo si no hay búsqueda)
-  useEffect(() => {
-    if (!searchTerm.trim() && estudiantesCompletos.length > 0) {
-      const from = (currentPage - 1) * itemsPerPage
-      const to = from + itemsPerPage
-      setEstudiantes(estudiantesCompletos.slice(from, to))
-    }
-  }, [currentPage, searchTerm, estudiantesCompletos])
+    setCurrentPage(1)
+  }, [searchTerm])
 
   const loadUserFCPs = async () => {
     try {
@@ -756,23 +753,6 @@ export function EstudianteList() {
     setEstudianteParaInactivar(null)
   }
 
-  // Calcular paginación
-  // Cuando hay búsqueda, usar el número de estudiantes filtrados
-  // Cuando no hay búsqueda, usar el total de estudiantes cargados o el total de la BD
-  const effectiveTotal = searchTerm 
-    ? estudiantes.length 
-    : (totalEstudiantes > 0 ? totalEstudiantes : estudiantesCompletos.length)
-  const totalPages = Math.ceil(effectiveTotal / itemsPerPage)
-  const startIndex = searchTerm ? 1 : (currentPage - 1) * itemsPerPage + 1
-  const endIndex = searchTerm ? estudiantes.length : Math.min(currentPage * itemsPerPage, effectiveTotal)
-
-  // Cuando hay búsqueda, mostrar todos los resultados filtrados sin paginación
-  const displayEstudiantes = estudiantes
-  const displayTotal = searchTerm ? estudiantes.length : effectiveTotal
-  
-  // Mostrar paginación si hay más estudiantes que itemsPerPage Y no hay búsqueda activa
-  const shouldShowPagination = !searchTerm && effectiveTotal > itemsPerPage
-
   if (userFCPs.length === 0) {
     return (
       <Card>
@@ -1039,101 +1019,137 @@ export function EstudianteList() {
             </div>
           </CardHeader>
           <CardContent>
-            <p className="mb-2 text-xs text-muted-foreground sm:hidden">Desliza para ver más columnas →</p>
-            <div className="table-responsive overflow-x-auto">
-              <Table className="min-w-[500px]">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Código</TableHead>
-                    <TableHead>Nombre Completo</TableHead>
-                    <TableHead>Aula</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead>Acciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {displayEstudiantes.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                        {searchTerm ? 'No se encontraron estudiantes con ese criterio' : 'No hay estudiantes'}
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    displayEstudiantes.map((estudiante) => (
-                      <TableRow key={estudiante.id}>
-                        <TableCell className="font-mono">{estudiante.codigo}</TableCell>
-                        <TableCell>{estudiante.nombre_completo}</TableCell>
-                        <TableCell>{estudiante.aula?.nombre || 'Sin aula'}</TableCell>
-                        <TableCell>
-                          <span
-                            className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
-                              estudiante.activo
-                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                                : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
-                            }`}
-                          >
-                            {estudiante.activo ? 'Activo' : 'Inactivo'}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <RoleGuard 
-                            fcpId={selectedFCP} 
-                            allowedRoles={['director', 'secretario']}
-                            fallback={<span className="text-sm text-muted-foreground">Solo lectura</span>}
-                          >
-                            <div className="flex items-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedEstudianteForEdit(estudiante)
-                                  setIsEditDialogOpen(true)
-                                }}
-                                title="Editar datos del estudiante"
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleToggleActivo(estudiante)}
-                                disabled={togglingId === estudiante.id}
-                                title={estudiante.activo ? 'Inactivar (no aparecerá en lista ni en asistencias nuevas)' : 'Reactivar estudiante'}
-                              >
-                                {togglingId === estudiante.id ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : estudiante.activo ? (
-                                  <UserX className="h-4 w-4" />
-                                ) : (
-                                  <UserCheck className="h-4 w-4" />
-                                )}
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedEstudianteForMovimiento(estudiante)
-                                  setIsMovimientoDialogOpen(true)
-                                }}
-                                disabled={!estudiante.activo || aulas.length <= 1}
-                                title={aulas.length <= 1 ? 'Necesitas al menos 2 aulas para mover estudiantes' : 'Mover a otra aula'}
-                              >
-                                <ArrowRight className="h-4 w-4" />
-                              </Button>
+            {/* Vista móvil: cards con campos secundarios colapsables */}
+            {isMobile ? (
+              <div className="space-y-3">
+                {displayEstudiantes.length === 0 ? (
+                  <p className="text-center py-8 text-muted-foreground text-sm">
+                    {searchTerm ? 'No se encontraron estudiantes' : 'No hay estudiantes'}
+                  </p>
+                ) : (
+                  displayEstudiantes.map((estudiante) => {
+                    const isExpanded = expandedCardId === estudiante.id
+                    return (
+                      <Card key={estudiante.id} className="overflow-hidden">
+                        <div
+                          className="p-4 cursor-pointer active:bg-muted/50"
+                          onClick={() => setExpandedCardId(isExpanded ? null : estudiante.id)}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <p className="font-mono text-sm text-muted-foreground">{estudiante.codigo}</p>
+                              <p className="font-medium truncate">{estudiante.nombre_completo}</p>
                             </div>
-                          </RoleGuard>
-                        </TableCell>
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <span
+                                className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                                  estudiante.activo
+                                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                    : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
+                                }`}
+                              >
+                                {estudiante.activo ? 'Activo' : 'Inactivo'}
+                              </span>
+                              {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            </div>
+                          </div>
+                          {isExpanded && (
+                            <div className="mt-3 pt-3 border-t space-y-2" onClick={(e) => e.stopPropagation()}>
+                              <p className="text-sm text-muted-foreground">
+                                <span className="font-medium text-foreground">Aula:</span> {estudiante.aula?.nombre || 'Sin aula'}
+                              </p>
+                              <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']} fallback={null}>
+                                <div className="flex gap-2 pt-2">
+                                  <Button variant="outline" size="sm" className="flex-1" onClick={() => { setSelectedEstudianteForEdit(estudiante); setIsEditDialogOpen(true) }}>
+                                    <Edit className="h-4 w-4 mr-1" />
+                                    Editar
+                                  </Button>
+                                  <Button variant="outline" size="sm" onClick={() => handleToggleActivo(estudiante)} disabled={togglingId === estudiante.id}>
+                                    {togglingId === estudiante.id ? <Loader2 className="h-4 w-4 animate-spin" /> : estudiante.activo ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
+                                  </Button>
+                                  <Button variant="outline" size="sm" onClick={() => { setSelectedEstudianteForMovimiento(estudiante); setIsMovimientoDialogOpen(true) }} disabled={!estudiante.activo || aulas.length <= 1}>
+                                    <ArrowRight className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </RoleGuard>
+                            </div>
+                          )}
+                        </div>
+                      </Card>
+                    )
+                  })
+                )}
+              </div>
+            ) : (
+              <>
+                <p className="mb-2 text-xs text-muted-foreground md:hidden">Desliza para ver más columnas →</p>
+                <div className="table-responsive overflow-x-auto">
+                  <Table className="min-w-[500px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Código</TableHead>
+                        <TableHead>Nombre Completo</TableHead>
+                        <TableHead>Aula</TableHead>
+                        <TableHead>Estado</TableHead>
+                        <TableHead>Acciones</TableHead>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+                    </TableHeader>
+                    <TableBody>
+                      {displayEstudiantes.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                            {searchTerm ? 'No se encontraron estudiantes con ese criterio' : 'No hay estudiantes'}
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        displayEstudiantes.map((estudiante) => (
+                          <TableRow key={estudiante.id}>
+                            <TableCell className="font-mono">{estudiante.codigo}</TableCell>
+                            <TableCell>{estudiante.nombre_completo}</TableCell>
+                            <TableCell>{estudiante.aula?.nombre || 'Sin aula'}</TableCell>
+                            <TableCell>
+                              <span
+                                className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
+                                  estudiante.activo
+                                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                    : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
+                                }`}
+                              >
+                                {estudiante.activo ? 'Activo' : 'Inactivo'}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <RoleGuard
+                                fcpId={selectedFCP}
+                                allowedRoles={['director', 'secretario']}
+                                fallback={<span className="text-sm text-muted-foreground">Solo lectura</span>}
+                              >
+                                <div className="flex items-center gap-1">
+                                  <Button variant="ghost" size="sm" onClick={() => { setSelectedEstudianteForEdit(estudiante); setIsEditDialogOpen(true) }} title="Editar datos del estudiante">
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button variant="ghost" size="sm" onClick={() => handleToggleActivo(estudiante)} disabled={togglingId === estudiante.id} title={estudiante.activo ? 'Inactivar' : 'Reactivar estudiante'}>
+                                    {togglingId === estudiante.id ? <Loader2 className="h-4 w-4 animate-spin" /> : estudiante.activo ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
+                                  </Button>
+                                  <Button variant="ghost" size="sm" onClick={() => { setSelectedEstudianteForMovimiento(estudiante); setIsMovimientoDialogOpen(true) }} disabled={!estudiante.activo || aulas.length <= 1} title="Mover a otra aula">
+                                    <ArrowRight className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </RoleGuard>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            )}
             {shouldShowPagination && (
               <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4 w-full">
                   <div className="text-sm text-muted-foreground">
-                    Mostrando {startIndex} - {endIndex} de {effectiveTotal} estudiantes
+                    Mostrando {startIndex} - {endIndex} de {displayTotal} estudiantes
                   </div>
                   <div className="flex-1 flex justify-center">
                     <Pagination>

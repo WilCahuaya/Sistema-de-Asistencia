@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Plus, Users, Edit, Ban } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Plus, Users, Edit, Search, ChevronDown, ChevronUp } from 'lucide-react'
 import {
   Table,
   TableBody,
@@ -17,6 +18,15 @@ import { Badge } from '@/components/ui/badge'
 import { MiembroAddDialog } from './MiembroAddDialog'
 import { MiembroEditDialog } from './MiembroEditDialog'
 import { useUserRole } from '@/hooks/useUserRole'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import { getRolDisplayName, getRolBadgeColor } from '@/lib/utils/roles'
 
@@ -60,6 +70,10 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
   const [selectedMiembro, setSelectedMiembro] = useState<Miembro | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [fcpNombre, setFcpNombre] = useState<string>('')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [isMobile, setIsMobile] = useState(false)
+  const [expandedCardId, setExpandedCardId] = useState<string | null>(null)
   const { isFacilitador, isDirector, isSecretario } = useUserRole(fcpId)
   const canView = isFacilitador || isDirector || isSecretario
   const canManage = isDirector || isSecretario // Facilitadores solo pueden ver
@@ -70,6 +84,32 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
       loadFCPNombre()
     }
   }, [fcpId])
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  const filteredMiembros = searchTerm.trim()
+    ? miembros.filter((m) => {
+        const email = m.usuario?.email || m.email_pendiente || ''
+        const nombre = m.usuario?.nombre_completo || ''
+        const term = searchTerm.toLowerCase()
+        return email.toLowerCase().includes(term) || nombre.toLowerCase().includes(term)
+      })
+    : miembros
+
+  const itemsPerPage = isMobile ? 8 : 15
+  const totalPages = Math.max(1, Math.ceil(filteredMiembros.length / itemsPerPage))
+  const displayMiembros = filteredMiembros.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  )
+  const shouldShowPagination = filteredMiembros.length > itemsPerPage
+
+  useEffect(() => setCurrentPage(1), [searchTerm])
 
   const loadFCPNombre = async () => {
     if (!fcpId) return
@@ -412,133 +452,172 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
             </div>
           ) : (
             <>
-              <p className="mb-2 text-xs text-muted-foreground sm:hidden">Desliza para ver más columnas →</p>
-              <div className="table-responsive">
-                <Table className="min-w-[700px]">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nombre</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>FCP</TableHead>
-                    <TableHead>Rol</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead>Fecha de Asignación</TableHead>
-                    <TableHead>Aulas (Tutor)</TableHead>
-                    <TableHead>Acciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {miembros.map((miembro) => {
-                    // Obtener email: primero de usuario registrado, luego de email_pendiente
-                    const email = miembro.usuario?.email || miembro.email_pendiente || 'Sin email'
-                    const nombre = miembro.usuario?.nombre_completo || 'Sin nombre'
-                    
-                    // Obtener roles activos
-                    const rolesActivos = miembro.roles?.filter((r: any) => r.activo) || []
-                    const tieneRolesActivos = rolesActivos.length > 0
-                    
-                    // Para editar, usar el primer rol o el miembro completo si solo tiene uno
-                    const miembroParaEditar = miembro.roles && miembro.roles.length > 0 
-                      ? { ...miembro, id: miembro.roles[0].id, rol: miembro.roles[0].rol, activo: miembro.roles[0].activo }
-                      : miembro
-                    
-                    return (
-                    <TableRow key={miembro.usuario_id || miembro.email_pendiente || miembro.id}>
-                      <TableCell>
-                        {nombre}
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">
-                        {email}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="font-normal">
-                          {miembro.fcp?.razon_social || 'Sin FCP'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {rolesActivos.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {rolesActivos.map((r: any) => (
-                              <Badge key={r.id} className={getRolBadgeColor(r.rol)}>
-                                {getRolDisplayName(r.rol)}
-                              </Badge>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          className={
-                            tieneRolesActivos
-                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                              : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
-                          }
-                        >
-                          {tieneRolesActivos ? 'Activo' : 'Inactivo'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {new Date(miembro.fecha_asignacion).toLocaleDateString('es-ES')}
-                      </TableCell>
-                      <TableCell>
-                        {/* Mostrar aulas si el registro es tutor O si el usuario tiene aulas asignadas como tutor */}
-                        {(miembro.rol === 'tutor' || (miembro.aulas && miembro.aulas.length > 0)) ? (
-                          miembro.aulas && miembro.aulas.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {miembro.aulas.map((aula) => (
-                                <Badge
-                                  key={aula.id}
-                                  variant="secondary"
-                                  className="text-xs"
-                                >
-                                  {aula.nombre}
-                                </Badge>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground italic">
-                              Sin aulas asignadas
-                            </span>
-                          )
-                        ) : (
-                          <span className="text-xs text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {/* Mostrar botón de editar según el rol del usuario */}
-                        {isSecretario ? (
-                          // Secretarios solo pueden editar tutores
-                          rolesActivos.some((r: any) => r.rol === 'tutor') ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleEditMiembro(miembroParaEditar)}
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">-</span>
-                          )
-                        ) : (
-                          // Directores y facilitadores pueden editar todos
-                        <RoleGuard fcpId={fcpId} allowedRoles={['director', 'secretario']}>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleEditMiembro(miembroParaEditar)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                        </RoleGuard>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  )})}
-                </TableBody>
-              </Table>
+              <div className="mb-4">
+                <div className="relative max-w-md">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar por nombre o email..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
               </div>
+              {isMobile ? (
+                <div className="space-y-3">
+                  {displayMiembros.length === 0 ? (
+                    <p className="text-center py-6 text-muted-foreground text-sm">
+                      {searchTerm ? 'No se encontraron miembros' : 'No hay miembros'}
+                    </p>
+                  ) : (
+                    displayMiembros.map((miembro) => {
+                      const email = miembro.usuario?.email || miembro.email_pendiente || 'Sin email'
+                      const nombre = miembro.usuario?.nombre_completo || 'Sin nombre'
+                      const rolesActivos = miembro.roles?.filter((r: any) => r.activo) || []
+                      const tieneRolesActivos = rolesActivos.length > 0
+                      const miembroParaEditar = miembro.roles && miembro.roles.length > 0 ? { ...miembro, id: miembro.roles[0].id, rol: miembro.roles[0].rol, activo: miembro.roles[0].activo } : miembro
+                      const cardKey = miembro.usuario_id || miembro.email_pendiente || miembro.id
+                      const isExpanded = expandedCardId === cardKey
+                      return (
+                        <Card key={cardKey} className="overflow-hidden">
+                          <div className="p-4 cursor-pointer active:bg-muted/50" onClick={() => setExpandedCardId(isExpanded ? null : cardKey)}>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <p className="font-medium truncate">{nombre}</p>
+                                <p className="text-sm text-muted-foreground truncate font-mono">{email}</p>
+                              </div>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <Badge className={tieneRolesActivos ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'}>
+                                  {tieneRolesActivos ? 'Activo' : 'Inactivo'}
+                                </Badge>
+                                {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                              </div>
+                            </div>
+                            {rolesActivos.length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                {rolesActivos.map((r: any) => (
+                                  <Badge key={r.id} className={getRolBadgeColor(r.rol)} variant="secondary">
+                                    {getRolDisplayName(r.rol)}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
+                            {isExpanded && (
+                              <div className="mt-3 pt-3 border-t space-y-2" onClick={(e) => e.stopPropagation()}>
+                                <p className="text-sm text-muted-foreground">FCP: {miembro.fcp?.razon_social || 'Sin FCP'}</p>
+                                <p className="text-sm text-muted-foreground">Asignado: {new Date(miembro.fecha_asignacion).toLocaleDateString('es-ES')}</p>
+                                {miembro.aulas && miembro.aulas.length > 0 && (
+                                  <div className="flex flex-wrap gap-1">
+                                    {miembro.aulas.map((a) => <Badge key={a.id} variant="outline" className="text-xs">{a.nombre}</Badge>)}
+                                  </div>
+                                )}
+                                {isSecretario ? rolesActivos.some((r: any) => r.rol === 'tutor') && (
+                                  <Button variant="outline" size="sm" onClick={() => handleEditMiembro(miembroParaEditar)}><Edit className="h-4 w-4 mr-1" />Editar</Button>
+                                ) : (
+                                  <RoleGuard fcpId={fcpId} allowedRoles={['director', 'secretario']}>
+                                    <Button variant="outline" size="sm" onClick={() => handleEditMiembro(miembroParaEditar)}><Edit className="h-4 w-4 mr-1" />Editar</Button>
+                                  </RoleGuard>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </Card>
+                      )
+                    })
+                  )}
+                </div>
+              ) : (
+                <>
+                  <p className="mb-2 text-xs text-muted-foreground md:hidden">Desliza para ver más columnas →</p>
+                  <div className="table-responsive">
+                    <Table className="min-w-[700px]">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Nombre</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>FCP</TableHead>
+                          <TableHead>Rol</TableHead>
+                          <TableHead>Estado</TableHead>
+                          <TableHead>Fecha de Asignación</TableHead>
+                          <TableHead>Aulas (Tutor)</TableHead>
+                          <TableHead>Acciones</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {displayMiembros.map((miembro) => {
+                          const email = miembro.usuario?.email || miembro.email_pendiente || 'Sin email'
+                          const nombre = miembro.usuario?.nombre_completo || 'Sin nombre'
+                          const rolesActivos = miembro.roles?.filter((r: any) => r.activo) || []
+                          const tieneRolesActivos = rolesActivos.length > 0
+                          const miembroParaEditar = miembro.roles && miembro.roles.length > 0 ? { ...miembro, id: miembro.roles[0].id, rol: miembro.roles[0].rol, activo: miembro.roles[0].activo } : miembro
+                          return (
+                            <TableRow key={miembro.usuario_id || miembro.email_pendiente || miembro.id}>
+                              <TableCell>{nombre}</TableCell>
+                              <TableCell className="font-mono text-sm">{email}</TableCell>
+                              <TableCell><Badge variant="outline" className="font-normal">{miembro.fcp?.razon_social || 'Sin FCP'}</Badge></TableCell>
+                              <TableCell>
+                                {rolesActivos.length > 0 ? (
+                                  <div className="flex flex-wrap gap-1">
+                                    {rolesActivos.map((r: any) => <Badge key={r.id} className={getRolBadgeColor(r.rol)}>{getRolDisplayName(r.rol)}</Badge>)}
+                                  </div>
+                                ) : <span className="text-xs text-muted-foreground">-</span>}
+                              </TableCell>
+                              <TableCell>
+                                <Badge className={tieneRolesActivos ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'}>
+                                  {tieneRolesActivos ? 'Activo' : 'Inactivo'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-sm text-muted-foreground">{new Date(miembro.fecha_asignacion).toLocaleDateString('es-ES')}</TableCell>
+                              <TableCell>
+                                {miembro.aulas && miembro.aulas.length > 0 ? (
+                                  <div className="flex flex-wrap gap-1">
+                                    {miembro.aulas.map((a) => <Badge key={a.id} variant="secondary" className="text-xs">{a.nombre}</Badge>)}
+                                  </div>
+                                ) : <span className="text-xs text-muted-foreground">-</span>}
+                              </TableCell>
+                              <TableCell>
+                                {isSecretario ? rolesActivos.some((r: any) => r.rol === 'tutor') && <Button variant="ghost" size="sm" onClick={() => handleEditMiembro(miembroParaEditar)}><Edit className="h-4 w-4" /></Button> : (
+                                  <RoleGuard fcpId={fcpId} allowedRoles={['director', 'secretario']}>
+                                    <Button variant="ghost" size="sm" onClick={() => handleEditMiembro(miembroParaEditar)}><Edit className="h-4 w-4" /></Button>
+                                  </RoleGuard>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
+              )}
+              {shouldShowPagination && (
+                <div className="mt-6 pt-4 border-t flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <p className="text-sm text-muted-foreground">
+                    Mostrando {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, filteredMiembros.length)} de {filteredMiembros.length}
+                  </p>
+                  <Pagination>
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious href="#" onClick={(e) => { e.preventDefault(); if (currentPage > 1) { setCurrentPage(currentPage - 1); window.scrollTo({ top: 0 }) } }} className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'} />
+                      </PaginationItem>
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) =>
+                        page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1) ? (
+                          <PaginationItem key={page}>
+                            <PaginationLink href="#" onClick={(e) => { e.preventDefault(); setCurrentPage(page); window.scrollTo({ top: 0 }) }} isActive={currentPage === page} className="cursor-pointer min-w-[2.5rem]">
+                              {page}
+                            </PaginationLink>
+                          </PaginationItem>
+                        ) : page === currentPage - 2 || page === currentPage + 2 ? (
+                          <PaginationItem key={page}><PaginationEllipsis className="px-2" /></PaginationItem>
+                        ) : null
+                      )}
+                      <PaginationItem>
+                        <PaginationNext href="#" onClick={(e) => { e.preventDefault(); if (currentPage < totalPages) { setCurrentPage(currentPage + 1); window.scrollTo({ top: 0 }) } }} className={currentPage === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'} />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                </div>
+              )}
             </>
           )}
         </CardContent>

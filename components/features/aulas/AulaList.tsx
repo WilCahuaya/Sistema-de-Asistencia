@@ -11,8 +11,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus, GraduationCap, Users, Edit, Building2, Eye, EyeOff } from 'lucide-react'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination'
+import { Plus, GraduationCap, Users, Edit, Building2, Eye, EyeOff, Search, ChevronDown, ChevronUp } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
 import { AulaDialog } from './AulaDialog'
 import { AulaTutorDialog } from './AulaTutorDialog'
 import { AulaEditDialog } from './AulaEditDialog'
@@ -51,6 +61,10 @@ export function AulaList() {
   const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
   const [showInactive, setShowInactive] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [isMobile, setIsMobile] = useState(false)
+  const [expandedCardId, setExpandedCardId] = useState<string | null>(null)
   const router = useRouter()
   const { selectedRole } = useSelectedRole()
   
@@ -85,6 +99,30 @@ export function AulaList() {
       loadAulas()
     }
   }, [selectedFCP, isTutorState, showInactive])
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  const filteredAulas = searchTerm.trim()
+    ? aulas.filter((a) => {
+        const term = searchTerm.toLowerCase()
+        const nombre = a.nombre?.toLowerCase() || ''
+        const desc = a.descripcion?.toLowerCase() || ''
+        const tutor = a.tutor?.nombre_completo?.toLowerCase() || a.tutor?.email?.toLowerCase() || ''
+        return nombre.includes(term) || desc.includes(term) || tutor.includes(term)
+      })
+    : aulas
+
+  const itemsPerPage = isMobile ? 8 : 24
+  const totalPages = Math.max(1, Math.ceil(filteredAulas.length / itemsPerPage))
+  const displayAulas = filteredAulas.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+  const shouldShowPagination = filteredAulas.length > itemsPerPage
+
+  useEffect(() => setCurrentPage(1), [searchTerm])
 
   const loadUserFCPs = async () => {
     try {
@@ -490,89 +528,148 @@ export function AulaList() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {aulas.map((aula) => (
-            <Card 
-              key={aula.id} 
-              className={`cursor-pointer hover:shadow-lg transition-shadow ${
-                !aula.activa ? 'opacity-60 border-dashed bg-muted/30' : ''
-              }`}
-            >
-              <CardHeader>
-                <CardTitle className={!aula.activa ? 'text-muted-foreground' : ''}>
-                  {aula.nombre}
-                  {!aula.activa && (
-                    <span className="ml-2 text-xs font-normal text-amber-600 dark:text-amber-400">
-                      (Inactiva)
-                    </span>
-                  )}
-                </CardTitle>
-                {aula.descripcion && (
-                  <CardDescription>{aula.descripcion}</CardDescription>
-                )}
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2 text-sm">
-                  {aula.fcp && (
-                    <p className="text-muted-foreground">
-                      <span className="font-medium">FCP:</span> {aula.fcp.razon_social}
-                    </p>
-                  )}
-                  <div className="space-y-1">
-                    <p className="text-muted-foreground">
-                      <span className="font-medium">Tutor encargado:</span>{' '}
-                      {aula.tutor ? (
-                        <span>{aula.tutor.nombre_completo || aula.tutor.email}</span>
-                      ) : (
-                        <span className="text-orange-600 dark:text-orange-400 italic">
-                          Falta agregar tutor
-                        </span>
-                      )}
-                    </p>
-                    <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleAssignTutor(aula)}
-                        className="text-xs"
-                      >
-                        <Edit className="mr-1 h-3 w-3" />
-                        {aula.tutor ? 'Cambiar tutor' : 'Asignar tutor'}
-                      </Button>
-                    </RoleGuard>
-                  </div>
-                  <div className="pt-2 flex items-center justify-between">
-                    <span
-                      className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
-                        aula.activa
-                          ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                          : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
-                      }`}
+        <>
+          <div className="mb-4">
+            <div className="relative max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por nombre, descripción o tutor..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+          </div>
+          {displayAulas.length === 0 ? (
+            <p className="text-center py-8 text-muted-foreground text-sm">
+              {searchTerm ? 'No se encontraron aulas' : 'No hay aulas'}
+            </p>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {displayAulas.map((aula) => {
+                const isExpanded = isMobile ? expandedCardId === aula.id : true
+                return (
+                  <Card
+                    key={aula.id}
+                    className={`cursor-pointer hover:shadow-lg transition-shadow ${
+                      !aula.activa ? 'opacity-60 border-dashed bg-muted/30' : ''
+                    }`}
+                  >
+                    <div
+                      className={isMobile ? 'cursor-pointer' : ''}
+                      onClick={() => isMobile && setExpandedCardId(isExpanded ? null : aula.id)}
                     >
-                      {aula.activa ? 'Activa' : 'Inactiva'}
-                    </span>
-                    <RoleGuard fcpId={aula.fcp_id || selectedFCP} allowedRoles={['director', 'secretario']}>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setEditingAula(aula)
-                          setIsEditDialogOpen(true)
-                        }}
-                        className="text-xs"
-                      >
-                        <Edit className="mr-1 h-3 w-3" />
-                        Editar
-                      </Button>
-                    </RoleGuard>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                      <CardHeader>
+                        <div className="flex items-start justify-between gap-2">
+                          <CardTitle className={`flex-1 ${!aula.activa ? 'text-muted-foreground' : ''}`}>
+                            {aula.nombre}
+                            {!aula.activa && (
+                              <span className="ml-2 text-xs font-normal text-amber-600 dark:text-amber-400">
+                                (Inactiva)
+                              </span>
+                            )}
+                          </CardTitle>
+                          {isMobile && (isExpanded ? <ChevronUp className="h-4 w-4 flex-shrink-0" /> : <ChevronDown className="h-4 w-4 flex-shrink-0" />)}
+                        </div>
+                        {!isMobile && aula.descripcion && <CardDescription>{aula.descripcion}</CardDescription>}
+                      </CardHeader>
+                      {(isExpanded || !isMobile) && (
+                        <CardContent onClick={(e) => isMobile && e.stopPropagation()}>
+                          <div className="space-y-2 text-sm">
+                            {aula.descripcion && isMobile && <CardDescription className="mb-2">{aula.descripcion}</CardDescription>}
+                            {aula.fcp && (
+                              <p className="text-muted-foreground">
+                                <span className="font-medium">FCP:</span> {aula.fcp.razon_social}
+                              </p>
+                            )}
+                            <div className="space-y-1">
+                              <p className="text-muted-foreground">
+                                <span className="font-medium">Tutor encargado:</span>{' '}
+                                {aula.tutor ? (
+                                  <span>{aula.tutor.nombre_completo || aula.tutor.email}</span>
+                                ) : (
+                                  <span className="text-orange-600 dark:text-orange-400 italic">
+                                    Falta agregar tutor
+                                  </span>
+                                )}
+                              </p>
+                              <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleAssignTutor(aula)}
+                                  className="text-xs"
+                                >
+                                  <Edit className="mr-1 h-3 w-3" />
+                                  {aula.tutor ? 'Cambiar tutor' : 'Asignar tutor'}
+                                </Button>
+                              </RoleGuard>
+                            </div>
+                            <div className="pt-2 flex items-center justify-between">
+                              <span
+                                className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
+                                  aula.activa
+                                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                    : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
+                                }`}
+                              >
+                                {aula.activa ? 'Activa' : 'Inactiva'}
+                              </span>
+                              <RoleGuard fcpId={aula.fcp_id || selectedFCP} allowedRoles={['director', 'secretario']}>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setEditingAula(aula)
+                                    setIsEditDialogOpen(true)
+                                  }}
+                                  className="text-xs"
+                                >
+                                  <Edit className="mr-1 h-3 w-3" />
+                                  Editar
+                                </Button>
+                              </RoleGuard>
+                            </div>
+                          </div>
+                        </CardContent>
+                      )}
+                    </div>
+                  </Card>
+                )
+              })}
+            </div>
+          )}
+          {shouldShowPagination && (
+            <div className="mt-6 pt-4 border-t flex flex-col sm:flex-row items-center justify-between gap-4">
+              <p className="text-sm text-muted-foreground">
+                Mostrando {(currentPage - 1) * itemsPerPage + 1} - {Math.min(currentPage * itemsPerPage, filteredAulas.length)} de {filteredAulas.length}
+              </p>
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious href="#" onClick={(e) => { e.preventDefault(); if (currentPage > 1) { setCurrentPage(currentPage - 1); window.scrollTo({ top: 0 }) } }} className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'} />
+                  </PaginationItem>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) =>
+                    page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1) ? (
+                      <PaginationItem key={page}>
+                        <PaginationLink href="#" onClick={(e) => { e.preventDefault(); setCurrentPage(page); window.scrollTo({ top: 0 }) }} isActive={currentPage === page} className="cursor-pointer min-w-[2.5rem]">
+                          {page}
+                        </PaginationLink>
+                      </PaginationItem>
+                    ) : page === currentPage - 2 || page === currentPage + 2 ? (
+                      <PaginationItem key={page}><PaginationEllipsis className="px-2" /></PaginationItem>
+                    ) : null
+                  )}
+                  <PaginationItem>
+                    <PaginationNext href="#" onClick={(e) => { e.preventDefault(); if (currentPage < totalPages) { setCurrentPage(currentPage + 1); window.scrollTo({ top: 0 }) } }} className={currentPage === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'} />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
+          )}
+        </>
       )}
 
       <AulaDialog
