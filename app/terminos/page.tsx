@@ -4,12 +4,12 @@ import { Shield } from 'lucide-react'
 export default function TerminosPage() {
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-4xl px-3 py-8 sm:px-6 sm:py-12 lg:px-8">
         <div className="mb-8 text-center">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-primary/10 rounded-full mb-4">
             <Shield className="h-8 w-8 text-primary" />
           </div>
-          <h1 className="text-4xl font-bold text-foreground mb-2">Términos y Condiciones</h1>
+          <h1 className="text-2xl font-bold text-foreground mb-2 sm:text-3xl md:text-4xl">Términos y Condiciones</h1>
           <p className="text-muted-foreground">Última actualización: {new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
         </div>
 

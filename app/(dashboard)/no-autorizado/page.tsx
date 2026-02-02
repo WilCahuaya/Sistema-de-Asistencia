@@ -47,13 +47,13 @@ export default async function NoAutorizadoPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-16 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-2xl px-3 py-8 sm:px-6 sm:py-16 lg:px-8">
       <Card>
         <CardHeader className="text-center">
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/20">
             <ShieldX className="h-8 w-8 text-red-600 dark:text-red-400" />
           </div>
-          <CardTitle className="text-2xl">Acceso No Autorizado</CardTitle>
+          <CardTitle className="text-xl sm:text-2xl">Acceso No Autorizado</CardTitle>
           <CardDescription>
             No tienes acceso al sistema
           </CardDescription>

@@ -113,9 +113,9 @@ export function FCPList() {
 
   return (
     <div>
-      <div className="mb-6 flex items-start justify-between">
+      <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
-          <h2 className="text-xl font-semibold">
+          <h2 className="text-lg font-semibold sm:text-xl">
             {isFacilitador ? 'FCPs a mi Cargo' : 'Mis FCPs'}
           </h2>
           <p className="text-sm text-muted-foreground mt-1">

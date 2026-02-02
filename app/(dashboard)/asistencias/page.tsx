@@ -112,9 +112,9 @@ export default function AsistenciasPage() {
 
   if (userFCPs.length === 0) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-8 lg:px-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground">Asistencias</h1>
+          <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Asistencias</h1>
         </div>
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
@@ -171,7 +171,7 @@ export default function AsistenciasPage() {
           </div>
         )}
 
-        <h1 className="text-3xl font-bold text-foreground">Asistencias</h1>
+        <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Asistencias</h1>
       </div>
 
       {/* Mostrar información de FCP para directores y secretarios */}

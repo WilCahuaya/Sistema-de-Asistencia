@@ -69,7 +69,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center p-4">
+    <div className="min-h-screen bg-white flex items-center justify-center p-3 sm:p-4 md:p-6">
       <div className="w-full max-w-6xl grid lg:grid-cols-2 gap-12 items-center">
         {/* Left side - Branding */}
         <div className="hidden lg:flex flex-col space-y-8">
@@ -79,12 +79,12 @@ export default function LoginPage() {
                 <GraduationCap className="h-10 w-10 text-blue-600" />
               </div>
               <div>
-                <h1 className="text-3xl font-bold text-gray-900">Sistema de Asistencias</h1>
+                <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">Sistema de Asistencias</h1>
                 <p className="text-gray-600 text-sm mt-1">Gestión inteligente de asistencias estudiantiles</p>
               </div>
             </div>
             
-            <p className="text-lg text-gray-700 leading-relaxed">
+            <p className="text-base sm:text-lg text-gray-700 leading-relaxed">
               Plataforma completa para gestionar asistencias estudiantiles con reportes automáticos y exportación a Excel y PDF.
             </p>
           </div>
@@ -116,7 +116,7 @@ export default function LoginPage() {
 
         {/* Right side - Login Form */}
         <div className="w-full">
-          <div className="bg-white border border-gray-200 rounded-lg p-8 lg:p-10 shadow-sm">
+          <div className="bg-white border border-gray-200 rounded-lg p-4 sm:p-6 md:p-8 lg:p-10 shadow-sm">
             {/* Mobile logo */}
             <div className="lg:hidden text-center mb-8">
               <div className="inline-flex items-center gap-3 mb-4">
@@ -124,14 +124,14 @@ export default function LoginPage() {
                   <GraduationCap className="h-8 w-8 text-blue-600" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold text-gray-900">Sistema de Asistencias</h1>
+                  <h1 className="text-lg font-bold text-gray-900 sm:text-xl">Sistema de Asistencias</h1>
                 </div>
               </div>
             </div>
 
             {/* Desktop title */}
             <div className="hidden lg:block mb-8">
-              <h2 className="text-3xl font-bold text-gray-900 mb-2">Bienvenido</h2>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2 sm:text-3xl">Bienvenido</h2>
               <p className="text-gray-600">Inicia sesión para continuar</p>
             </div>
 
@@ -193,15 +193,15 @@ export default function LoginPage() {
               {/* Stats */}
               <div className="grid grid-cols-3 gap-4 pt-4">
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-gray-900">100%</div>
+                  <div className="text-xl font-bold text-gray-900 sm:text-2xl">100%</div>
                   <div className="text-xs text-gray-600 mt-1">Seguro</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-gray-900">24/7</div>
+                  <div className="text-xl font-bold text-gray-900 sm:text-2xl">24/7</div>
                   <div className="text-xs text-gray-600 mt-1">Disponible</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-gray-900">∞</div>
+                  <div className="text-xl font-bold text-gray-900 sm:text-2xl">∞</div>
                   <div className="text-xs text-gray-600 mt-1">Escalable</div>
                 </div>
               </div>

@@ -286,10 +286,10 @@ export default function SeleccionarRolPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-8">
+    <div className="min-h-screen flex items-center justify-center bg-background px-3 py-6 sm:px-4 sm:py-8">
       <div className="w-full max-w-4xl">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-foreground mb-2">
+        <div className="text-center mb-6 sm:mb-8">
+          <h1 className="text-2xl font-bold text-foreground mb-2 sm:text-3xl">
             Selecciona tu Rol
           </h1>
           <p className="text-muted-foreground">
@@ -325,7 +325,7 @@ export default function SeleccionarRolPage() {
           </div>
         )}
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 sm:gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
           {roles.map((role) => {
             const isFacilitadorUnificado = role.rol === 'facilitador' && role.fcps != null
             return (
@@ -345,7 +345,7 @@ export default function SeleccionarRolPage() {
                   </div>
                   {isFacilitadorUnificado ? (
                     <>
-                      <CardTitle className="text-lg">Facilitador</CardTitle>
+                      <CardTitle className="text-base sm:text-lg">Facilitador</CardTitle>
                       <CardDescription className="text-xs mt-1">
                         FCPs que administras:
                       </CardDescription>
@@ -366,7 +366,7 @@ export default function SeleccionarRolPage() {
                     </>
                   ) : (
                     <>
-                      <CardTitle className="text-lg">
+                      <CardTitle className="text-base sm:text-lg">
                         {role.fcp?.razon_social || 'Sistema'}
                       </CardTitle>
                       {role.fcp?.numero_identificacion && (

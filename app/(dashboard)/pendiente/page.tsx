@@ -137,15 +137,15 @@ export default function SinRolPage() {
             <UserX className="h-12 w-12 text-white" />
           </div>
           <div className="space-y-3">
-            <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white sm:text-3xl md:text-4xl">
               Acceso Pendiente
             </h1>
             <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg border-2 border-orange-200 dark:border-orange-800">
-              <p className="text-xl text-gray-800 dark:text-gray-200 leading-relaxed">
+              <p className="text-base sm:text-xl text-gray-800 dark:text-gray-200 leading-relaxed">
                 <span className="font-semibold text-orange-600 dark:text-orange-400">{nombreMostrar}</span> se registró correctamente, pero{' '}
                 <span className="font-semibold text-red-600 dark:text-red-400">no cuenta con un rol asignado</span>.
               </p>
-              <p className="text-lg text-gray-700 dark:text-gray-300 mt-3 font-medium">
+              <p className="text-sm sm:text-lg text-gray-700 dark:text-gray-300 mt-3 font-medium">
                 Por favor, <span className="text-blue-600 dark:text-blue-400 font-semibold">contáctese con la administración</span> para obtener acceso al sistema.
               </p>
               <div className="mt-4 flex items-center justify-center gap-2 text-sm text-gray-600 dark:text-gray-400">
@@ -162,7 +162,7 @@ export default function SinRolPage() {
             <div className="flex items-center gap-3">
               <AlertCircle className="h-6 w-6" />
               <div>
-                <CardTitle className="text-2xl text-white">
+                <CardTitle className="text-xl text-white sm:text-2xl">
                   Acceso Pendiente
                 </CardTitle>
                 <CardDescription className="text-blue-100 mt-1">
@@ -171,7 +171,7 @@ export default function SinRolPage() {
               </div>
             </div>
           </CardHeader>
-          <CardContent className="p-6 space-y-6">
+          <CardContent className="p-4 space-y-4 sm:p-6 sm:space-y-6">
 
             {/* Sección de contacto con administración */}
             <div className="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-xl p-4 sm:p-6 border-2 border-purple-200 dark:border-purple-800">
