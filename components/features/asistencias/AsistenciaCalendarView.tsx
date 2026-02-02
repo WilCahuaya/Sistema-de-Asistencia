@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { CheckCircle2, XCircle, Clock, CheckCheck, X, Info } from 'lucide-react'
+import { CheckCircle2, XCircle, Clock, CheckCheck, X, Info, Calendar, Search } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import {
@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select'
 import { MonthPicker } from '@/components/ui/month-picker'
 import { AsistenciaHistorialDialog } from './AsistenciaHistorialDialog'
+import { AsistenciaCalendarioModal } from './AsistenciaCalendarioModal'
 import { useCorreccionMes, esMesAnterior } from '@/hooks/useCorreccionMes'
 import { CorreccionMesBanner } from './CorreccionMesBanner'
 import { HabilitarCorreccionDialog } from './HabilitarCorreccionDialog'
@@ -95,7 +96,11 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const [selectedAsistenciaForHistorial, setSelectedAsistenciaForHistorial] = useState<Asistencia | null>(null)
   const [habilitarCorreccionOpen, setHabilitarCorreccionOpen] = useState(false)
   const [fechaParaEliminar, setFechaParaEliminar] = useState<string | null>(null)
-  const [showAbbreviatedSticky, setShowAbbreviatedSticky] = useState(false) // En móvil: true cuando scroll left, false cuando scroll right (ver info completa)
+  const [showAbbreviatedSticky, setShowAbbreviatedSticky] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
+  const [selectedEstudianteForModal, setSelectedEstudianteForModal] = useState<Estudiante | null>(null)
+  const [mobilePage, setMobilePage] = useState(1)
+  const [mobileSearch, setMobileSearch] = useState('')
   const tableContainerRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const defaultWidthRef = useRef<number | null>(null) // Ancho por defecto del contenedor
@@ -165,6 +170,14 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     window.addEventListener('resize', sync)
     return () => window.removeEventListener('resize', sync)
   }, [estudiantes.length])
+
+  // Detectar móvil para vista de cards
+  useEffect(() => {
+    const check = () => setIsMobile(typeof window !== 'undefined' && window.innerWidth < 640)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
   
   // Efecto para manejar el resize de la tabla
   useEffect(() => {
@@ -266,6 +279,11 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       setSelectedYear(initialYear)
     }
   }, [initialMonth, initialYear])
+
+  useEffect(() => {
+    setMobilePage(1)
+    setMobileSearch('')
+  }, [selectedAula, selectedMonth, selectedYear])
 
   useEffect(() => {
     if (selectedAula) {
@@ -1336,9 +1354,9 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
 
   return (
     <Card ref={cardRef} className="relative mx-auto" style={{ width: currentWidth, maxWidth: currentWidth, overflow: 'visible' }}>
-      {/* Resizer handle para la tarjeta completa - más visible */}
+      {/* Resizer handle - solo en desktop con tabla */}
       <div
-        className="absolute top-0 right-0 w-4 h-full cursor-col-resize hover:bg-primary/60 opacity-0 hover:opacity-100 transition-opacity z-50"
+        className="absolute top-0 right-0 w-4 h-full cursor-col-resize hover:bg-primary/60 opacity-0 hover:opacity-100 transition-opacity z-50 hidden sm:block"
         onMouseDown={(e) => {
           e.preventDefault()
           e.stopPropagation()
@@ -1440,9 +1458,115 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
           <div className="text-center py-8 text-muted-foreground">
             No hay estudiantes en esta aula.
           </div>
+        ) : isMobile ? (
+          /* Vista móvil: cards por asistente, sin tablas */
+          (() => {
+            const mobilePerPage = 8
+            const filteredEstudiantes = mobileSearch.trim()
+              ? estudiantes.filter(
+                  (e) =>
+                    e.nombre_completo.toLowerCase().includes(mobileSearch.toLowerCase()) ||
+                    e.codigo.toLowerCase().includes(mobileSearch.toLowerCase())
+                )
+              : estudiantes
+            const totalPages = Math.max(1, Math.ceil(filteredEstudiantes.length / mobilePerPage))
+            const displayEstudiantes = filteredEstudiantes.slice(
+              (mobilePage - 1) * mobilePerPage,
+              mobilePage * mobilePerPage
+            )
+            const totalDias = daysInMonth.length
+            return (
+              <div className="space-y-4">
+                <div className="relative">
+                  <Input
+                    placeholder="Buscar por nombre o código..."
+                    value={mobileSearch}
+                    onChange={(e) => {
+                      setMobileSearch(e.target.value)
+                      setMobilePage(1)
+                    }}
+                    className="pl-9 w-full"
+                  />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                </div>
+                {filteredEstudiantes.length === 0 ? (
+                  <p className="text-center py-8 text-muted-foreground text-sm">
+                    {mobileSearch ? 'No se encontraron estudiantes' : 'No hay estudiantes'}
+                  </p>
+                ) : (
+                <div className="space-y-3">
+                  {displayEstudiantes.map((estudiante) => {
+                    const presentes = daysInMonth.filter(
+                      (d) => getAsistenciaEstado(estudiante.id, d.fechaStr) === 'presente'
+                    ).length
+                    return (
+                      <Card key={estudiante.id} className="overflow-hidden">
+                        <div className="p-4 flex flex-col gap-3">
+                          <div>
+                            <p className="font-mono text-sm text-muted-foreground">{estudiante.codigo}</p>
+                            <p className="font-medium">{estudiante.nombre_completo}</p>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {formatMonthYear(selectedMonth, selectedYear)}: {presentes} / {totalDias}
+                          </p>
+                          <Button
+                            className="w-full gap-2"
+                            variant="outline"
+                            onClick={() => setSelectedEstudianteForModal(estudiante)}
+                          >
+                            <Calendar className="h-4 w-4" />
+                            Ver calendario
+                          </Button>
+                        </div>
+                      </Card>
+                    )
+                  })}
+                </div>
+                )}
+                {filteredEstudiantes.length > mobilePerPage && (
+                  <div className="flex items-center justify-between pt-4 border-t">
+                    <p className="text-sm text-muted-foreground">
+                      {(mobilePage - 1) * mobilePerPage + 1} - {Math.min(mobilePage * mobilePerPage, filteredEstudiantes.length)} de {filteredEstudiantes.length}
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={mobilePage <= 1}
+                        onClick={() => setMobilePage((p) => Math.max(1, p - 1))}
+                      >
+                        Anterior
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={mobilePage >= totalPages}
+                        onClick={() => setMobilePage((p) => Math.min(totalPages, p + 1))}
+                      >
+                        Siguiente
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {selectedEstudianteForModal && (
+                  <AsistenciaCalendarioModal
+                    open={!!selectedEstudianteForModal}
+                    onOpenChange={(open) => !open && setSelectedEstudianteForModal(null)}
+                    estudiante={selectedEstudianteForModal}
+                    daysInMonth={daysInMonth}
+                    monthLabel={formatMonthYear(selectedMonth, selectedYear)}
+                    getEstado={getAsistenciaEstado}
+                    onDayTap={(eid, fechaStr) => handleCellClick(eid, fechaStr, false)}
+                    isSaving={(eid, fechaStr) => saving.has(`${eid}_${fechaStr}`)}
+                    puedeEditar={puedeEditarMes}
+                  />
+                )}
+              </div>
+            )
+          })()
         ) : (
           <>
-            <p className="mb-2 text-xs text-muted-foreground sm:hidden">Desliza para ver más columnas →</p>
+            <p className="mb-2 text-xs text-muted-foreground md:hidden">Desliza para ver más columnas →</p>
             <div 
               ref={tableContainerRef}
               className="table-responsive overflow-x-auto select-none"
