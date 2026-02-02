@@ -316,7 +316,8 @@ export function AulaList() {
       if (aulasBase.length > 0) {
         // Cargar todos los tutores asignados a las aulas de una vez
         const aulaIds = aulasBase.map(a => a.id)
-        const fcpIdForTutores = fcpIdFromRole || selectedFCP
+        // Usar el fcp_id de las aulas cargadas (más fiable que fcpIdFromRole/selectedFCP para facilitadores)
+        const fcpIdForTutores = aulasBase[0]?.fcp_id || fcpIdFromRole || selectedFCP
         
         if (!fcpIdForTutores) {
           console.warn('⚠️ [AulaList] No hay fcpId para cargar tutores')
