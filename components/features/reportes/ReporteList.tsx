@@ -4,8 +4,9 @@ import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { MonthPicker } from '@/components/ui/month-picker'
-import { BarChart3, FileSpreadsheet, FileText, Calendar, Download } from 'lucide-react'
+import { BarChart3, FileSpreadsheet, FileText, Calendar, Download, Search, ChevronDown, ChevronUp } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -127,6 +128,10 @@ export function ReporteList() {
   const [isResizingTable, setIsResizingTable] = useState(false)
   const [resizeStartX, setResizeStartX] = useState(0)
   const [resizeStartWidth, setResizeStartWidth] = useState(0)
+  const [isMobile, setIsMobile] = useState(false)
+  const [mobileSearch, setMobileSearch] = useState('')
+  const [mobilePage, setMobilePage] = useState(1)
+  const [expandedCardId, setExpandedCardId] = useState<number | null>(null)
 
   // Efecto para obtener el ancho por defecto del contenedor
   useEffect(() => {
@@ -189,6 +194,19 @@ export function ReporteList() {
     el.addEventListener('wheel', handler, { passive: false })
     return () => el.removeEventListener('wheel', handler)
   }, [reporteData?.reporteDetallado])
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  useEffect(() => {
+    setMobilePage(1)
+    setMobileSearch('')
+    setExpandedCardId(null)
+  }, [reporteData])
 
   // Verificar si el usuario es facilitador y obtener su primera FCP si no hay fcpId seleccionado
   useEffect(() => {
@@ -1825,8 +1843,102 @@ export function ReporteList() {
                   )
                 })()}
 
+                {isMobile ? (
+                  // Vista móvil: cards con paginación y búsqueda
+                  (() => {
+                    const rows = reporteData.reporteDetallado || []
+                    const filtered = mobileSearch.trim()
+                      ? rows.filter(
+                          (r) =>
+                            r.persona.toLowerCase().includes(mobileSearch.toLowerCase()) ||
+                            (r.codigo || '').toLowerCase().includes(mobileSearch.toLowerCase()) ||
+                            (r.nivel || '').toLowerCase().includes(mobileSearch.toLowerCase())
+                        )
+                      : rows
+                    const perPage = 8
+                    const totalPages = Math.max(1, Math.ceil(filtered.length / perPage))
+                    const displayRows = filtered.slice((mobilePage - 1) * perPage, mobilePage * perPage)
+                    const totalDias = reporteData.fechasUnicas?.length || 0
+                    return (
+                      <div className="space-y-4">
+                        <div className="relative">
+                          <Input
+                            placeholder="Buscar por nombre, código o nivel..."
+                            value={mobileSearch}
+                            onChange={(e) => {
+                              setMobileSearch(e.target.value)
+                              setMobilePage(1)
+                            }}
+                            className="pl-9"
+                          />
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <div className="space-y-3">
+                          {displayRows.map((row, idx) => {
+                            const presentes = reporteData.fechasUnicas?.filter((f) => row.asistenciasPorFecha[f]).length || 0
+                            const globalIndex = filtered.indexOf(row)
+                            const isExpanded = expandedCardId === row.no
+                            return (
+                              <Card key={row.no}>
+                                <div
+                                  className="p-4 cursor-pointer"
+                                  onClick={() => setExpandedCardId(isExpanded ? null : row.no)}
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0 flex-1">
+                                      <p className="font-mono text-xs text-muted-foreground">{row.codigo}</p>
+                                      <p className="font-medium truncate">{row.persona}</p>
+                                      <p className="text-sm text-muted-foreground">{row.nivel} · {row.tutor}</p>
+                                      <p className="text-sm mt-1">
+                                        {presentes} / {totalDias} presentes
+                                      </p>
+                                    </div>
+                                    {isExpanded ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
+                                  </div>
+                                  {isExpanded && reporteData.fechasUnicas && (
+                                    <div className="mt-4 pt-3 border-t grid grid-cols-7 gap-1">
+                                      {reporteData.fechasUnicas.map((fecha) => {
+                                        const [y, m, d] = fecha.split('-').map(Number)
+                                        const asisto = row.asistenciasPorFecha[fecha]
+                                        return (
+                                          <div
+                                            key={fecha}
+                                            className={`text-center py-1 rounded text-xs ${asisto ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-muted text-muted-foreground'}`}
+                                            title={fecha}
+                                          >
+                                            <span className="block font-medium">{d}</span>
+                                            <span>{asisto ? '✓' : '—'}</span>
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              </Card>
+                            )
+                          })}
+                        </div>
+                        {filtered.length > perPage && (
+                          <div className="flex items-center justify-between pt-4 border-t">
+                            <p className="text-sm text-muted-foreground">
+                              {(mobilePage - 1) * perPage + 1} - {Math.min(mobilePage * perPage, filtered.length)} de {filtered.length}
+                            </p>
+                            <div className="flex gap-2">
+                              <Button variant="outline" size="sm" disabled={mobilePage <= 1} onClick={() => setMobilePage((p) => Math.max(1, p - 1))}>
+                                Anterior
+                              </Button>
+                              <Button variant="outline" size="sm" disabled={mobilePage >= totalPages} onClick={() => setMobilePage((p) => Math.min(totalPages, p + 1))}>
+                                Siguiente
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()
+                ) : (
                 <div className="border border-border rounded-lg overflow-hidden">
-                  <p className="mb-2 px-4 pt-4 text-xs text-muted-foreground sm:hidden">Desliza para ver más columnas →</p>
+                  <p className="mb-2 px-4 pt-4 text-xs text-muted-foreground md:hidden">Desliza para ver más columnas →</p>
                   <div
                     ref={tableContainerRef}
                     className="table-responsive overflow-x-auto select-none"
@@ -1905,6 +2017,7 @@ export function ReporteList() {
                     </table>
                   </div>
                 </div>
+                )}
               </div>
             ) : (
               // Reporte con resúmenes (formato anterior)
@@ -1964,9 +2077,69 @@ export function ReporteList() {
                   </div>
                 </div>
 
-                {/* Resumen por Estudiante (tabla) */}
+                {/* Resumen por Estudiante */}
                 <div>
                   <h3 className="text-lg font-semibold mb-4">Resumen por Estudiante</h3>
+                  {isMobile ? (
+                    (() => {
+                      const estList = reporteData.resumenPorEstudiante
+                      const filteredEst = mobileSearch.trim()
+                        ? estList.filter(
+                            (e) =>
+                              e.estudiante_nombre.toLowerCase().includes(mobileSearch.toLowerCase()) ||
+                              (e.estudiante_codigo || '').toLowerCase().includes(mobileSearch.toLowerCase()) ||
+                              (e.aula_nombre || '').toLowerCase().includes(mobileSearch.toLowerCase())
+                          )
+                        : estList
+                      const perPage = 8
+                      const totalPages = Math.max(1, Math.ceil(filteredEst.length / perPage))
+                      const displayEst = filteredEst.slice((mobilePage - 1) * perPage, mobilePage * perPage)
+                      return (
+                        <div className="space-y-4">
+                          <div className="relative">
+                            <Input
+                              placeholder="Buscar por nombre, código o aula..."
+                              value={mobileSearch}
+                              onChange={(e) => {
+                                setMobileSearch(e.target.value)
+                                setMobilePage(1)
+                              }}
+                              className="pl-9"
+                            />
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          </div>
+                          <div className="space-y-3">
+                            {displayEst.map((est) => (
+                              <Card key={est.estudiante_id}>
+                                <CardContent className="p-4">
+                                  <p className="font-mono text-sm text-muted-foreground">{est.estudiante_codigo}</p>
+                                  <p className="font-medium">{est.estudiante_nombre}</p>
+                                  <p className="text-sm text-muted-foreground">{est.aula_nombre}</p>
+                                  <div className="flex gap-3 mt-2 text-sm">
+                                    <span className="text-green-600 dark:text-green-400">{est.presentes} presentes</span>
+                                    <span className="text-red-600 dark:text-red-400">{est.faltas} faltas</span>
+                                    <span className="text-yellow-600 dark:text-yellow-400">{est.permisos} permisos</span>
+                                    <span className="text-muted-foreground">{est.total_dias} días</span>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            ))}
+                          </div>
+                          {filteredEst.length > perPage && (
+                            <div className="flex items-center justify-between pt-4 border-t">
+                              <p className="text-sm text-muted-foreground">
+                                {(mobilePage - 1) * perPage + 1} - {Math.min(mobilePage * perPage, filteredEst.length)} de {filteredEst.length}
+                              </p>
+                              <div className="flex gap-2">
+                                <Button variant="outline" size="sm" disabled={mobilePage <= 1} onClick={() => setMobilePage((p) => Math.max(1, p - 1))}>Anterior</Button>
+                                <Button variant="outline" size="sm" disabled={mobilePage >= totalPages} onClick={() => setMobilePage((p) => Math.min(totalPages, p + 1))}>Siguiente</Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()
+                  ) : (
                   <div className="border border-border rounded-lg overflow-hidden">
                     <div className="overflow-x-auto max-h-96">
                       <table className="w-full text-sm">
@@ -1997,6 +2170,7 @@ export function ReporteList() {
                       </table>
                     </div>
                   </div>
+                  )}
                 </div>
               </div>
             )}

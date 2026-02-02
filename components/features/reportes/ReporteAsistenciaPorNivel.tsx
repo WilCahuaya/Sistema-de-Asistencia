@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { MonthPicker } from '@/components/ui/month-picker'
-import { FileSpreadsheet, FileText, Calendar, Download } from 'lucide-react'
+import { FileSpreadsheet, FileText, Calendar, Download, Search, ChevronDown, ChevronUp } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useRouter } from 'next/navigation'
@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Building2 } from 'lucide-react'
+import { Input } from '@/components/ui/input'
 import { toast } from '@/lib/toast'
 import {
   getExcelHeaderStyle,
@@ -127,6 +128,10 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
   const [isResizingTable, setIsResizingTable] = useState(false)
   const [resizeStartX, setResizeStartX] = useState(0)
   const [resizeStartWidth, setResizeStartWidth] = useState(0)
+  const [isMobile, setIsMobile] = useState(false)
+  const [mobileSearch, setMobileSearch] = useState('')
+  const [mobilePage, setMobilePage] = useState(1)
+  const [expandedCardId, setExpandedCardId] = useState<string | null>(null)
 
   useEffect(() => {
     const initialize = async () => {
@@ -184,6 +189,19 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
       document.removeEventListener('mouseup', handleMouseUp)
     }
   }, [isResizingTable, resizeStartX, resizeStartWidth])
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  useEffect(() => {
+    setMobilePage(1)
+    setMobileSearch('')
+    setExpandedCardId(null)
+  }, [reporteData])
 
   useEffect(() => {
     const el = tableContainerRef.current
@@ -1711,7 +1729,97 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
               </div>
             )}
 
-            <p className="mb-2 text-xs text-muted-foreground sm:hidden">Desliza para ver más columnas →</p>
+            {isMobile ? (
+              (() => {
+                const flatAulas: Array<{ nivel: string; aula: typeof reporteData.niveles[0]['aulas'][0] }> = []
+                reporteData.niveles.forEach((n) => {
+                  n.aulas.forEach((a) => flatAulas.push({ nivel: n.nivel, aula: a }))
+                })
+                const filtered = mobileSearch.trim()
+                  ? flatAulas.filter(
+                      (f) =>
+                        f.nivel.toLowerCase().includes(mobileSearch.toLowerCase()) ||
+                        f.aula.tutorNombre.toLowerCase().includes(mobileSearch.toLowerCase())
+                    )
+                  : flatAulas
+                const perPage = 8
+                const totalPages = Math.max(1, Math.ceil(filtered.length / perPage))
+                const display = filtered.slice((mobilePage - 1) * perPage, mobilePage * perPage)
+                const pctAsistio = (a: typeof flatAulas[0]['aula']) => {
+                  const t = a.totalPresente + a.totalPermiso + a.totalFalto
+                  return t > 0 ? ((a.totalPresente / t) * 100).toFixed(1) : '0'
+                }
+                const pctPermiso = (a: typeof flatAulas[0]['aula']) => {
+                  const t = a.totalPresente + a.totalPermiso + a.totalFalto
+                  return t > 0 ? ((a.totalPermiso / t) * 100).toFixed(1) : '0'
+                }
+                const pctFalto = (a: typeof flatAulas[0]['aula']) => {
+                  const t = a.totalPresente + a.totalPermiso + a.totalFalto
+                  return t > 0 ? ((a.totalFalto / t) * 100).toFixed(1) : '0'
+                }
+                return (
+                  <div className="space-y-4">
+                    <div className="relative">
+                      <Input placeholder="Buscar por nivel o tutor..." value={mobileSearch} onChange={(e) => { setMobileSearch(e.target.value); setMobilePage(1) }} className="pl-9" />
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="space-y-3">
+                      {display.map(({ nivel, aula }) => {
+                        const key = `${nivel}-${aula.aulaId}`
+                        const isExpanded = expandedCardId === key
+                        return (
+                          <Card key={key}>
+                            <div className="p-4 cursor-pointer" onClick={() => setExpandedCardId(isExpanded ? null : key)}>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-medium">{nivel}</p>
+                                  <p className="text-sm text-muted-foreground">{aula.tutorNombre}</p>
+                                  <div className="flex gap-3 mt-2 text-sm flex-wrap">
+                                    <span>Asis.Pro.m: {aula.asistenPromed.toFixed(2)}</span>
+                                    <span>Reg: {aula.totalRegistros}</span>
+                                    <span className="text-green-600">{pctAsistio(aula)}% asistió</span>
+                                    <span className="text-amber-600">{pctPermiso(aula)}% permiso</span>
+                                    <span className="text-red-600">{pctFalto(aula)}% faltó</span>
+                                  </div>
+                                </div>
+                                {isExpanded ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
+                              </div>
+                              {isExpanded && reporteData.fechasUnicas && (
+                                <div className="mt-4 pt-3 border-t grid grid-cols-7 gap-1">
+                                  {reporteData.fechasUnicas.map((fecha) => {
+                                    const a = aula.asistencias[fecha]
+                                    const [y, m, d] = fecha.split('-').map(Number)
+                                    return (
+                                      <div key={fecha} className="text-center py-1 rounded text-xs bg-muted" title={fecha}>
+                                        <span className="block font-medium">{d}</span>
+                                        <span>{a ? a.presente : '—'}</span>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </Card>
+                        )
+                      })}
+                    </div>
+                    {filtered.length > perPage && (
+                      <div className="flex items-center justify-between pt-4 border-t">
+                        <p className="text-sm text-muted-foreground">
+                          {(mobilePage - 1) * perPage + 1} - {Math.min(mobilePage * perPage, filtered.length)} de {filtered.length}
+                        </p>
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" disabled={mobilePage <= 1} onClick={() => setMobilePage((p) => Math.max(1, p - 1))}>Anterior</Button>
+                          <Button variant="outline" size="sm" disabled={mobilePage >= totalPages} onClick={() => setMobilePage((p) => Math.min(totalPages, p + 1))}>Siguiente</Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()
+            ) : (
+            <>
+            <p className="mb-2 text-xs text-muted-foreground md:hidden">Desliza para ver más columnas →</p>
             <div
               ref={tableContainerRef}
               className="table-responsive overflow-x-auto select-none"
@@ -2000,6 +2108,8 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                 </tbody>
               </table>
             </div>
+            </>
+            )}
           </CardContent>
         </Card>
         </div>
