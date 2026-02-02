@@ -85,6 +85,7 @@ export function EstudianteList() {
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null)
   const router = useRouter()
 
+  // Breakpoint sm (640px): PC = tabla original, móvil = cards con paginación
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 640)
     check()
@@ -92,7 +93,7 @@ export function EstudianteList() {
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  const itemsPerPage = isMobile ? 8 : 15
+  const itemsPerPage = isMobile ? 8 : 15 // móvil: 8 por página, PC: 15
   const { selectedRole } = useSelectedRole()
   
   // Usar el rol seleccionado para determinar los flags
@@ -1019,7 +1020,7 @@ export function EstudianteList() {
             </div>
           </CardHeader>
           <CardContent>
-            {/* Vista móvil: cards con campos secundarios colapsables */}
+            {/* Móvil (<640px): cards. PC (≥640px): tabla como antes */}
             {isMobile ? (
               <div className="space-y-3">
                 {displayEstudiantes.length === 0 ? (
