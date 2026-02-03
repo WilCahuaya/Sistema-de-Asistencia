@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
+import { getCurrentMonthYearInAppTimezone, toLocalDateString } from '@/lib/utils/dateUtils'
 
 interface NivelData {
   nivel: string
@@ -82,9 +83,8 @@ export function ReporteMensualResumen() {
     try {
       setLoading(true)
       const supabase = createClient()
-      const now = new Date()
-      const year = now.getFullYear()
-      const month = now.getMonth()
+      // Usar zona horaria de la app (no la del servidor ni la del navegador)
+      const { year, month } = getCurrentMonthYearInAppTimezone()
 
       // Obtener todas las aulas activas de la FCP
       const { data: aulas, error: aulasError } = await supabase
@@ -107,16 +107,16 @@ export function ReporteMensualResumen() {
         return
       }
 
-      // Calcular días del mes
+      // Calcular días del mes (year/month ya están en zona de la app)
       const primerDia = new Date(year, month, 1)
       const ultimoDia = new Date(year, month + 1, 0)
       const diasDelMes = ultimoDia.getDate()
 
-      // Obtener todas las fechas del mes
+      // Obtener todas las fechas del mes (formato local para consistencia)
       const fechasDelMes: string[] = []
       for (let dia = 1; dia <= diasDelMes; dia++) {
         const fecha = new Date(year, month, dia)
-        fechasDelMes.push(fecha.toISOString().split('T')[0])
+        fechasDelMes.push(toLocalDateString(fecha))
       }
 
       // Obtener estudiantes activos por aula

@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { useUserRole } from '@/hooks/useUserRole'
+import { getTodayInAppTimezone } from '@/lib/utils/dateUtils'
 import {
   Pagination,
   PaginationContent,
@@ -62,7 +63,7 @@ export function AsistenciaList() {
   const [selectedAsistencia, setSelectedAsistencia] = useState<Asistencia | null>(null)
   const [selectedFCP, setSelectedONG] = useState<string | null>(null)
   const [selectedAula, setSelectedAula] = useState<string | null>(null)
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0])
+  const [selectedDate, setSelectedDate] = useState<string>(() => getTodayInAppTimezone())
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string }>>([])
   const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
   const [searchTerm, setSearchTerm] = useState('')

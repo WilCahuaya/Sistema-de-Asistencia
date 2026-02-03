@@ -20,6 +20,7 @@ import {
 import { Building2 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { toast } from '@/lib/toast'
+import { toLocalDateString } from '@/lib/utils/dateUtils'
 import {
   getExcelHeaderStyle,
   getExcelCellStyle,
@@ -477,11 +478,11 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         }, {} as Record<string, Array<{ id: string; tutor: string }>>),
       })
 
-      // Calcular rango de fechas del mes
+      // Calcular rango de fechas del mes (fecha local para no incluir día del mes siguiente por UTC)
       const firstDay = new Date(selectedYear, selectedMonth, 1)
       const lastDay = new Date(selectedYear, selectedMonth + 1, 0)
-      const fechaInicio = firstDay.toISOString().split('T')[0]
-      const fechaFin = lastDay.toISOString().split('T')[0]
+      const fechaInicio = toLocalDateString(firstDay)
+      const fechaFin = toLocalDateString(lastDay)
 
       // Determinar si estamos consultando un mes anterior
       const fechaActual = new Date()
@@ -701,7 +702,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         const todasLasFechasDelMes: string[] = []
         for (let dia = 1; dia <= diasDelMes; dia++) {
           const fechaDate = new Date(selectedYear, selectedMonth, dia)
-          todasLasFechasDelMes.push(fechaDate.toISOString().split('T')[0])
+          todasLasFechasDelMes.push(toLocalDateString(fechaDate))
         }
 
         // 3. Procesar todas las fechas del mes (no solo las que tienen asistencias)

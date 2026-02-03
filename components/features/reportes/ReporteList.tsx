@@ -20,6 +20,7 @@ import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import { toast } from '@/lib/toast'
+import { toLocalDateString } from '@/lib/utils/dateUtils'
 import {
   getExcelHeaderStyle,
   getExcelCellStyle,
@@ -280,18 +281,16 @@ export function ReporteList() {
     setSelectedYear(now.getFullYear())
     const inicio = new Date(now.getFullYear(), now.getMonth(), 1)
     const fin = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-    fin.setHours(23, 59, 59, 999)
-    setFechaInicio(inicio.toISOString().split('T')[0])
-    setFechaFin(fin.toISOString().split('T')[0])
+    setFechaInicio(toLocalDateString(inicio))
+    setFechaFin(toLocalDateString(fin))
   }, [])
 
-  // Actualizar fechas cuando cambia el mes/año
+  // Actualizar fechas cuando cambia el mes/año (usar fecha local para evitar UTC y mostrar datos del mes siguiente)
   useEffect(() => {
     const inicio = new Date(selectedYear, selectedMonth, 1)
     const fin = new Date(selectedYear, selectedMonth + 1, 0)
-    fin.setHours(23, 59, 59, 999)
-    setFechaInicio(inicio.toISOString().split('T')[0])
-    setFechaFin(fin.toISOString().split('T')[0])
+    setFechaInicio(toLocalDateString(inicio))
+    setFechaFin(toLocalDateString(fin))
   }, [selectedMonth, selectedYear])
 
 
@@ -313,12 +312,11 @@ export function ReporteList() {
       esFacilitador
     })
 
-    // Asegurar que las fechas estén configuradas según el mes seleccionado
+    // Asegurar que las fechas estén configuradas según el mes seleccionado (fecha local, no UTC)
     const inicio = new Date(selectedYear, selectedMonth, 1)
     const fin = new Date(selectedYear, selectedMonth + 1, 0)
-    fin.setHours(23, 59, 59, 999)
-    const fechaInicioStr = inicio.toISOString().split('T')[0]
-    const fechaFinStr = fin.toISOString().split('T')[0]
+    const fechaInicioStr = toLocalDateString(inicio)
+    const fechaFinStr = toLocalDateString(fin)
     setFechaInicio(fechaInicioStr)
     setFechaFin(fechaFinStr)
 

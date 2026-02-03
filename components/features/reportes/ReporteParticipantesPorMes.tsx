@@ -17,6 +17,7 @@ import { useUserRole } from '@/hooks/useUserRole'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { toLocalDateString } from '@/lib/utils/dateUtils'
 import {
   getExcelHeaderStyle,
   getExcelCellStyle,
@@ -255,11 +256,11 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
 
         if (aulasError) throw aulasError
 
-        // Obtener TODAS las asistencias del año para esta FCP
+        // Obtener TODAS las asistencias del año para esta FCP (fecha local)
         const fechaInicio = new Date(selectedYear, 0, 1)
-        const fechaFin = new Date(selectedYear, 11, 31, 23, 59, 59, 999)
-        const fechaInicioStr = fechaInicio.toISOString().split('T')[0]
-        const fechaFinStr = fechaFin.toISOString().split('T')[0]
+        const fechaFin = new Date(selectedYear, 11, 31)
+        const fechaInicioStr = toLocalDateString(fechaInicio)
+        const fechaFinStr = toLocalDateString(fechaFin)
 
         // IMPORTANTE: Incluir aula_id de la asistencia para preservar el aula histórica
         // También incluir datos del estudiante para poder determinar estudiantes por mes
@@ -315,8 +316,8 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
             // Para meses anteriores, obtener aulas únicas de las asistencias de ese mes específico
             const mesInicio = new Date(selectedYear, mes, 1)
             const mesFin = new Date(selectedYear, mes + 1, 0)
-            const mesInicioStr = mesInicio.toISOString().split('T')[0]
-            const mesFinStr = mesFin.toISOString().split('T')[0]
+            const mesInicioStr = toLocalDateString(mesInicio)
+            const mesFinStr = toLocalDateString(mesFin)
 
             const asistenciasDelMes = todasAsistenciasData?.filter((a: any) => {
               const fechaAsistencia = new Date(a.fecha)
@@ -345,8 +346,8 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
             // Para meses anteriores, obtener estudiantes únicos de las asistencias de ese mes específico
             const mesInicio = new Date(selectedYear, mes, 1)
             const mesFin = new Date(selectedYear, mes + 1, 0)
-            const mesInicioStr = mesInicio.toISOString().split('T')[0]
-            const mesFinStr = mesFin.toISOString().split('T')[0]
+            const mesInicioStr = toLocalDateString(mesInicio)
+            const mesFinStr = toLocalDateString(mesFin)
 
             const asistenciasDelMes = todasAsistenciasData?.filter((a: any) => {
               const fechaAsistencia = new Date(a.fecha)

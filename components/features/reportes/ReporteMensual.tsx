@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select'
 import { Building2, Search } from 'lucide-react'
 import { toast } from '@/lib/toast'
+import { toLocalDateString } from '@/lib/utils/dateUtils'
 import {
   getExcelHeaderStyle,
   getExcelCellStyle,
@@ -324,12 +325,11 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         throw fcpError
       }
 
-      // Calcular fechas del mes
+      // Calcular fechas del mes (fecha local para no incluir día del mes siguiente por UTC)
       const fechaInicio = new Date(selectedYear, selectedMonth, 1)
       const fechaFin = new Date(selectedYear, selectedMonth + 1, 0)
-      fechaFin.setHours(23, 59, 59, 999)
-      const fechaInicioStr = fechaInicio.toISOString().split('T')[0]
-      const fechaFinStr = fechaFin.toISOString().split('T')[0]
+      const fechaInicioStr = toLocalDateString(fechaInicio)
+      const fechaFinStr = toLocalDateString(fechaFin)
 
       // Determinar si estamos consultando un mes anterior
       const fechaActual = new Date()

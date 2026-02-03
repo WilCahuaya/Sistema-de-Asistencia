@@ -14,6 +14,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import {
+  getCurrentMonthYearInAppTimezone,
+  getMonthRangeInAppTimezone,
+  getCurrentMonthLabelInAppTimezone,
+} from '@/lib/utils/dateUtils'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -475,13 +480,9 @@ export default async function DashboardPage() {
       if (!tutorAulasError && tutorAulasData) {
         tutorAulas = tutorAulasData.map((ta: any) => ta.aula).filter((aula: any) => aula)
         
-        // Obtener mes actual para estadísticas
-        const now = new Date()
-        const mesActual = now.getMonth()
-        const añoActual = now.getFullYear()
-        const inicioMes = new Date(añoActual, mesActual, 1)
-        const finMes = new Date(añoActual, mesActual + 1, 0)
-        finMes.setHours(23, 59, 59, 999)
+        // Mes actual en la zona horaria de la app (no la del servidor Vercel/UTC)
+        const { year: añoActual, month: mesActual } = getCurrentMonthYearInAppTimezone()
+        const { start: inicioMesStr, end: finMesStr } = getMonthRangeInAppTimezone(añoActual, mesActual)
         
         // Contar estudiantes y obtener estadísticas de asistencia por aula
         for (const aula of tutorAulas) {
@@ -504,13 +505,13 @@ export default async function DashboardPage() {
             if (estudiantesAula && estudiantesAula.length > 0) {
               const estudianteIds = estudiantesAula.map((e: any) => e.id)
               
-              // Obtener asistencias del mes actual
+              // Obtener asistencias del mes actual (rango en zona horaria de la app)
               const { data: asistenciasData } = await supabase
                 .from('asistencias')
                 .select('estado')
                 .in('estudiante_id', estudianteIds)
-                .gte('fecha', inicioMes.toISOString().split('T')[0])
-                .lte('fecha', finMes.toISOString().split('T')[0])
+                .gte('fecha', inicioMesStr)
+                .lte('fecha', finMesStr)
               
               // Contar por estado
               let presentes = 0
@@ -589,7 +590,7 @@ export default async function DashboardPage() {
           <div className="mt-8">
             <Card>
               <CardHeader>
-                <CardTitle>Asistencia por Salón - {new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).toUpperCase()}</CardTitle>
+                <CardTitle>Asistencia por Salón - {getCurrentMonthLabelInAppTimezone().toUpperCase()}</CardTitle>
                 <CardDescription>Estadísticas de asistencia del mes actual</CardDescription>
               </CardHeader>
               <CardContent>
