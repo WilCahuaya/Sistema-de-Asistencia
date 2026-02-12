@@ -92,11 +92,12 @@ export function AsistenciaRegistroDialog({
 
       if (error) throw error
 
-      setEstudiantes(data || [])
+      const estudiantesData = Array.isArray(data) ? data : (data ? [data] : [])
+      setEstudiantes(estudiantesData)
       
       // Inicializar todas las asistencias como "presente" por defecto
       const defaultAsistencias = new Map<string, AsistenciaFormData>()
-      data?.forEach((est) => {
+      estudiantesData.forEach((est) => {
         defaultAsistencias.set(est.id, {
           estudianteId: est.id,
           estado: 'presente',
@@ -121,8 +122,9 @@ export function AsistenciaRegistroDialog({
       if (error) throw error
 
       // Cargar asistencias existentes
+      const asistenciasData = Array.isArray(data) ? data : (data ? [data] : [])
       const existingAsistencias = new Map<string, AsistenciaFormData>()
-      data?.forEach((asist) => {
+      asistenciasData.forEach((asist) => {
         existingAsistencias.set(asist.estudiante_id, {
           estudianteId: asist.estudiante_id,
           estado: asist.estado as 'presente' | 'falto' | 'permiso',

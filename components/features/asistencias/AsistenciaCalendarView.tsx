@@ -1234,10 +1234,14 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         }
 
         // Actualizar estado local con los resultados reales
-        if (updateResult.data) {
+        // updateResult.data puede ser objeto único (.single()) o array; insertResult.data puede ser array u objeto
+        const updateDataArray = Array.isArray(updateResults)
+          ? (updateResults as { data?: any }[]).flatMap((r) => (r?.data != null ? (Array.isArray(r.data) ? r.data : [r.data]) : []))
+          : (updateResult?.data != null ? (Array.isArray(updateResult.data) ? updateResult.data : [updateResult.data]) : [])
+        if (updateDataArray.length > 0) {
           setAsistencias((prev) => {
             const updated = new Map(prev)
-            updateResult.data.forEach((asistencia: any) => {
+            updateDataArray.forEach((asistencia: any) => {
               const key = `${asistencia.estudiante_id}_${asistencia.fecha}`
               updated.set(key, asistencia)
             })
@@ -1245,10 +1249,13 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
           })
         }
 
-        if (insertResult.data) {
+        const insertDataArray = insertResult?.data != null
+          ? (Array.isArray(insertResult.data) ? insertResult.data : [insertResult.data])
+          : []
+        if (insertDataArray.length > 0) {
           setAsistencias((prev) => {
             const updated = new Map(prev)
-            insertResult.data.forEach((asistencia: any) => {
+            insertDataArray.forEach((asistencia: any) => {
               const key = `${asistencia.estudiante_id}_${asistencia.fecha}`
               updated.set(key, asistencia)
             })
