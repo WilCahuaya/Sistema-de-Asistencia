@@ -33,24 +33,21 @@ Modelo con **un período por mes**: cada mes es independiente, cerrado (fecha_fi
 - Crear `estudiantes` + `estudiante_periodos` (fecha_inicio=01, fecha_fin=último día del mes actual)
 - No se pregunta fecha: mes actual
 
-### CASO 2: Estudiante se retira en mes M
-- **No crear período de M.** Eliminar el período de M si existe.
-- El último período será M-1.
-- Indicación clara: no participó en M.
+### CASO 2: Estudiante se retira
+- Solo para mes actual. No se pregunta fecha.
+- Eliminar el período del mes actual.
+- El último período será el mes anterior.
 
-### CASO 3: Cambio de salón en mes M
-- **Solo actualizar** `aula_id` del período de M.
-- Febrero a M-1 quedan intactos. No cerrar ni cortar períodos.
+### CASO 3: Cambio de salón
+- Solo para mes actual. No se pregunta fecha.
+- Solo actualizar `aula_id` del período del mes actual.
 
-### CASO 4: Cambio de salón dentro del mismo mes
-- Si estamos en junio y cambian de salón: simplemente actualizar el período de junio.
-- No crear otro. No dividir el mes.
-
-### CASO 5: Estudiante vuelve (reactivación)
-- Crear período del mes de retorno (fecha_inicio, fecha_fin = primer y último día del mes)
+### CASO 4: Estudiante vuelve (reactivación)
+- Solo para mes actual. No se pregunta fecha.
+- Crear período del mes actual (fecha_inicio, fecha_fin = primer y último día)
 - NO modificar períodos anteriores
 
-### CASO 6: Agregar estudiante a mes pasado
+### CASO 5: Agregar estudiante a mes pasado
 - Crear período exacto para ese mes (01-MM a último día)
 - Validar que no superponga con períodos existentes
 
@@ -71,6 +68,10 @@ Si un estudiante entra en febrero y estamos en junio:
 **Retiro en junio:** No crear período de junio. Último período = mayo.
 
 **Cambio de salón en junio:** Actualizar el período de junio con el nuevo salón. Febrero a mayo intactos.
+
+## Restricciones
+- **Retiro, cambio de salón, reactivación:** Solo mes actual. No hay selector de fecha.
+- **Asistencia:** Solo mes actual y meses pasados. No hay asistencia en meses posteriores.
 
 ## Función: asegurar_periodos_mes
 Crea períodos del mes para estudiantes que tenían el mes anterior en esa aula. Se invoca al cargar la vista del mes actual (rollover).

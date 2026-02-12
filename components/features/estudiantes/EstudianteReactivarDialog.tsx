@@ -12,7 +12,6 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -22,7 +21,7 @@ import {
 } from '@/components/ui/select'
 import { UserCheck } from 'lucide-react'
 import { toast } from '@/lib/toast'
-import { getTodayInAppTimezone, firstDayOfMonthFromDate, lastDayOfMonthFromDate } from '@/lib/utils/dateUtils'
+import { getCurrentMonthYearInAppTimezone, getMonthRangeInAppTimezone } from '@/lib/utils/dateUtils'
 
 interface Estudiante {
   id: string
@@ -50,23 +49,16 @@ export function EstudianteReactivarDialog({
   aulas,
 }: EstudianteReactivarDialogProps) {
   const [loading, setLoading] = useState(false)
-  const [fechaRetorno, setFechaRetorno] = useState<string>(() => getTodayInAppTimezone())
   const [selectedAulaId, setSelectedAulaId] = useState<string>('')
 
   useEffect(() => {
     if (open && estudiante && aulas.length > 0) {
-      setFechaRetorno(getTodayInAppTimezone())
       setSelectedAulaId(estudiante.aula_id || aulas[0]?.id || '')
     }
   }, [open, estudiante, aulas])
 
   const onSubmit = async () => {
     if (!estudiante) return
-
-    if (!fechaRetorno) {
-      toast.warning('Fecha de retorno', 'Indica desde qué fecha vuelve el estudiante.')
-      return
-    }
 
     if (!selectedAulaId) {
       toast.warning('Salón', 'Selecciona el salón donde será reactivado.')
@@ -84,9 +76,9 @@ export function EstudianteReactivarDialog({
       }
 
       const { user, supabase } = authResult
+      const { year, month } = getCurrentMonthYearInAppTimezone()
+      const { start: fechaInicioPeriodo, end: fechaFinPeriodo } = getMonthRangeInAppTimezone(year, month)
 
-      const fechaInicioPeriodo = firstDayOfMonthFromDate(fechaRetorno)
-      const fechaFinPeriodo = lastDayOfMonthFromDate(fechaRetorno)
       const { error } = await supabase
         .from('estudiante_periodos')
         .insert({
@@ -99,8 +91,9 @@ export function EstudianteReactivarDialog({
 
       if (error) throw error
 
-      toast.success('Estudiante reactivado', 'Aparecerá en el salón desde la fecha indicada.')
+      toast.success('Estudiante reactivado', 'Aparecerá en el salón desde este mes.')
       onSuccess()
+      onOpenChange(false)
     } catch (error: any) {
       console.error('Error reactivando estudiante:', error)
       toast.error('Error al reactivar', error?.message || 'Intenta nuevamente.')
@@ -121,7 +114,7 @@ export function EstudianteReactivarDialog({
         <DialogHeader>
           <DialogTitle>Reactivar en Salón</DialogTitle>
           <DialogDescription>
-            Crea un nuevo período. El historial anterior no se modifica.
+            Crea un nuevo período para este mes. El historial anterior no se modifica.
           </DialogDescription>
         </DialogHeader>
 
@@ -132,17 +125,6 @@ export function EstudianteReactivarDialog({
               <p className="font-medium text-foreground">{estudiante.nombre_completo}</p>
               <p className="text-sm text-muted-foreground font-mono">{estudiante.codigo}</p>
             </div>
-          </div>
-
-          <div>
-            <Label htmlFor="fecha_retorno">¿En qué mes vuelve? *</Label>
-            <p className="text-xs text-muted-foreground">Se usará el primer día del mes.</p>
-            <Input
-              id="fecha_retorno"
-              type="date"
-              value={fechaRetorno}
-              onChange={(e) => setFechaRetorno(e.target.value)}
-            />
           </div>
 
           <div>
@@ -169,7 +151,7 @@ export function EstudianteReactivarDialog({
           <Button
             type="button"
             onClick={onSubmit}
-            disabled={loading || !fechaRetorno || !selectedAulaId}
+            disabled={loading || !selectedAulaId}
           >
             {loading ? (
               <>

@@ -323,14 +323,24 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     }
   }, [selectedAula, fcpId]) // Remover selectedMonth y selectedYear de aquí - no deberían limpiar estudiantes
 
+  // No permitir meses futuros: sin asistencia en meses posteriores
+  useEffect(() => {
+    const now = new Date()
+    const mesActual = now.getMonth()
+    const anioActual = now.getFullYear()
+    if (selectedYear > anioActual || (selectedYear === anioActual && selectedMonth > mesActual)) {
+      setSelectedYear(anioActual)
+      setSelectedMonth(mesActual)
+    }
+  }, [selectedMonth, selectedYear])
+
   // Efecto separado para recargar estudiantes y asistencias cuando cambia el mes/año
-  // IMPORTANTE: Si cambia a un mes anterior, necesitamos recargar estudiantes basándose en asistencias
   useEffect(() => {
     if (selectedAula) {
       console.log('🔄 Mes/año cambió, recargando estudiantes y asistencias')
-      loadEstudiantes() // Esto cargará estudiantes basándose en el mes (histórico o actual)
+      loadEstudiantes()
     }
-  }, [selectedMonth, selectedYear]) // Cuando cambia mes/año, recargar estudiantes (que luego cargará asistencias)
+  }, [selectedMonth, selectedYear])
 
   // Efecto principal para cargar asistencias cuando hay estudiantes y aula
   // Este efecto se ejecuta cuando cambian los estudiantes (después de cargarse)
@@ -1462,6 +1472,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                 setSelectedYear(parseInt(year))
                 setSelectedMonth(parseInt(month) - 1)
               }}
+              disableFuture
             />
             {showHabilitarCorreccion && (
               <Button
