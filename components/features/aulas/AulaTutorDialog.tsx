@@ -105,7 +105,6 @@ export function AulaTutorDialog({
         .select(`
           id,
           usuario_id,
-          nombre_display,
           usuario:usuarios!inner(id, email, nombre_completo)
         `)
         .eq('fcp_id', fcpId)
@@ -119,7 +118,7 @@ export function AulaTutorDialog({
           usuario_fcp_id: item.id,
           usuario_id: item.usuario_id,
           email: item.usuario?.email || '',
-          nombre_completo: item.nombre_display || item.usuario?.nombre_completo || '',
+          nombre_completo: item.usuario?.nombre_completo || '',
         }))
         // Ordenar por nombre_completo o email (en el cliente ya que PostgREST no soporta ordenar por relaciones anidadas fácilmente)
         .sort((a, b) => {

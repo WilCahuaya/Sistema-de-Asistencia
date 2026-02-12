@@ -419,7 +419,6 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         .from('tutor_aula')
         .select(`
           fcp_miembro:fcp_miembros(
-            nombre_display,
             usuario:usuarios(nombre_completo, email)
           )
         `)
@@ -430,7 +429,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         .maybeSingle()
       const fcpMiembro = (data as any)?.fcp_miembro
       const usuario = fcpMiembro?.usuario
-      const nombre = fcpMiembro?.nombre_display || usuario?.nombre_completo || usuario?.email || null
+      const nombre = usuario?.nombre_completo || usuario?.email || null
       setTutorNombre(nombre)
     }
     loadTutor()

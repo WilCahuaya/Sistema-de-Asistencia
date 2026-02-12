@@ -329,7 +329,6 @@ export function AulaList() {
             .select(`
               aula_id,
               fcp_miembro:fcp_miembros!inner(
-                nombre_display,
                 usuario:usuarios!inner(id, email, nombre_completo)
               )
             `)
@@ -345,12 +344,11 @@ export function AulaList() {
             if (tutoresData) {
               tutoresData.forEach((tutorData: any) => {
                 if (tutorData.fcp_miembro?.usuario && !tutoresMap.has(tutorData.aula_id)) {
-                  const fcpMiembro = tutorData.fcp_miembro
-                  const usuario = fcpMiembro.usuario
+                  const usuario = tutorData.fcp_miembro.usuario
                   tutoresMap.set(tutorData.aula_id, {
                     id: usuario.id,
-                    email: usuario.email,
-                    nombre_completo: fcpMiembro.nombre_display || usuario.nombre_completo
+                    email: usuario.email ?? '',
+                    nombre_completo: usuario.nombre_completo ?? ''
                   })
                 }
               })

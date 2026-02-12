@@ -676,7 +676,6 @@ export function EstudianteList() {
           .select(`
             aula_id,
             fcp_miembro:fcp_miembros(
-              nombre_display,
               usuario:usuarios(nombre_completo, email)
             )
           `)
@@ -687,7 +686,7 @@ export function EstudianteList() {
         tutorAulasData?.forEach((ta: any) => {
           const fcpMiembro = ta.fcp_miembro
           const usuario = fcpMiembro?.usuario
-          const tutorNombre = fcpMiembro?.nombre_display || usuario?.nombre_completo || usuario?.email || 'Sin tutor asignado'
+          const tutorNombre = usuario?.nombre_completo || usuario?.email || 'Sin tutor asignado'
           tutorMap.set(ta.aula_id, tutorNombre)
         })
       }
