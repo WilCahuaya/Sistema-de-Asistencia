@@ -22,7 +22,8 @@ import { useCorreccionMes, esMesPasado } from '@/hooks/useCorreccionMes'
 import { CorreccionMesBanner } from './CorreccionMesBanner'
 import { HabilitarCorreccionDialog } from './HabilitarCorreccionDialog'
 import { Badge } from '@/components/ui/badge'
-import { Unlock } from 'lucide-react'
+import { Unlock, UserPlus } from 'lucide-react'
+import { AgregarEstudianteMesDialog } from './AgregarEstudianteMesDialog'
 import { toast } from '@/lib/toast'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
@@ -95,6 +96,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const [historialDialogOpen, setHistorialDialogOpen] = useState(false)
   const [selectedAsistenciaForHistorial, setSelectedAsistenciaForHistorial] = useState<Asistencia | null>(null)
   const [habilitarCorreccionOpen, setHabilitarCorreccionOpen] = useState(false)
+  const [agregarEstudianteMesOpen, setAgregarEstudianteMesOpen] = useState(false)
   const [fechaParaEliminar, setFechaParaEliminar] = useState<string | null>(null)
   const [showAbbreviatedSticky, setShowAbbreviatedSticky] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
@@ -229,6 +231,12 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     role === 'facilitador' &&
     esMesPasadoVista &&
     (correccionMes?.estado === 'cerrado' || correccionMes?.estado === 'bloqueado')
+
+  const showAgregarEstudianteMes =
+    esMesPasadoVista &&
+    correccionHabilitada &&
+    (role === 'director' || role === 'secretario') &&
+    !!selectedAula
 
   // Función helper para convertir Date a string YYYY-MM-DD en zona horaria local
   const formatDateToLocalString = (date: Date): string => {
@@ -398,99 +406,44 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       let nuevosEstudiantes: Estudiante[] = []
       
       if (esMesAnterior) {
-        // Mes anterior: cargar estudiantes que pertenecían a la FCP en ese período.
-        // 1) De asistencias del mes en esta aula.
-        // 2) De historial_movimientos que toquen esta aula en ese mes.
-        // 3) Si no hay ninguno, usar lista actual de la FCP en esta aula como lista inicial.
+        // Mes anterior: usar estudiantes_activos_en_rango (estudiante_periodos)
         const firstDay = formatDateToLocalString(new Date(selectedYear, selectedMonth, 1))
         const lastDay = formatDateToLocalString(new Date(selectedYear, selectedMonth + 1, 0))
-        const nextDayStr = formatDateToLocalString(new Date(selectedYear, selectedMonth + 1, 1))
-        
-        console.log('📅 Cargando estudiantes de mes anterior:', {
-          mes: selectedMonth,
-          año: selectedYear,
-          aula: selectedAula,
-          fechaInicio: firstDay,
-          fechaFin: lastDay
+
+        const { data: idsRango, error: rangoError } = await supabase.rpc('estudiantes_activos_en_rango', {
+          p_aula_id: selectedAula,
+          p_fecha_inicio: firstDay,
+          p_fecha_fin: lastDay,
         })
-        
-        const estudiantesMap = new Map<string, Estudiante>()
-        
-        // 1) Estudiantes con asistencias en esta aula en el mes
-        const { data: asistenciasData, error: asistenciasError } = await supabase
-          .from('asistencias')
-          .select(`
-            estudiante_id,
-            aula_id,
-            estudiante:estudiantes(id, codigo, nombre_completo)
-          `)
-          .eq('fcp_id', fcpId)
-          .eq('aula_id', selectedAula)
-          .gte('fecha', firstDay)
-          .lte('fecha', lastDay)
-        
-        if (asistenciasError) throw asistenciasError
-        
-        asistenciasData?.forEach((asist: any) => {
-          if (asist.estudiante && !estudiantesMap.has(asist.estudiante_id)) {
-            estudiantesMap.set(asist.estudiante_id, {
-              id: asist.estudiante.id,
-              codigo: asist.estudiante.codigo,
-              nombre_completo: asist.estudiante.nombre_completo
-            })
+
+        if (rangoError) throw rangoError
+
+        // Normalizar: SETOF UUID puede venir como ["uuid"] o como [{ columna: "uuid" }]
+        const ids = (idsRango || []).flatMap((x: unknown) => {
+          if (typeof x === 'string') return [x]
+          if (x && typeof x === 'object') {
+            const v = (x as Record<string, unknown>)['estudiante_id'] ?? Object.values(x as object)[0]
+            return typeof v === 'string' ? [v] : []
           }
+          return []
         })
-        
-        // 2) Estudiantes con historial de pertenencia (movimientos) en este aula en el mes
-        const { data: historialData, error: historialError } = await supabase
-          .from('historial_movimientos')
-          .select('estudiante_id')
-          .or(`aula_nueva_id.eq.${selectedAula},aula_anterior_id.eq.${selectedAula}`)
-          .gte('created_at', firstDay)
-          .lt('created_at', nextDayStr)
-        
-        if (!historialError && historialData?.length) {
-          const idsHistorial = [...new Set(historialData.map((h: { estudiante_id: string }) => h.estudiante_id))]
-          const { data: estudiantesHistorial, error: errEst } = await supabase
+
+        if (ids.length > 0) {
+          const { data: estudiantesRango, error: errEst } = await supabase
             .from('estudiantes')
             .select('id, codigo, nombre_completo')
-            .eq('fcp_id', fcpId)
-            .in('id', idsHistorial)
-          
-          if (!errEst && estudiantesHistorial) {
-            estudiantesHistorial.forEach((e: Estudiante) => {
-              if (!estudiantesMap.has(e.id)) {
-                estudiantesMap.set(e.id, e)
-              }
-            })
-          }
-        }
-        
-        // 3) Si no hay registros de asistencia ni historial, usar estudiantes actuales de la FCP en esta aula
-        if (estudiantesMap.size === 0) {
-          const { data: actualesData, error: actualesError } = await supabase
-            .from('estudiantes')
-            .select('id, codigo, nombre_completo')
-            .eq('fcp_id', fcpId)
-            .eq('aula_id', selectedAula)
-            .eq('activo', true)
+            .in('id', ids)
             .order('nombre_completo', { ascending: true })
-          
-          if (actualesError) throw actualesError
-          nuevosEstudiantes = actualesData || []
-          console.log('✅ Estudiantes de mes anterior: lista inicial (actuales de la FCP):', {
-            count: nuevosEstudiantes.length,
-            aula: selectedAula
-          })
-        } else {
-          nuevosEstudiantes = Array.from(estudiantesMap.values())
-            .sort((a, b) => a.nombre_completo.localeCompare(b.nombre_completo))
-          console.log('✅ Estudiantes de mes anterior (asistencias/historial):', {
-            count: nuevosEstudiantes.length,
-            aula: selectedAula,
-            muestraIds: nuevosEstudiantes.slice(0, 3).map(e => e.id.substring(0, 8))
-          })
+
+          if (!errEst && estudiantesRango) {
+            nuevosEstudiantes = estudiantesRango
+          }
         }
+
+        console.log('✅ Estudiantes de mes anterior (estudiante_periodos):', {
+          count: nuevosEstudiantes.length,
+          aula: selectedAula,
+        })
       } else {
         // Si es el mes actual o futuro, cargar estudiantes basándose en su aula_id actual
         const { data, error } = await supabase
@@ -1424,6 +1377,17 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                 Habilitar corrección
               </Button>
             )}
+            {showAgregarEstudianteMes && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => setAgregarEstudianteMesOpen(true)}
+              >
+                <UserPlus className="h-4 w-4" />
+                Agregar estudiante a este mes
+              </Button>
+            )}
           </div>
         </div>
       </CardHeader>
@@ -1850,6 +1814,24 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         mes={mesNum}
         mesLabel={formatMonthYear(selectedMonth, selectedYear)}
       />
+
+      {/* Diálogo agregar estudiante solo para este mes (director/secretario, mes pasado con corrección) */}
+      {selectedAula && (
+        <AgregarEstudianteMesDialog
+          open={agregarEstudianteMesOpen}
+          onOpenChange={setAgregarEstudianteMesOpen}
+          onSuccess={() => {
+            loadEstudiantes()
+            loadAsistenciasMes()
+          }}
+          fcpId={fcpId}
+          aulaId={selectedAula}
+          aulaNombre={aulas.find((a) => a.id === selectedAula)?.nombre || 'Salón'}
+          anio={selectedYear}
+          mes={mesNum}
+          mesLabel={formatMonthYear(selectedMonth, selectedYear)}
+        />
+      )}
 
       {/* Diálogo de confirmación para eliminar asistencias del día */}
       <ConfirmDialog
