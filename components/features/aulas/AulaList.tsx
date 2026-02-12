@@ -32,9 +32,11 @@ import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 
 interface TutorInfo {
-  id: string
-  email: string
+  id?: string
+  email?: string
   nombre_completo?: string
+  /** Usado cuando el tutor es invitación pendiente (sin usuario) o tiene nombre_display */
+  displayName?: string
 }
 
 interface Aula {
@@ -112,7 +114,7 @@ export function AulaList() {
         const term = searchTerm.toLowerCase()
         const nombre = a.nombre?.toLowerCase() || ''
         const desc = a.descripcion?.toLowerCase() || ''
-        const tutor = a.tutor?.nombre_completo?.toLowerCase() || a.tutor?.email?.toLowerCase() || ''
+        const tutor = a.tutor?.displayName?.toLowerCase() || a.tutor?.nombre_completo?.toLowerCase() || a.tutor?.email?.toLowerCase() || ''
         return nombre.includes(term) || desc.includes(term) || tutor.includes(term)
       })
     : aulas
@@ -329,7 +331,10 @@ export function AulaList() {
             .select(`
               aula_id,
               fcp_miembro:fcp_miembros!inner(
-                usuario:usuarios!inner(id, email, nombre_completo)
+                id,
+                nombre_display,
+                email_pendiente,
+                usuario:usuarios(id, email, nombre_completo)
               )
             `)
             .in('aula_id', aulaIds)
@@ -340,17 +345,21 @@ export function AulaList() {
             console.error('Error cargando tutores:', tutoresError)
           } else {
             // Crear un mapa de aula_id -> tutor para acceso rápido
+            // Usar LEFT JOIN en usuarios: tutores con invitación pendiente (usuario_id null) también aparecen
             const tutoresMap = new Map<string, TutorInfo>()
             if (tutoresData) {
               tutoresData.forEach((tutorData: any) => {
-                if (tutorData.fcp_miembro?.usuario && !tutoresMap.has(tutorData.aula_id)) {
-                  const usuario = tutorData.fcp_miembro.usuario
-                  tutoresMap.set(tutorData.aula_id, {
-                    id: usuario.id,
-                    email: usuario.email ?? '',
-                    nombre_completo: usuario.nombre_completo ?? ''
-                  })
-                }
+                if (!tutorData.fcp_miembro || tutoresMap.has(tutorData.aula_id)) return
+                const fm = tutorData.fcp_miembro
+                const usuario = fm.usuario
+                const displayName =
+                  (fm.nombre_display?.trim() || usuario?.nombre_completo?.trim() || usuario?.email || fm.email_pendiente) ?? ''
+                tutoresMap.set(tutorData.aula_id, {
+                  id: usuario?.id,
+                  email: usuario?.email ?? fm.email_pendiente ?? '',
+                  nombre_completo: usuario?.nombre_completo ?? '',
+                  displayName: displayName || '(Pendiente de registro)'
+                })
               })
             }
             
@@ -591,7 +600,7 @@ export function AulaList() {
                               <p className="text-muted-foreground">
                                 <span className="font-medium">Tutor encargado:</span>{' '}
                                 {aula.tutor ? (
-                                  <span>{aula.tutor.nombre_completo || aula.tutor.email}</span>
+                                  <span>{aula.tutor.displayName || aula.tutor.nombre_completo || aula.tutor.email}</span>
                                 ) : (
                                   <span className="text-orange-600 dark:text-orange-400 italic">
                                     Falta agregar tutor
