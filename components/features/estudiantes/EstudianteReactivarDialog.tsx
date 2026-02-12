@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/select'
 import { UserCheck } from 'lucide-react'
 import { toast } from '@/lib/toast'
-import { getTodayInAppTimezone } from '@/lib/utils/dateUtils'
+import { getTodayInAppTimezone, firstDayOfMonthFromDate } from '@/lib/utils/dateUtils'
 
 interface Estudiante {
   id: string
@@ -85,13 +85,13 @@ export function EstudianteReactivarDialog({
 
       const { user, supabase } = authResult
 
-      // Crear NUEVO período (no tocar el anterior)
+      const fechaInicioPeriodo = firstDayOfMonthFromDate(fechaRetorno)
       const { error } = await supabase
         .from('estudiante_periodos')
         .insert({
           estudiante_id: estudiante.id,
           aula_id: selectedAulaId,
-          fecha_inicio: fechaRetorno,
+          fecha_inicio: fechaInicioPeriodo,
           fecha_fin: null,
           created_by: user.id,
         })
@@ -134,7 +134,8 @@ export function EstudianteReactivarDialog({
           </div>
 
           <div>
-            <Label htmlFor="fecha_retorno">¿Desde qué fecha vuelve? *</Label>
+            <Label htmlFor="fecha_retorno">¿En qué mes vuelve? *</Label>
+            <p className="text-xs text-muted-foreground">Se usará el primer día del mes.</p>
             <Input
               id="fecha_retorno"
               type="date"

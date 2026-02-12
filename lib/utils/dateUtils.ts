@@ -77,6 +77,25 @@ export function toLocalDateString(d: Date): string {
 }
 
 /**
+ * Dada una fecha YYYY-MM-DD, devuelve el primer día del mes (YYYY-MM-01).
+ * Regla: períodos representan meses completos; el día concreto no importa.
+ */
+export function firstDayOfMonthFromDate(dateStr: string): string {
+  const [y, m] = dateStr.split('-')
+  return `${y}-${m}-01`
+}
+
+/**
+ * Dada una fecha YYYY-MM-DD, devuelve el último día del mes.
+ * Regla: retiros y cierres de período usan fin de mes.
+ */
+export function lastDayOfMonthFromDate(dateStr: string): string {
+  const [y, m] = dateStr.split('-').map(Number)
+  const last = new Date(y, m, 0)
+  return toLocalDateString(last)
+}
+
+/**
  * Nombre del mes actual en la zona de la app (ej. "enero"), para títulos.
  */
 export function getCurrentMonthLabelInAppTimezone(locale = 'es-ES'): string {

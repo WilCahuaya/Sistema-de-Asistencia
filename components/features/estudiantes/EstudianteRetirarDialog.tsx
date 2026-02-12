@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { UserX } from 'lucide-react'
 import { toast } from '@/lib/toast'
-import { getTodayInAppTimezone } from '@/lib/utils/dateUtils'
+import { getTodayInAppTimezone, lastDayOfMonthFromDate } from '@/lib/utils/dateUtils'
 
 interface Estudiante {
   id: string
@@ -102,10 +102,11 @@ export function EstudianteRetirarDialog({
         return
       }
 
-      if (fechaRetiro < periodoActual.fecha_inicio) {
+      const fechaFinPeriodo = lastDayOfMonthFromDate(fechaRetiro)
+      if (fechaFinPeriodo < periodoActual.fecha_inicio) {
         toast.error(
           'Fecha inválida',
-          `La fecha de retiro no puede ser anterior al inicio del período (${periodoActual.fecha_inicio}). El estudiante empezó en este salón el ${periodoActual.fecha_inicio}.`
+          `El mes de retiro no puede ser anterior al inicio del período (${periodoActual.fecha_inicio}).`
         )
         setLoading(false)
         return
@@ -114,7 +115,7 @@ export function EstudianteRetirarDialog({
       const { error } = await supabase
         .from('estudiante_periodos')
         .update({
-          fecha_fin: fechaRetiro,
+          fecha_fin: fechaFinPeriodo,
           motivo_retiro: motivo || null,
         })
         .eq('id', periodoActual.id)
@@ -166,7 +167,8 @@ export function EstudianteRetirarDialog({
           </div>
 
           <div>
-            <Label htmlFor="fecha_retiro">¿Fecha de retiro? *</Label>
+            <Label htmlFor="fecha_retiro">¿En qué mes se retira? *</Label>
+            <p className="text-xs text-muted-foreground">Se usará el último día del mes.</p>
             <Input
               id="fecha_retiro"
               type="date"

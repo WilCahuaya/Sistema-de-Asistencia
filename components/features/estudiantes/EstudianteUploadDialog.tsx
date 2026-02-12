@@ -15,8 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Download } from 'lucide-react'
 import { toast } from '@/lib/toast'
-import { getTodayInAppTimezone } from '@/lib/utils/dateUtils'
-import { Input } from '@/components/ui/input'
+import { getCurrentMonthYearInAppTimezone, getMonthRangeInAppTimezone } from '@/lib/utils/dateUtils'
 
 interface EstudianteUploadDialogProps {
   open: boolean
@@ -35,7 +34,6 @@ interface EstudianteRow {
 export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, aulas }: EstudianteUploadDialogProps) {
   const [loading, setLoading] = useState(false)
   const [file, setFile] = useState<File | null>(null)
-  const [fechaInicio, setFechaInicio] = useState<string>(() => getTodayInAppTimezone())
   const [errors, setErrors] = useState<string[]>([])
   const [successCount, setSuccessCount] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -192,10 +190,12 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
               if (singleError && singleError.code === '23505') {
                 errors.push(`Código "${estudiante.codigo}" ya existe`)
               } else if (!singleError && singleData) {
+                const { year, month } = getCurrentMonthYearInAppTimezone()
+                const { start: fechaInicioPeriodo } = getMonthRangeInAppTimezone(year, month)
                 await supabase.from('estudiante_periodos').insert({
                   estudiante_id: singleData.id,
                   aula_id: singleData.aula_id,
-                  fecha_inicio: fechaInicio,
+                  fecha_inicio: fechaInicioPeriodo,
                   fecha_fin: null,
                   created_by: user.id,
                 })
@@ -208,11 +208,13 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
             errors.push(`Error al insertar lote ${Math.floor(i / batchSize) + 1}: ${error.message}`)
           }
         } else if (inserted && inserted.length > 0) {
+          const { year, month } = getCurrentMonthYearInAppTimezone()
+          const { start: fechaInicioPeriodo } = getMonthRangeInAppTimezone(year, month)
           for (const e of inserted) {
             await supabase.from('estudiante_periodos').insert({
               estudiante_id: e.id,
               aula_id: e.aula_id,
-              fecha_inicio: fechaInicio,
+              fecha_inicio: fechaInicioPeriodo,
               fecha_fin: null,
               created_by: user.id,
             })
@@ -315,15 +317,7 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
         </div>
 
         <div className="grid gap-4 py-4">
-          <div className="grid gap-2">
-            <Label htmlFor="fecha_inicio">¿Desde qué fecha inician todos los estudiantes?</Label>
-            <Input
-              id="fecha_inicio"
-              type="date"
-              value={fechaInicio}
-              onChange={(e) => setFechaInicio(e.target.value)}
-            />
-          </div>
+          <p className="text-xs text-muted-foreground">Los estudiantes iniciarán en el mes actual (primer día del mes).</p>
           <div className="grid gap-2">
             <Label htmlFor="file-upload">Archivo Excel (.xlsx, .xls)</Label>
             <div className="flex items-center gap-2">

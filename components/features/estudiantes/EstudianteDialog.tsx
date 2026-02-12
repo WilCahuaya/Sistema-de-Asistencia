@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/select'
 import { useForm } from 'react-hook-form'
 import { toast } from '@/lib/toast'
-import { getTodayInAppTimezone } from '@/lib/utils/dateUtils'
+import { getCurrentMonthYearInAppTimezone, getMonthRangeInAppTimezone } from '@/lib/utils/dateUtils'
 
 interface EstudianteFormData {
   codigo: string
@@ -41,14 +41,7 @@ interface EstudianteDialogProps {
 export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId, aulas }: EstudianteDialogProps) {
   const [loading, setLoading] = useState(false)
   const [selectedAulaId, setSelectedAulaId] = useState(aulaId || '')
-  const [fechaInicio, setFechaInicio] = useState<string>(() => getTodayInAppTimezone())
   const { register, handleSubmit, reset, formState: { errors } } = useForm<EstudianteFormData>()
-
-  useEffect(() => {
-    if (open) {
-      setFechaInicio(getTodayInAppTimezone())
-    }
-  }, [open])
 
   useEffect(() => {
     if (aulaId) {
@@ -66,11 +59,6 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId,
 
     if (!selectedAulaId) {
       toast.warning('Selecciona un aula', 'Por favor, selecciona un aula.')
-      return
-    }
-
-    if (!fechaInicio) {
-      toast.warning('Fecha de inicio', 'Indica desde qué fecha inicia el estudiante en este salón.')
       return
     }
 
@@ -100,12 +88,14 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId,
 
       if (errorEstudiante) throw errorEstudiante
 
+      const { year, month } = getCurrentMonthYearInAppTimezone()
+      const { start: fechaInicioPeriodo } = getMonthRangeInAppTimezone(year, month)
       const { error: errorPeriodo } = await supabase
         .from('estudiante_periodos')
         .insert({
           estudiante_id: nuevoEstudiante.id,
           aula_id: selectedAulaId,
-          fecha_inicio: fechaInicio,
+          fecha_inicio: fechaInicioPeriodo,
           fecha_fin: null,
           created_by: user.id,
         })
@@ -118,7 +108,6 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId,
 
       reset()
       setSelectedAulaId(aulas.length > 0 ? aulas[0].id : '')
-      setFechaInicio(getTodayInAppTimezone())
       toast.created('Estudiante')
       onSuccess()
     } catch (error: any) {
@@ -189,15 +178,6 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId,
                 <p className="text-sm text-red-500">Debes seleccionar un aula</p>
               )}
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="fecha_inicio">¿Desde qué fecha inicia en este salón? *</Label>
-              <Input
-                id="fecha_inicio"
-                type="date"
-                value={fechaInicio}
-                onChange={(e) => setFechaInicio(e.target.value)}
-              />
-            </div>
           </div>
           <DialogFooter>
             <Button
@@ -205,7 +185,7 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId,
               variant="outline"
               onClick={() => {
                 reset()
-                setSelectedAulaId(aulas.length > 0 ? aulas[0].id : '')
+                setSelectedAulaId(aulaId || (aulas.length > 0 ? aulas[0].id : ''))
                 onOpenChange(false)
               }}
             >

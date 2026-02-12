@@ -28,6 +28,12 @@ Transformar el modelo de estudiantes de "un estudiante = un aula actual" a un mo
 - Períodos no se solapan: si hay uno con fecha_fin=NULL, es el único activo
 - fecha_fin NULL = período vigente
 
+**Reglas de negocio – Períodos mensuales:**
+- Los períodos representan **meses completos** (día 1 al 28/29/30/31 según el mes).
+- **Creación:** No se pregunta fecha de inicio. Se usa el **mes actual** (primer día del mes).
+- **Retiro:** Si se retira el 10 de mayo → `fecha_fin = 31-05` (último día del mes).
+- **Cambio de salón:** Se usa primer día del mes de cambio; el anterior termina el último día del mes anterior.
+
 ### Compatibilidad con modelo actual
 - **estudiantes.aula_id**: Se mantiene como "aula actual" (sincronizada desde el período activo)
 - **estudiantes.activo**: `true` si existe período con `fecha_fin IS NULL`
@@ -36,9 +42,9 @@ Transformar el modelo de estudiantes de "un estudiante = un aula actual" a un mo
 ## Casos de Uso
 
 ### CASO 1: Nuevo estudiante ingresa
-- Usuario: Salón → Agregar estudiante → datos personales
-- Sistema pregunta: "¿Desde qué fecha inicia?"
-- Crear `estudiantes` + `estudiante_periodos` (fecha_inicio, fecha_fin=NULL)
+- Usuario: Salón → Agregar estudiante → datos personales (código, nombre, aula)
+- No se pregunta fecha: se usa el **mes actual** (primer día del mes)
+- Crear `estudiantes` + `estudiante_periodos` (fecha_inicio=01 del mes actual, fecha_fin=NULL)
 
 ### CASO 2: Estudiante se retira
 - Usuario: Lista del salón → clic en estudiante → "Retirar estudiante" → fecha de retiro

@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/select'
 import { ArrowRight, AlertCircle } from 'lucide-react'
 import { toast } from '@/lib/toast'
-import { getTodayInAppTimezone } from '@/lib/utils/dateUtils'
+import { getTodayInAppTimezone, firstDayOfMonthFromDate } from '@/lib/utils/dateUtils'
 
 interface Estudiante {
   id: string
@@ -78,9 +78,9 @@ export function EstudianteMovimientoDialog({
             .is('fecha_fin', null)
             .single()
           if (data?.fecha_inicio) {
-            const d = new Date(data.fecha_inicio + 'T12:00:00')
-            d.setDate(d.getDate() + 1)
-            setFechaCambioMin(d.toISOString().slice(0, 10))
+            const [y, m] = data.fecha_inicio.split('-').map(Number)
+            const primerDiaSiguienteMes = new Date(y, m, 1)
+            setFechaCambioMin(primerDiaSiguienteMes.toISOString().slice(0, 10))
           }
         } catch {
           // ignorar
@@ -125,10 +125,10 @@ export function EstudianteMovimientoDialog({
         .is('fecha_fin', null)
         .single()
 
-      const [y, m, d] = fechaCambio.split('-').map(Number)
-      const fechaCambioDate = new Date(y, m - 1, d)
-      fechaCambioDate.setDate(fechaCambioDate.getDate() - 1)
-      const fechaFinStr = `${fechaCambioDate.getFullYear()}-${String(fechaCambioDate.getMonth() + 1).padStart(2, '0')}-${String(fechaCambioDate.getDate()).padStart(2, '0')}`
+      const inicioNuevoPeriodo = firstDayOfMonthFromDate(fechaCambio)
+      const [y, m] = fechaCambio.split('-').map(Number)
+      const ultimoDiaMesAnterior = new Date(y, m - 1, 0)
+      const fechaFinStr = `${ultimoDiaMesAnterior.getFullYear()}-${String(ultimoDiaMesAnterior.getMonth() + 1).padStart(2, '0')}-${String(ultimoDiaMesAnterior.getDate()).padStart(2, '0')}`
 
       if (periodoActual) {
         const { data: periodoWithInicio } = await supabase
@@ -150,10 +150,7 @@ export function EstudianteMovimientoDialog({
           .eq('id', periodoActual.id)
         if (updateErr) throw updateErr
       } else {
-        // Legacy: crear período cerrado para el aula actual.
-        // inicioStr = primer día del mes que contiene fechaFinStr (para garantizar fecha_inicio <= fecha_fin)
-        const [yF, mF] = fechaFinStr.split('-').map(Number)
-        const inicioStr = `${yF}-${String(mF).padStart(2, '0')}-01`
+        const inicioStr = firstDayOfMonthFromDate(fechaFinStr)
         const { error: legacyErr } = await supabase.from('estudiante_periodos').insert({
           estudiante_id: estudiante.id,
           aula_id: estudiante.aula_id,
@@ -165,13 +162,12 @@ export function EstudianteMovimientoDialog({
         if (legacyErr) throw legacyErr
       }
 
-      // Crear nuevo período con el aula destino
       const { error: insertErr } = await supabase
         .from('estudiante_periodos')
         .insert({
           estudiante_id: estudiante.id,
           aula_id: selectedAulaId,
-          fecha_inicio: fechaCambio,
+          fecha_inicio: inicioNuevoPeriodo,
           fecha_fin: null,
           created_by: user.id,
         })
@@ -234,7 +230,8 @@ export function EstudianteMovimientoDialog({
           </div>
 
           <div>
-            <Label htmlFor="fecha_cambio" className="mb-2 block">¿Desde qué fecha cambia?</Label>
+            <Label htmlFor="fecha_cambio" className="mb-2 block">¿En qué mes cambia de salón?</Label>
+            <p className="text-xs text-muted-foreground">Se usará el primer día del mes.</p>
             <Input
               id="fecha_cambio"
               type="date"
