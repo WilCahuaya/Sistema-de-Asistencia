@@ -89,14 +89,14 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId,
       if (errorEstudiante) throw errorEstudiante
 
       const { year, month } = getCurrentMonthYearInAppTimezone()
-      const { start: fechaInicioPeriodo } = getMonthRangeInAppTimezone(year, month)
+      const { start: fechaInicioPeriodo, end: fechaFinPeriodo } = getMonthRangeInAppTimezone(year, month)
       const { error: errorPeriodo } = await supabase
         .from('estudiante_periodos')
         .insert({
           estudiante_id: nuevoEstudiante.id,
           aula_id: selectedAulaId,
           fecha_inicio: fechaInicioPeriodo,
-          fecha_fin: null,
+          fecha_fin: fechaFinPeriodo,
           created_by: user.id,
         })
 

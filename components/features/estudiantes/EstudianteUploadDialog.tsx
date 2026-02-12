@@ -191,12 +191,12 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
                 errors.push(`Código "${estudiante.codigo}" ya existe`)
               } else if (!singleError && singleData) {
                 const { year, month } = getCurrentMonthYearInAppTimezone()
-                const { start: fechaInicioPeriodo } = getMonthRangeInAppTimezone(year, month)
+                const { start: fechaInicioPeriodo, end: fechaFinPeriodo } = getMonthRangeInAppTimezone(year, month)
                 await supabase.from('estudiante_periodos').insert({
                   estudiante_id: singleData.id,
                   aula_id: singleData.aula_id,
                   fecha_inicio: fechaInicioPeriodo,
-                  fecha_fin: null,
+                  fecha_fin: fechaFinPeriodo,
                   created_by: user.id,
                 })
                 successCount++
@@ -209,13 +209,13 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
           }
         } else if (inserted && inserted.length > 0) {
           const { year, month } = getCurrentMonthYearInAppTimezone()
-          const { start: fechaInicioPeriodo } = getMonthRangeInAppTimezone(year, month)
+          const { start: fechaInicioPeriodo, end: fechaFinPeriodo } = getMonthRangeInAppTimezone(year, month)
           for (const e of inserted) {
             await supabase.from('estudiante_periodos').insert({
               estudiante_id: e.id,
               aula_id: e.aula_id,
               fecha_inicio: fechaInicioPeriodo,
-              fecha_fin: null,
+              fecha_fin: fechaFinPeriodo,
               created_by: user.id,
             })
           }

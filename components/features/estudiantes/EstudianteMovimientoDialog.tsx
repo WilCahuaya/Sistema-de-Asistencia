@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/select'
 import { ArrowRight, AlertCircle } from 'lucide-react'
 import { toast } from '@/lib/toast'
-import { getTodayInAppTimezone, firstDayOfMonthFromDate } from '@/lib/utils/dateUtils'
+import { getCurrentMonthYearInAppTimezone, getMonthRangeInAppTimezone, getTodayInAppTimezone } from '@/lib/utils/dateUtils'
 
 interface Estudiante {
   id: string
@@ -56,6 +56,7 @@ export function EstudianteMovimientoDialog({
   const [fechaCambio, setFechaCambio] = useState<string>(() => getTodayInAppTimezone())
   const [motivo, setMotivo] = useState<string>('')
   const [fechaCambioMin, setFechaCambioMin] = useState<string | null>(null)
+  const [esMesActual, setEsMesActual] = useState(false)
 
   useEffect(() => {
     if (open && estudiante) {
@@ -63,6 +64,7 @@ export function EstudianteMovimientoDialog({
       setMotivo('')
       setFechaCambio(getTodayInAppTimezone())
       setFechaCambioMin(null)
+      setEsMesActual(false)
       const aulasDisponibles = aulas.filter(a => a.id !== estudiante.aula_id)
       if (aulasDisponibles.length > 0) {
         setSelectedAulaId(aulasDisponibles[0].id)
@@ -71,14 +73,22 @@ export function EstudianteMovimientoDialog({
         try {
           const auth = await ensureAuthenticated()
           if (!auth?.supabase) return
+          const { year, month } = getCurrentMonthYearInAppTimezone()
+          const { start: firstDay, end: lastDay } = getMonthRangeInAppTimezone(year, month)
           const { data } = await auth.supabase
             .from('estudiante_periodos')
             .select('fecha_inicio')
             .eq('estudiante_id', estudiante.id)
-            .is('fecha_fin', null)
+            .lte('fecha_inicio', lastDay)
+            .gte('fecha_fin', firstDay)
+            .order('fecha_inicio', { ascending: false })
+            .limit(1)
             .single()
           if (data?.fecha_inicio) {
             setFechaCambioMin(data.fecha_inicio)
+            const mesPeriodo = data.fecha_inicio.slice(0, 7)
+            const mesActual = `${year}-${String(month + 1).padStart(2, '0')}`
+            setEsMesActual(mesPeriodo === mesActual)
           }
         } catch {
           // ignorar
@@ -98,7 +108,13 @@ export function EstudianteMovimientoDialog({
       return
     }
 
-    if (!fechaCambio) {
+    const { year, month } = getCurrentMonthYearInAppTimezone()
+    const mesActualStr = `${year}-${String(month + 1).padStart(2, '0')}`
+
+    let fechaAUsar = fechaCambio
+    if (esMesActual) {
+      fechaAUsar = `${mesActualStr}-01`
+    } else if (!fechaCambio) {
       toast.warning('Fecha de cambio', 'Indica desde qué fecha cambia de salón.')
       return
     }
@@ -115,14 +131,19 @@ export function EstudianteMovimientoDialog({
 
       const { user, supabase } = authResult
 
+      const { year: yCur, month: mCur } = getCurrentMonthYearInAppTimezone()
+      const { start: firstCur, end: lastCur } = getMonthRangeInAppTimezone(yCur, mCur)
       const { data: periodoActual } = await supabase
         .from('estudiante_periodos')
         .select('id, fecha_inicio')
         .eq('estudiante_id', estudiante.id)
-        .is('fecha_fin', null)
+        .lte('fecha_inicio', lastCur)
+        .gte('fecha_fin', firstCur)
+        .order('fecha_inicio', { ascending: false })
+        .limit(1)
         .single()
 
-      const mesCambio = fechaCambio.slice(0, 7) // YYYY-MM
+      const mesCambio = fechaAUsar.slice(0, 7) // YYYY-MM
       const mesPeriodo = periodoActual?.fecha_inicio?.slice(0, 7) // YYYY-MM
 
       if (periodoActual && mesCambio === mesPeriodo) {
@@ -133,49 +154,36 @@ export function EstudianteMovimientoDialog({
           .eq('id', periodoActual.id)
         if (updateErr) throw updateErr
       } else {
-        // Mes diferente: cerrar período actual y crear uno nuevo
-        const inicioNuevoPeriodo = firstDayOfMonthFromDate(fechaCambio)
-        const [y, m] = fechaCambio.split('-').map(Number)
-        const ultimoDiaMesAnterior = new Date(y, m - 1, 0)
-        const fechaFinStr = `${ultimoDiaMesAnterior.getFullYear()}-${String(ultimoDiaMesAnterior.getMonth() + 1).padStart(2, '0')}-${String(ultimoDiaMesAnterior.getDate()).padStart(2, '0')}`
+        // Mes diferente: actualizar o crear período de ese mes en el nuevo salón
+        const [y, m] = fechaAUsar.split('-').map(Number)
+        const { start: firstDay, end: lastDay } = getMonthRangeInAppTimezone(y, m - 1)
+        const { data: periodoMes } = await supabase
+          .from('estudiante_periodos')
+          .select('id')
+          .eq('estudiante_id', estudiante.id)
+          .lte('fecha_inicio', lastDay)
+          .gte('fecha_fin', firstDay)
+          .limit(1)
+          .single()
 
-        if (periodoActual) {
-          if (fechaFinStr < periodoActual.fecha_inicio) {
-            toast.error(
-              'Fecha inválida',
-              `La fecha de cambio no puede ser anterior al inicio del período (${periodoActual.fecha_inicio}).`
-            )
-            setLoading(false)
-            return
-          }
+        if (periodoMes) {
           const { error: updateErr } = await supabase
             .from('estudiante_periodos')
-            .update({ fecha_fin: fechaFinStr, motivo_retiro: motivo || null })
-            .eq('id', periodoActual.id)
+            .update({ aula_id: selectedAulaId })
+            .eq('id', periodoMes.id)
           if (updateErr) throw updateErr
         } else {
-          const inicioStr = firstDayOfMonthFromDate(fechaFinStr)
-          const { error: legacyErr } = await supabase.from('estudiante_periodos').insert({
-            estudiante_id: estudiante.id,
-            aula_id: estudiante.aula_id,
-            fecha_inicio: inicioStr,
-            fecha_fin: fechaFinStr,
-            motivo_retiro: motivo || 'Cambio de salón',
-            created_by: user.id,
-          })
-          if (legacyErr) throw legacyErr
+          const { error: insertErr } = await supabase
+            .from('estudiante_periodos')
+            .insert({
+              estudiante_id: estudiante.id,
+              aula_id: selectedAulaId,
+              fecha_inicio: firstDay,
+              fecha_fin: lastDay,
+              created_by: user.id,
+            })
+          if (insertErr) throw insertErr
         }
-
-        const { error: insertErr } = await supabase
-          .from('estudiante_periodos')
-          .insert({
-            estudiante_id: estudiante.id,
-            aula_id: selectedAulaId,
-            fecha_inicio: inicioNuevoPeriodo,
-            fecha_fin: null,
-            created_by: user.id,
-          })
-        if (insertErr) throw insertErr
       }
 
       toast.success('Cambio de salón registrado', 'El estudiante fue asignado al nuevo salón.')
@@ -234,18 +242,22 @@ export function EstudianteMovimientoDialog({
             </div>
           </div>
 
-          <div>
-            <Label htmlFor="fecha_cambio" className="mb-2 block">¿En qué mes cambia de salón?</Label>
-            <p className="text-xs text-muted-foreground">Se usará el primer día del mes.</p>
-            <Input
-              id="fecha_cambio"
-              type="date"
-              value={fechaCambio}
-              min={fechaCambioMin ?? undefined}
-              onChange={(e) => setFechaCambio(e.target.value)}
-              title={fechaCambioMin ? `Mismo mes = solo cambia salón. Otro mes = cierra y crea período.` : undefined}
-            />
-          </div>
+          {!esMesActual ? (
+            <div>
+              <Label htmlFor="fecha_cambio" className="mb-2 block">¿En qué mes cambia de salón?</Label>
+              <p className="text-xs text-muted-foreground">Se usará el primer día del mes.</p>
+              <Input
+                id="fecha_cambio"
+                type="date"
+                value={fechaCambio}
+                min={fechaCambioMin ?? undefined}
+                onChange={(e) => setFechaCambio(e.target.value)}
+                title={fechaCambioMin ? `Mismo mes = solo cambia salón. Otro mes = cierra y crea período.` : undefined}
+              />
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Cambiará de salón este mes (el período actual se actualiza).</p>
+          )}
           <div>
             <Label htmlFor="aula-destino" className="mb-2 block">
               Nuevo Salón: <span className="text-red-500">*</span>
@@ -301,7 +313,7 @@ export function EstudianteMovimientoDialog({
           <Button
             type="button"
             onClick={onSubmit}
-            disabled={loading || !selectedAulaId || aulasDisponibles.length === 0}
+            disabled={loading || !selectedAulaId || aulasDisponibles.length === 0 || (!esMesActual && !fechaCambio)}
           >
             {loading ? (
               <>

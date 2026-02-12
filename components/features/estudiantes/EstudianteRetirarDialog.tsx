@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { UserX } from 'lucide-react'
 import { toast } from '@/lib/toast'
-import { getTodayInAppTimezone, lastDayOfMonthFromDate } from '@/lib/utils/dateUtils'
+import { getCurrentMonthYearInAppTimezone, getMonthRangeInAppTimezone, getTodayInAppTimezone } from '@/lib/utils/dateUtils'
 
 interface Estudiante {
   id: string
@@ -45,23 +45,35 @@ export function EstudianteRetirarDialog({
   const [fechaRetiro, setFechaRetiro] = useState<string>(() => getTodayInAppTimezone())
   const [motivo, setMotivo] = useState<string>('')
   const [fechaInicioMin, setFechaInicioMin] = useState<string | null>(null)
+  const [esMesActual, setEsMesActual] = useState(false)
 
   useEffect(() => {
     if (open && estudiante) {
       setFechaRetiro(getTodayInAppTimezone())
       setMotivo('')
       setFechaInicioMin(null)
+      setEsMesActual(false)
       ;(async () => {
         try {
           const auth = await ensureAuthenticated()
           if (!auth?.supabase) return
+          const { year, month } = getCurrentMonthYearInAppTimezone()
+          const { start: firstDay, end: lastDay } = getMonthRangeInAppTimezone(year, month)
           const { data } = await auth.supabase
             .from('estudiante_periodos')
             .select('fecha_inicio')
             .eq('estudiante_id', estudiante.id)
-            .is('fecha_fin', null)
+            .lte('fecha_inicio', lastDay)
+            .gte('fecha_fin', firstDay)
+            .order('fecha_inicio', { ascending: false })
+            .limit(1)
             .single()
-          if (data?.fecha_inicio) setFechaInicioMin(data.fecha_inicio)
+          if (data?.fecha_inicio) {
+            setFechaInicioMin(data.fecha_inicio)
+            const mesPeriodo = data.fecha_inicio.slice(0, 7)
+            const mesActual = `${year}-${String(month + 1).padStart(2, '0')}`
+            setEsMesActual(mesPeriodo === mesActual)
+          }
         } catch {
           // ignorar
         }
@@ -72,7 +84,19 @@ export function EstudianteRetirarDialog({
   const onSubmit = async () => {
     if (!estudiante) return
 
-    if (!fechaRetiro) {
+    let firstDay: string
+    let lastDay: string
+    if (esMesActual) {
+      const { year, month } = getCurrentMonthYearInAppTimezone()
+      const range = getMonthRangeInAppTimezone(year, month)
+      firstDay = range.start
+      lastDay = range.end
+    } else if (fechaRetiro) {
+      const [y, m] = fechaRetiro.split('-').map(Number)
+      const range = getMonthRangeInAppTimezone(y, m - 1)
+      firstDay = range.start
+      lastDay = range.end
+    } else {
       toast.warning('Fecha de retiro', 'Indica la fecha de retiro del estudiante.')
       return
     }
@@ -89,36 +113,40 @@ export function EstudianteRetirarDialog({
 
       const { supabase } = authResult
 
-      const { data: periodoActual } = await supabase
+      const { data: periodos } = await supabase
         .from('estudiante_periodos')
         .select('id, fecha_inicio')
         .eq('estudiante_id', estudiante.id)
-        .is('fecha_fin', null)
-        .single()
+        .lte('fecha_inicio', lastDay)
+        .gte('fecha_fin', firstDay)
 
-      if (!periodoActual) {
-        toast.error('Sin período activo', 'No se encontró un período activo para este estudiante.')
+      const periodoDelMes = periodos?.[0]
+      if (!periodoDelMes) {
+        toast.error('Sin período', 'No se encontró un período para ese mes. El estudiante podría estar ya retirado.')
         setLoading(false)
         return
       }
 
-      const fechaFinPeriodo = lastDayOfMonthFromDate(fechaRetiro)
-      if (fechaFinPeriodo < periodoActual.fecha_inicio) {
-        toast.error(
-          'Fecha inválida',
-          `El mes de retiro no puede ser anterior al inicio del período (${periodoActual.fecha_inicio}).`
-        )
-        setLoading(false)
-        return
+      if (motivo) {
+        const { data: periodosPrev } = await supabase
+          .from('estudiante_periodos')
+          .select('id')
+          .eq('estudiante_id', estudiante.id)
+          .lt('fecha_inicio', firstDay)
+          .order('fecha_inicio', { ascending: false })
+          .limit(1)
+        if (periodosPrev?.[0]) {
+          await supabase
+            .from('estudiante_periodos')
+            .update({ motivo_retiro: motivo })
+            .eq('id', periodosPrev[0].id)
+        }
       }
 
       const { error } = await supabase
         .from('estudiante_periodos')
-        .update({
-          fecha_fin: fechaFinPeriodo,
-          motivo_retiro: motivo || null,
-        })
-        .eq('id', periodoActual.id)
+        .delete()
+        .eq('id', periodoDelMes.id)
 
       if (error) throw error
 
@@ -166,18 +194,23 @@ export function EstudianteRetirarDialog({
             </div>
           </div>
 
-          <div>
-            <Label htmlFor="fecha_retiro">¿En qué mes se retira? *</Label>
-            <p className="text-xs text-muted-foreground">Se usará el último día del mes.</p>
-            <Input
-              id="fecha_retiro"
-              type="date"
-              value={fechaRetiro}
-              min={fechaInicioMin ?? undefined}
-              onChange={(e) => setFechaRetiro(e.target.value)}
-              title={fechaInicioMin ? `Debe ser igual o posterior a ${fechaInicioMin}` : undefined}
-            />
-          </div>
+          {!esMesActual && (
+            <div>
+              <Label htmlFor="fecha_retiro">¿En qué mes se retira? *</Label>
+              <p className="text-xs text-muted-foreground">Se usará el último día del mes.</p>
+              <Input
+                id="fecha_retiro"
+                type="date"
+                value={fechaRetiro}
+                min={fechaInicioMin ?? undefined}
+                onChange={(e) => setFechaRetiro(e.target.value)}
+                title={fechaInicioMin ? `Debe ser igual o posterior a ${fechaInicioMin}` : undefined}
+              />
+            </div>
+          )}
+          {esMesActual && (
+            <p className="text-sm text-muted-foreground">Se retirará este mes (último día del mes actual).</p>
+          )}
 
           <div>
             <Label htmlFor="motivo">Motivo (opcional):</Label>
@@ -200,7 +233,7 @@ export function EstudianteRetirarDialog({
             type="button"
             variant="destructive"
             onClick={onSubmit}
-            disabled={loading || !fechaRetiro}
+            disabled={loading || (!esMesActual && !fechaRetiro)}
           >
             {loading ? (
               <>

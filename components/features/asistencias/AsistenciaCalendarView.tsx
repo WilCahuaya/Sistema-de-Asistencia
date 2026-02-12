@@ -470,7 +470,15 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         })
       } else {
         setPeriodosQuitables(new Map())
-        // Si es el mes actual o futuro, cargar estudiantes basándose en su aula_id actual
+        // Rollover: asegurar períodos del mes actual para estudiantes que tenían el mes anterior
+        const yearCur = fechaActual.getFullYear()
+        const monthCur = fechaActual.getMonth() + 1
+        await supabase.rpc('asegurar_periodos_mes', {
+          p_aula_id: selectedAula,
+          p_anio: yearCur,
+          p_mes: monthCur,
+        })
+        // Cargar estudiantes basándose en su aula_id actual (sincronizado por trigger)
         const { data, error } = await supabase
           .from('estudiantes')
           .select('id, codigo, nombre_completo')

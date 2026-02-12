@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/select'
 import { UserCheck } from 'lucide-react'
 import { toast } from '@/lib/toast'
-import { getTodayInAppTimezone, firstDayOfMonthFromDate } from '@/lib/utils/dateUtils'
+import { getTodayInAppTimezone, firstDayOfMonthFromDate, lastDayOfMonthFromDate } from '@/lib/utils/dateUtils'
 
 interface Estudiante {
   id: string
@@ -86,13 +86,14 @@ export function EstudianteReactivarDialog({
       const { user, supabase } = authResult
 
       const fechaInicioPeriodo = firstDayOfMonthFromDate(fechaRetorno)
+      const fechaFinPeriodo = lastDayOfMonthFromDate(fechaRetorno)
       const { error } = await supabase
         .from('estudiante_periodos')
         .insert({
           estudiante_id: estudiante.id,
           aula_id: selectedAulaId,
           fecha_inicio: fechaInicioPeriodo,
-          fecha_fin: null,
+          fecha_fin: fechaFinPeriodo,
           created_by: user.id,
         })
 
