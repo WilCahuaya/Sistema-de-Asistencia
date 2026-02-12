@@ -462,6 +462,8 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
           .select(`
             aula_id,
             fcp_miembro:fcp_miembros(
+              nombre_display,
+              email_pendiente,
               usuario:usuarios(nombre_completo, email)
             )
           `)
@@ -469,9 +471,10 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
           .eq('activo', true)
           .in('aula_id', aulaIds)
         tutorAulasData?.forEach((ta: any) => {
-          const fcpMiembro = ta.fcp_miembro
-          const usuario = fcpMiembro?.usuario
-          const tutorNombre = usuario?.nombre_completo || usuario?.email || 'Sin tutor asignado'
+          const fm = ta.fcp_miembro
+          if (!fm) return
+          const usuario = fm.usuario
+          const tutorNombre = (fm.nombre_display?.trim() || usuario?.nombre_completo?.trim() || usuario?.email || fm.email_pendiente) || 'Sin tutor asignado'
           aulaTutorMap.set(ta.aula_id, tutorNombre)
         })
       }

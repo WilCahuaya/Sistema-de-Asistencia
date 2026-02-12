@@ -397,7 +397,9 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
           nombre,
           tutor_aula!inner(
             fcp_miembro:fcp_miembros!inner(
-              usuario_id,
+              id,
+              nombre_display,
+              email_pendiente,
               usuario:usuarios(id, email, nombre_completo)
             )
           )
@@ -427,16 +429,16 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
       if (aulasData && aulasData.length > 0) {
         aulasData.forEach((a: any) => {
           const tutorAula = Array.isArray(a.tutor_aula) ? a.tutor_aula[0] : a.tutor_aula
-          const fcpMiembro = tutorAula?.fcp_miembro
-          const usuario = fcpMiembro?.usuario
-          
+          const fm = tutorAula?.fcp_miembro
+          const usuario = fm?.usuario
+          const displayName = fm?.nombre_display?.trim() || usuario?.nombre_completo?.trim() || usuario?.email || fm?.email_pendiente
           aulasConTutorMap.set(a.id, {
             id: a.id,
             nombre: a.nombre,
-            tutor: usuario ? {
-              id: usuario.id,
-              nombre_completo: usuario.nombre_completo || undefined,
-              email: usuario.email,
+            tutor: displayName ? {
+              id: usuario?.id || fm?.id,
+              nombre_completo: displayName || undefined,
+              email: usuario?.email || fm?.email_pendiente || '',
             } : undefined,
           })
         })

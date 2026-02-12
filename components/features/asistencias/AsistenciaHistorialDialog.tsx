@@ -74,8 +74,10 @@ export function AsistenciaHistorialDialog({
       const { data } = await supabase
         .from('tutor_aula')
         .select(`
-          fcp_miembro:fcp_miembros!inner(
-            usuario:usuarios!inner(nombre_completo, email)
+          fcp_miembro:fcp_miembros(
+            nombre_display,
+            email_pendiente,
+            usuario:usuarios(nombre_completo, email)
           )
         `)
         .eq('aula_id', asistencia.aula!.id)
@@ -83,8 +85,10 @@ export function AsistenciaHistorialDialog({
         .eq('activo', true)
         .limit(1)
         .maybeSingle()
-      const tutor = (data as any)?.fcp_miembro?.usuario
-      setTutorNombre(tutor?.nombre_completo || tutor?.email || null)
+      const fm = (data as any)?.fcp_miembro
+      const usuario = fm?.usuario
+      const nombre = (fm?.nombre_display?.trim() || usuario?.nombre_completo?.trim() || usuario?.email || fm?.email_pendiente) || null
+      setTutorNombre(nombre)
     }
     loadTutor()
   }, [open, asistencia?.aula?.id, fcpId])

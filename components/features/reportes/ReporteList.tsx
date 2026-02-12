@@ -1069,7 +1069,8 @@ export function ReporteList() {
             aula_id,
             fcp_miembro_id,
             fcp_miembro:fcp_miembros(
-              usuario_id,
+              nombre_display,
+              email_pendiente,
               usuario:usuarios(nombre_completo, email)
             )
           `)
@@ -1077,11 +1078,12 @@ export function ReporteList() {
           .eq('activo', true)
           .in('aula_id', aulasIds)
 
-        // Mapear tutores a aulas
+        // Mapear tutores a aulas (incluye invitaciones pendientes: nombre_display/email_pendiente)
         tutorAulasData?.forEach((ta: any) => {
-          const fcpMiembro = ta.fcp_miembro
-          const usuario = fcpMiembro?.usuario
-          const tutorNombre = usuario?.nombre_completo || usuario?.email || 'Sin tutor asignado'
+          const fm = ta.fcp_miembro
+          if (!fm) return
+          const usuario = fm.usuario
+          const tutorNombre = (fm.nombre_display?.trim() || usuario?.nombre_completo?.trim() || usuario?.email || fm.email_pendiente) || 'Sin tutor asignado'
           aulaTutorMap.set(ta.aula_id, tutorNombre)
         })
 
