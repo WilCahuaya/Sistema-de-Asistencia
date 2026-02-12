@@ -47,6 +47,8 @@ export function HabilitarCorreccionDialog({
       const { data, error } = await supabase.rpc('habilitar_correccion_mes_anterior', {
         p_fcp_id: fcpId,
         p_dias: dias,
+        p_anio: anio,
+        p_mes: mes,
       })
       if (error) throw error
       const result = data as { ok?: boolean; error?: string }
@@ -70,7 +72,7 @@ export function HabilitarCorreccionDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertCircle className="h-5 w-5" />
-            Habilitar corrección del mes anterior
+            Habilitar corrección de {mesLabel}
           </DialogTitle>
           <DialogDescription>
             Permite al secretario de esta FCP registrar o corregir asistencias únicamente del mes{' '}

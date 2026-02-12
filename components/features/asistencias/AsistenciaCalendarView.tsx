@@ -18,7 +18,7 @@ import {
 import { MonthPicker } from '@/components/ui/month-picker'
 import { AsistenciaHistorialDialog } from './AsistenciaHistorialDialog'
 import { AsistenciaCalendarioModal } from './AsistenciaCalendarioModal'
-import { useCorreccionMes, esMesAnterior } from '@/hooks/useCorreccionMes'
+import { useCorreccionMes, esMesPasado } from '@/hooks/useCorreccionMes'
 import { CorreccionMesBanner } from './CorreccionMesBanner'
 import { HabilitarCorreccionDialog } from './HabilitarCorreccionDialog'
 import { Badge } from '@/components/ui/badge'
@@ -210,7 +210,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const { canEdit, role } = useUserRole(fcpId)
   const mesNum = selectedMonth + 1
   const { data: correccionMes, loading: correccionLoading, refetch: refetchCorreccion } = useCorreccionMes(fcpId, selectedYear, mesNum)
-  const esMesPrev = esMesAnterior(selectedYear, mesNum)
+  const esMesPasadoVista = esMesPasado(selectedYear, mesNum)
   const correccionHabilitada = correccionMes?.estado === 'correccion_habilitada'
   const puedeEditarMes =
     (() => {
@@ -219,15 +219,16 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       const m = now.getMonth()
       const vista = selectedYear * 12 + selectedMonth
       const actual = y * 12 + m
-      const prev = actual - 1
       if (vista > actual) return canEdit && (role === 'director' || role === 'secretario')
       if (vista === actual) return canEdit && (role === 'director' || role === 'secretario')
-      // Mes anterior: solo secretario o director, y solo si el facilitador habilitó la corrección
-      if (vista === prev && correccionHabilitada && (role === 'secretario' || role === 'director')) return true
+      // Cualquier mes pasado: secretario o director, solo si el facilitador habilitó la corrección
+      if (vista < actual && correccionHabilitada && (role === 'secretario' || role === 'director')) return true
       return false
     })()
   const showHabilitarCorreccion =
-    role === 'facilitador' && esMesPrev && correccionMes?.estado === 'cerrado'
+    role === 'facilitador' &&
+    esMesPasadoVista &&
+    (correccionMes?.estado === 'cerrado' || correccionMes?.estado === 'bloqueado')
 
   // Función helper para convertir Date a string YYYY-MM-DD en zona horaria local
   const formatDateToLocalString = (date: Date): string => {
@@ -720,13 +721,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     const am = now.getMonth()
     const vista = y * 12 + m
     const actual = ay * 12 + am
-    const prev = actual - 1
-    const esMesAnteriorVista = vista < actual
-    if (esMesAnteriorVista && vista !== prev) {
-      toast.warning('Mes cerrado', 'No se pueden registrar o modificar asistencias de meses más antiguos que el anterior.')
-      return
-    }
-    if (esMesAnteriorVista && !correccionHabilitada) {
+    const esMesPasadoVista = vista < actual
+    if (esMesPasadoVista && !correccionHabilitada) {
       toast.warning('Corrección no habilitada', 'El facilitador debe habilitar la corrección para poder editar.')
       return
     }
@@ -946,11 +942,6 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     const am = now.getMonth()
     const vista = y * 12 + m
     const actual = ay * 12 + am
-    const prev = actual - 1
-    if (vista < actual && vista !== prev) {
-      toast.warning('Mes cerrado', 'No se pueden registrar asistencias de meses más antiguos que el anterior.')
-      return
-    }
     if (vista < actual && !correccionHabilitada) {
       toast.warning('Corrección no habilitada', 'El facilitador debe habilitar la corrección para poder editar.')
       return
@@ -1207,11 +1198,6 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     const am = now.getMonth()
     const vista = y * 12 + m
     const actual = ay * 12 + am
-    const prev = actual - 1
-    if (vista < actual && vista !== prev) {
-      toast.warning('Mes cerrado', 'No se pueden eliminar asistencias de meses más antiguos que el anterior.')
-      return
-    }
     if (vista < actual && !correccionHabilitada) {
       toast.warning('Corrección no habilitada', 'El facilitador debe habilitar la corrección para poder editar.')
       return
@@ -1442,7 +1428,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         </div>
       </CardHeader>
       <CardContent>
-        {esMesPrev && correccionMes && !correccionLoading && (
+        {esMesPasadoVista && correccionMes && !correccionLoading && (
           <CorreccionMesBanner
             estado={correccionMes.estado}
             habilitadoPorNombre={correccionMes.habilitadoPorNombre}

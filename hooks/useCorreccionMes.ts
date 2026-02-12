@@ -95,3 +95,15 @@ export function esMesAnterior(anio: number, mes: number): boolean {
   }
   return anio === anioActual && mes === mesActual - 1
 }
+
+/**
+ * Comprueba si (anio, mes) es un mes pasado (anterior al actual, cualquier mes).
+ */
+export function esMesPasado(anio: number, mes: number): boolean {
+  const now = new Date()
+  const anioActual = now.getFullYear()
+  const mesActual = now.getMonth() + 1
+  if (anio < anioActual) return true
+  if (anio === anioActual && mes < mesActual) return true
+  return false
+}
