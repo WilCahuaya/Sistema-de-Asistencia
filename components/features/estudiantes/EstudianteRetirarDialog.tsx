@@ -44,11 +44,28 @@ export function EstudianteRetirarDialog({
   const [loading, setLoading] = useState(false)
   const [fechaRetiro, setFechaRetiro] = useState<string>(() => getTodayInAppTimezone())
   const [motivo, setMotivo] = useState<string>('')
+  const [fechaInicioMin, setFechaInicioMin] = useState<string | null>(null)
 
   useEffect(() => {
     if (open && estudiante) {
       setFechaRetiro(getTodayInAppTimezone())
       setMotivo('')
+      setFechaInicioMin(null)
+      ;(async () => {
+        try {
+          const auth = await ensureAuthenticated()
+          if (!auth?.supabase) return
+          const { data } = await auth.supabase
+            .from('estudiante_periodos')
+            .select('fecha_inicio')
+            .eq('estudiante_id', estudiante.id)
+            .is('fecha_fin', null)
+            .single()
+          if (data?.fecha_inicio) setFechaInicioMin(data.fecha_inicio)
+        } catch {
+          // ignorar
+        }
+      })()
     }
   }, [open, estudiante])
 
@@ -74,13 +91,22 @@ export function EstudianteRetirarDialog({
 
       const { data: periodoActual } = await supabase
         .from('estudiante_periodos')
-        .select('id')
+        .select('id, fecha_inicio')
         .eq('estudiante_id', estudiante.id)
         .is('fecha_fin', null)
         .single()
 
       if (!periodoActual) {
         toast.error('Sin período activo', 'No se encontró un período activo para este estudiante.')
+        setLoading(false)
+        return
+      }
+
+      if (fechaRetiro < periodoActual.fecha_inicio) {
+        toast.error(
+          'Fecha inválida',
+          `La fecha de retiro no puede ser anterior al inicio del período (${periodoActual.fecha_inicio}). El estudiante empezó en este salón el ${periodoActual.fecha_inicio}.`
+        )
         setLoading(false)
         return
       }
@@ -99,7 +125,12 @@ export function EstudianteRetirarDialog({
       onSuccess()
     } catch (error: any) {
       console.error('Error retirando estudiante:', error)
-      toast.error('Error al retirar', error?.message || 'Intenta nuevamente.')
+      const msg = error?.message || 'Intenta nuevamente.'
+      if (error?.code === '23514' || msg.includes('chk_fecha_fin')) {
+        toast.error('Fecha inválida', 'La fecha de retiro no puede ser anterior al inicio del período en este salón. Elige una fecha posterior.')
+      } else {
+        toast.error('Error al retirar', msg)
+      }
     } finally {
       setLoading(false)
     }
@@ -140,7 +171,9 @@ export function EstudianteRetirarDialog({
               id="fecha_retiro"
               type="date"
               value={fechaRetiro}
+              min={fechaInicioMin ?? undefined}
               onChange={(e) => setFechaRetiro(e.target.value)}
+              title={fechaInicioMin ? `Debe ser igual o posterior a ${fechaInicioMin}` : undefined}
             />
           </div>
 
