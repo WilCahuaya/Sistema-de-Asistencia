@@ -24,6 +24,8 @@ import { getRolDisplayName } from '@/lib/utils/roles'
 import { toast } from '@/lib/toast'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useUserRole } from '@/hooks/useUserRole'
+import { AulaDialog } from '@/components/features/aulas/AulaDialog'
+import { Plus } from 'lucide-react'
 
 interface Miembro {
   id: string
@@ -59,6 +61,7 @@ export function MiembroEditDialog({
   const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
   const [selectedAulas, setSelectedAulas] = useState<string[]>([])
   const [loadingAulas, setLoadingAulas] = useState(false)
+  const [isAulaDialogOpen, setIsAulaDialogOpen] = useState(false)
   // Nuevo estado para roles múltiples (solo para directores)
   const [selectedRoles, setSelectedRoles] = useState<Array<'secretario' | 'tutor'>>([])
   const [existingRoles, setExistingRoles] = useState<Array<{ id: string; rol: string; activo: boolean }>>([])
@@ -889,16 +892,16 @@ export function MiembroEditDialog({
         )}
         <div className="grid gap-4 py-4">
           <div className="grid gap-2">
-            <Label htmlFor="nombreDisplay">Nombre a mostrar</Label>
+            <Label htmlFor="nombreDisplay">Nombre completo</Label>
             <Input
               id="nombreDisplay"
               value={nombreDisplay}
               onChange={(e) => setNombreDisplay(e.target.value)}
-              placeholder="Ej: Juan Pérez (opcional)"
+              placeholder="Ej: Juan Pérez"
               disabled={!canEditThisMember}
             />
             <p className="text-xs text-muted-foreground">
-              Útil cuando el miembro se agregó con el correo de un conocido.
+              Si está vacío, se usa el nombre del perfil del usuario.
             </p>
           </div>
           <div className="grid gap-2">
@@ -1056,7 +1059,21 @@ export function MiembroEditDialog({
           {/* Selector de aulas (para tutores - tanto directores como secretarios) */}
           {shouldShowAulas && (
             <div className="grid gap-2">
-              <Label htmlFor="aulas">Aulas Asignadas *</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="aulas">Aulas Asignadas *</Label>
+                {activo && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setIsAulaDialogOpen(true)}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Crear aula
+                  </Button>
+                )}
+              </div>
               {!activo ? (
                 <p className="text-sm text-muted-foreground">
                   Las aulas están bloqueadas cuando el miembro está inactivo.
@@ -1065,7 +1082,7 @@ export function MiembroEditDialog({
                 <p className="text-sm text-muted-foreground">Cargando aulas...</p>
               ) : aulas.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No hay aulas disponibles. Todas las aulas ya tienen tutor asignado o no hay aulas creadas.
+                  No hay aulas disponibles. Haz clic en &quot;Crear aula&quot; para agregar una.
                 </p>
               ) : (
                 <div className="max-h-48 overflow-y-auto border rounded-md p-3 space-y-2">
@@ -1126,6 +1143,26 @@ export function MiembroEditDialog({
             {loading ? 'Actualizando...' : 'Guardar Cambios'}
           </Button>
         </DialogFooter>
+
+        <AulaDialog
+          open={isAulaDialogOpen}
+          onOpenChange={setIsAulaDialogOpen}
+          fcpId={miembro.fcp_id}
+          onSuccess={() => {
+            loadAulas()
+            setIsAulaDialogOpen(false)
+          }}
+          onAulaCreated={(aula) => {
+            setAulas((prev) => {
+              if (prev.some((a) => a.id === aula.id)) return prev
+              return [...prev, aula].sort((a, b) => a.nombre.localeCompare(b.nombre))
+            })
+            setSelectedAulas((prev) => {
+              const next = prev.includes(aula.id) ? prev : [...prev, aula.id]
+              return next
+            })
+          }}
+        />
       </DialogContent>
     </Dialog>
   )

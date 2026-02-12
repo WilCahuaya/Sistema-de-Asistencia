@@ -25,6 +25,8 @@ import { getRolDisplayName } from '@/lib/utils/roles'
 import { toast } from '@/lib/toast'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useUserRole } from '@/hooks/useUserRole'
+import { AulaDialog } from '@/components/features/aulas/AulaDialog'
+import { Plus } from 'lucide-react'
 
 interface MiembroFormData {
   email: string
@@ -51,6 +53,7 @@ export function MiembroAddDialog({
   const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
   const [selectedAulas, setSelectedAulas] = useState<string[]>([])
   const [fcpNombre, setFcpNombre] = useState<string>('')
+  const [isAulaDialogOpen, setIsAulaDialogOpen] = useState(false)
   const supabase = createClient()
   const { role: userRole, isDirector, isSecretario } = useUserRole(fcpId)
   
@@ -538,7 +541,7 @@ export function MiembroAddDialog({
         <form onSubmit={handleSubmit(onSubmit)}>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="nombre">Nombre del miembro (opcional)</Label>
+              <Label htmlFor="nombre">Nombre completo (opcional)</Label>
               <Input
                 id="nombre"
                 type="text"
@@ -546,7 +549,7 @@ export function MiembroAddDialog({
                 placeholder="Ej: Juan Pérez"
               />
               <p className="text-xs text-muted-foreground">
-                Útil cuando agregas a alguien con el correo de un conocido.
+                Si no lo indicas, se usará el nombre del perfil del usuario.
               </p>
             </div>
             <div className="grid gap-2">
@@ -602,10 +605,22 @@ export function MiembroAddDialog({
             {/* Selector de aulas (solo para tutores) */}
             {selectedRol === 'tutor' && (
               <div className="grid gap-2">
-                <Label htmlFor="aulas">Aulas Asignadas *</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="aulas">Aulas Asignadas *</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setIsAulaDialogOpen(true)}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Crear aula
+                  </Button>
+                </div>
                 {aulas.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    No hay aulas disponibles en esta FCP. Crea aulas primero antes de asignar un tutor.
+                    No hay aulas disponibles. Haz clic en &quot;Crear aula&quot; para agregar una.
                   </p>
                 ) : (
                   <div className="max-h-48 overflow-y-auto border rounded-md p-3 space-y-2">
@@ -662,6 +677,27 @@ export function MiembroAddDialog({
             </Button>
           </DialogFooter>
         </form>
+
+        <AulaDialog
+          open={isAulaDialogOpen}
+          onOpenChange={setIsAulaDialogOpen}
+          fcpId={fcpId}
+          onSuccess={() => {
+            loadAulas()
+            setIsAulaDialogOpen(false)
+          }}
+          onAulaCreated={(aula) => {
+            setAulas((prev) => {
+              if (prev.some((a) => a.id === aula.id)) return prev
+              return [...prev, aula].sort((a, b) => a.nombre.localeCompare(b.nombre))
+            })
+            setSelectedAulas((prev) => {
+              const next = prev.includes(aula.id) ? prev : [...prev, aula.id]
+              setValue('aulas', next)
+              return next
+            })
+          }}
+        />
       </DialogContent>
     </Dialog>
   )

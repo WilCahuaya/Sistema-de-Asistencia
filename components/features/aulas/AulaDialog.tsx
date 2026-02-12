@@ -26,9 +26,11 @@ interface AulaDialogProps {
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
   fcpId: string
+  /** Si se provee, se llama con el aula creada (útil para asignarla de inmediato desde otro diálogo) */
+  onAulaCreated?: (aula: { id: string; nombre: string }) => void
 }
 
-export function AulaDialog({ open, onOpenChange, onSuccess, fcpId }: AulaDialogProps) {
+export function AulaDialog({ open, onOpenChange, onSuccess, fcpId, onAulaCreated }: AulaDialogProps) {
   const [loading, setLoading] = useState(false)
   const { register, handleSubmit, reset, formState: { errors } } = useForm<AulaFormData>()
 
@@ -50,19 +52,23 @@ export function AulaDialog({ open, onOpenChange, onSuccess, fcpId }: AulaDialogP
 
       const { user, supabase } = authResult
 
-      const { error } = await supabase
+      const { data: nuevaAula, error } = await supabase
         .from('aulas')
         .insert({
           nombre: data.nombre,
           descripcion: data.descripcion || null,
           fcp_id: fcpId,
+          activa: true,
           created_by: user.id,
         })
+        .select('id, nombre')
+        .single()
 
       if (error) throw error
 
       reset()
       toast.created('Aula')
+      onAulaCreated?.(nuevaAula)
       onSuccess()
     } catch (error: any) {
       console.error('Error creating aula:', error)
