@@ -128,21 +128,26 @@ export function AgregarEstudianteMesDialog({
     estudianteId: string,
     fechaInicio: string,
     fechaFin: string
-  ): Promise<boolean> => {
+  ): Promise<{ ok: boolean; mensaje?: string }> => {
     const { data } = await supabase
       .from('estudiante_periodos')
-      .select('fecha_inicio, fecha_fin')
+      .select('fecha_inicio, fecha_fin, aula_id, aula:aulas(nombre)')
       .eq('estudiante_id', estudianteId)
-      .eq('aula_id', aulaId)
 
-    if (!data?.length) return true
+    if (!data?.length) return { ok: true }
 
     for (const p of data) {
-      if (periodosSeSuperponen(fechaInicio, fechaFin, p.fecha_inicio, p.fecha_fin)) {
-        return false
+      if (!periodosSeSuperponen(fechaInicio, fechaFin, p.fecha_inicio, p.fecha_fin)) continue
+      const nombreAula = (p.aula as { nombre?: string })?.nombre || 'otro salón'
+      const esMismoAula = p.aula_id === aulaId
+      return {
+        ok: false,
+        mensaje: esMismoAula
+          ? `Ya existe un período para este estudiante en ${nombreAula} que se cruza con ${mesLabel}.`
+          : `El estudiante ya tiene un período en "${nombreAula}" que se superpone con este mes. Un estudiante no puede estar en dos salones al mismo tiempo.`,
       }
     }
-    return true
+    return { ok: true }
   }
 
   const crearPeriodoParaMes = async (estudianteId: string) => {
@@ -153,12 +158,9 @@ export function AgregarEstudianteMesDialog({
 
     const { supabase, user } = authResult
 
-    const ok = await validarSuperposicion(supabase, estudianteId, first, last)
-    if (!ok) {
-      toast.error(
-        'Período superpuesto',
-        `Ya existe un período para este estudiante en ${aulaNombre} que se cruza con ${mesLabel}. Revisa el historial del estudiante.`
-      )
+    const result = await validarSuperposicion(supabase, estudianteId, first, last)
+    if (!result.ok) {
+      toast.error('Período superpuesto', result.mensaje || 'Revisa el historial del estudiante.')
       return false
     }
 
@@ -221,10 +223,10 @@ export function AgregarEstudianteMesDialog({
 
       if (errEst) throw errEst
 
-      const ok = await validarSuperposicion(supabase, nuevoEstudiante.id, first, last)
-      if (!ok) {
+      const result = await validarSuperposicion(supabase, nuevoEstudiante.id, first, last)
+      if (!result.ok) {
         await supabase.from('estudiantes').delete().eq('id', nuevoEstudiante.id)
-        toast.error('Período superpuesto', 'No se pudo crear el período. Contacta al administrador.')
+        toast.error('Período superpuesto', result.mensaje || 'No se pudo crear el período.')
         return
       }
 
