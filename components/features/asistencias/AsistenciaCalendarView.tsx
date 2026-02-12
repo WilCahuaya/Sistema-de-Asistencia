@@ -25,6 +25,7 @@ import { Badge } from '@/components/ui/badge'
 import { Unlock, UserPlus } from 'lucide-react'
 import { AgregarEstudianteMesDialog } from './AgregarEstudianteMesDialog'
 import { QuitarEstudianteMesDialog } from './QuitarEstudianteMesDialog'
+import { MoverEstudianteMesDialog } from './MoverEstudianteMesDialog'
 import { toast } from '@/lib/toast'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
@@ -100,6 +101,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const [agregarEstudianteMesOpen, setAgregarEstudianteMesOpen] = useState(false)
   const [quitarEstudianteMesOpen, setQuitarEstudianteMesOpen] = useState(false)
   const [selectedEstudianteForQuitar, setSelectedEstudianteForQuitar] = useState<Estudiante | null>(null)
+  const [moverEstudianteMesOpen, setMoverEstudianteMesOpen] = useState(false)
+  const [selectedEstudianteForMover, setSelectedEstudianteForMover] = useState<Estudiante | null>(null)
   const [periodosQuitables, setPeriodosQuitables] = useState<Map<string, string>>(new Map())
   const [fechaParaEliminar, setFechaParaEliminar] = useState<string | null>(null)
   const [showAbbreviatedSticky, setShowAbbreviatedSticky] = useState(false)
@@ -839,6 +842,68 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     }
   }
 
+  const deleteAsistencia = async (estudianteId: string, fechaStr: string) => {
+    if (!puedeEditarMes) return
+
+    const fechaAsistencia = new Date(fechaStr + 'T00:00:00')
+    const y = fechaAsistencia.getFullYear()
+    const m = fechaAsistencia.getMonth()
+    const now = new Date()
+    const ay = now.getFullYear()
+    const am = now.getMonth()
+    const vista = y * 12 + m
+    const actual = ay * 12 + am
+    if (vista < actual && !correccionHabilitada) {
+      toast.warning('Corrección no habilitada', 'El facilitador debe habilitar la corrección para poder editar.')
+      return
+    }
+
+    const key = `${estudianteId}_${fechaStr}`
+    const existingAsistencia = asistencias.get(key)
+    if (!existingAsistencia?.id || existingAsistencia.id.startsWith('temp-')) {
+      setAsistencias((prev) => {
+        const updated = new Map(prev)
+        updated.delete(key)
+        return updated
+      })
+      return
+    }
+
+    try {
+      setSaving((prev) => new Set(prev).add(key))
+      const supabase = createClient()
+
+      const { error } = await supabase
+        .from('asistencias')
+        .delete()
+        .eq('id', existingAsistencia.id)
+
+      if (error) {
+        if (error.message?.includes('meses anteriores') || error.message?.includes('mes cerrado')) {
+          toast.error('Mes cerrado', 'No se puede eliminar esta asistencia.')
+        } else {
+          throw error
+        }
+        return
+      }
+
+      setAsistencias((prev) => {
+        const updated = new Map(prev)
+        updated.delete(key)
+        return updated
+      })
+    } catch (e: unknown) {
+      console.error('Error eliminando asistencia:', e)
+      toast.error('Error al eliminar', e instanceof Error ? e.message : 'Intenta nuevamente.')
+    } finally {
+      setSaving((prev) => {
+        const updated = new Set(prev)
+        updated.delete(key)
+        return updated
+      })
+    }
+  }
+
   const handleCellClick = (
     estudianteId: string,
     fechaStr: string,
@@ -854,7 +919,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       // Doble click = faltó
       newEstado = 'falto'
     } else {
-      // Click simple = alternar: null -> presente, presente -> faltó, faltó -> permiso, permiso -> presente
+      // Click simple: presente → falto → permiso → blanco (null) → presente…
       if (!currentEstado) {
         newEstado = 'presente'
       } else if (currentEstado === 'presente') {
@@ -862,7 +927,9 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       } else if (currentEstado === 'falto') {
         newEstado = 'permiso'
       } else {
-        newEstado = 'presente'
+        // permiso → blanco (eliminar registro)
+        deleteAsistencia(estudianteId, fechaStr)
+        return
       }
     }
 
@@ -1490,18 +1557,33 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                               <Calendar className="h-4 w-4" />
                               Ver calendario
                             </Button>
-                            {showQuitarEstudianteMes && periodosQuitables.has(estudiante.id) && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
-                                onClick={() => {
-                                  setSelectedEstudianteForQuitar(estudiante)
-                                  setQuitarEstudianteMesOpen(true)
-                                }}
-                              >
-                                Quitar de este mes
-                              </Button>
+                            {showQuitarEstudianteMes && (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="w-full"
+                                  onClick={() => {
+                                    setSelectedEstudianteForMover(estudiante)
+                                    setMoverEstudianteMesOpen(true)
+                                  }}
+                                >
+                                  Mover a otro salón
+                                </Button>
+                                {periodosQuitables.has(estudiante.id) && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
+                                    onClick={() => {
+                                      setSelectedEstudianteForQuitar(estudiante)
+                                      setQuitarEstudianteMesOpen(true)
+                                    }}
+                                  >
+                                    Quitar de este mes
+                                  </Button>
+                                )}
+                              </>
                             )}
                           </div>
                         </div>
@@ -1739,19 +1821,35 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                     <td className={`border border-border p-2 bg-muted sticky z-10 text-xs shadow-[2px_0_4px_rgba(0,0,0,0.1)] ${showAbbreviatedSticky ? 'left-[52px] min-w-[72px]' : 'left-[120px] min-w-[180px]'} sm:left-[120px] sm:min-w-[180px]`} title={estudiante.nombre_completo}>
                       <div className="flex flex-col gap-0.5">
                         <span className={`block ${showAbbreviatedSticky ? 'truncate max-w-[80px]' : 'whitespace-normal break-words'} sm:truncate sm:max-w-[172px]`}>{estudiante.nombre_completo}</span>
-                        {showQuitarEstudianteMes && periodosQuitables.has(estudiante.id) && (
-                          <Button
-                            variant="link"
-                            size="sm"
-                            className="h-auto p-0 text-destructive hover:text-destructive/80 text-[10px] sm:text-xs"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setSelectedEstudianteForQuitar(estudiante)
-                              setQuitarEstudianteMesOpen(true)
-                            }}
-                          >
-                            Quitar de este mes
-                          </Button>
+                        {showQuitarEstudianteMes && (
+                          <div className="flex flex-col gap-0.5">
+                            <Button
+                              variant="link"
+                              size="sm"
+                              className="h-auto p-0 text-[10px] sm:text-xs"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedEstudianteForMover(estudiante)
+                                setMoverEstudianteMesOpen(true)
+                              }}
+                            >
+                              Mover a otro salón
+                            </Button>
+                            {periodosQuitables.has(estudiante.id) && (
+                              <Button
+                                variant="link"
+                                size="sm"
+                                className="h-auto p-0 text-destructive hover:text-destructive/80 text-[10px] sm:text-xs"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setSelectedEstudianteForQuitar(estudiante)
+                                  setQuitarEstudianteMesOpen(true)
+                                }}
+                              >
+                                Quitar de este mes
+                              </Button>
+                            )}
+                          </div>
                         )}
                       </div>
                     </td>
@@ -1792,7 +1890,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                           onMouseLeave={() => handleCellMouseLeave(estudiante.id, fechaStr)}
                           title={
                             puedeEditarMes
-                              ? 'Click: Presente | Doble click: Faltó | Mantén presionado: Permiso'
+                              ? 'Click: Presente → Faltó → Permiso → Blanco | Doble click: Faltó | Mantén: Permiso'
                               : 'Solo lectura'
                           }
                         >
@@ -1867,6 +1965,29 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         mes={mesNum}
         mesLabel={formatMonthYear(selectedMonth, selectedYear)}
       />
+
+      {/* Diálogo mover estudiante a otro salón */}
+      {selectedAula && selectedEstudianteForMover && (
+        <MoverEstudianteMesDialog
+          open={moverEstudianteMesOpen}
+          onOpenChange={(open) => {
+            setMoverEstudianteMesOpen(open)
+            if (!open) setSelectedEstudianteForMover(null)
+          }}
+          onSuccess={() => {
+            loadEstudiantes()
+            loadAsistenciasMes()
+          }}
+          estudiante={selectedEstudianteForMover}
+          fcpId={fcpId}
+          aulaOrigenId={selectedAula}
+          aulaOrigenNombre={aulas.find((a) => a.id === selectedAula)?.nombre || 'Salón'}
+          aulas={aulas}
+          firstDay={formatDateToLocalString(new Date(selectedYear, selectedMonth, 1))}
+          lastDay={formatDateToLocalString(new Date(selectedYear, selectedMonth + 1, 0))}
+          mesLabel={formatMonthYear(selectedMonth, selectedYear)}
+        />
+      )}
 
       {/* Diálogo quitar estudiante de este mes */}
       {selectedAula && selectedEstudianteForQuitar && (
