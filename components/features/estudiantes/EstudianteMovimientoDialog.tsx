@@ -55,16 +55,37 @@ export function EstudianteMovimientoDialog({
   const [selectedAulaId, setSelectedAulaId] = useState<string>('')
   const [fechaCambio, setFechaCambio] = useState<string>(() => getTodayInAppTimezone())
   const [motivo, setMotivo] = useState<string>('')
+  const [fechaCambioMin, setFechaCambioMin] = useState<string | null>(null)
 
   useEffect(() => {
     if (open && estudiante) {
       setSelectedAulaId('')
       setMotivo('')
       setFechaCambio(getTodayInAppTimezone())
+      setFechaCambioMin(null)
       const aulasDisponibles = aulas.filter(a => a.id !== estudiante.aula_id)
       if (aulasDisponibles.length > 0) {
         setSelectedAulaId(aulasDisponibles[0].id)
       }
+      ;(async () => {
+        try {
+          const auth = await ensureAuthenticated()
+          if (!auth?.supabase) return
+          const { data } = await auth.supabase
+            .from('estudiante_periodos')
+            .select('fecha_inicio')
+            .eq('estudiante_id', estudiante.id)
+            .is('fecha_fin', null)
+            .single()
+          if (data?.fecha_inicio) {
+            const d = new Date(data.fecha_inicio + 'T12:00:00')
+            d.setDate(d.getDate() + 1)
+            setFechaCambioMin(d.toISOString().slice(0, 10))
+          }
+        } catch {
+          // ignorar
+        }
+      })()
     }
   }, [open, estudiante, aulas])
 
@@ -110,15 +131,30 @@ export function EstudianteMovimientoDialog({
       const fechaFinStr = `${fechaCambioDate.getFullYear()}-${String(fechaCambioDate.getMonth() + 1).padStart(2, '0')}-${String(fechaCambioDate.getDate()).padStart(2, '0')}`
 
       if (periodoActual) {
+        const { data: periodoWithInicio } = await supabase
+          .from('estudiante_periodos')
+          .select('fecha_inicio')
+          .eq('id', periodoActual.id)
+          .single()
+        if (periodoWithInicio && fechaFinStr < periodoWithInicio.fecha_inicio) {
+          toast.error(
+            'Fecha inválida',
+            `La fecha de cambio no puede ser anterior al inicio del período (${periodoWithInicio.fecha_inicio}).`
+          )
+          setLoading(false)
+          return
+        }
         const { error: updateErr } = await supabase
           .from('estudiante_periodos')
           .update({ fecha_fin: fechaFinStr, motivo_retiro: motivo || null })
           .eq('id', periodoActual.id)
         if (updateErr) throw updateErr
       } else {
-        // Legacy: crear período cerrado para el aula actual (inicio = primer día del mes del cambio)
-        const inicioStr = `${y}-${String(m).padStart(2, '0')}-01`
-        await supabase.from('estudiante_periodos').insert({
+        // Legacy: crear período cerrado para el aula actual.
+        // inicioStr = primer día del mes que contiene fechaFinStr (para garantizar fecha_inicio <= fecha_fin)
+        const [yF, mF] = fechaFinStr.split('-').map(Number)
+        const inicioStr = `${yF}-${String(mF).padStart(2, '0')}-01`
+        const { error: legacyErr } = await supabase.from('estudiante_periodos').insert({
           estudiante_id: estudiante.id,
           aula_id: estudiante.aula_id,
           fecha_inicio: inicioStr,
@@ -126,6 +162,7 @@ export function EstudianteMovimientoDialog({
           motivo_retiro: motivo || 'Cambio de salón',
           created_by: user.id,
         })
+        if (legacyErr) throw legacyErr
       }
 
       // Crear nuevo período con el aula destino
@@ -146,7 +183,12 @@ export function EstudianteMovimientoDialog({
       setMotivo('')
     } catch (error: any) {
       console.error('Error moving estudiante:', error)
-      toast.error('Error al mover el estudiante', error?.message || 'Intenta nuevamente.')
+      const msg = error?.message || 'Intenta nuevamente.'
+      if (error?.code === '23514' || msg.includes('chk_fecha_fin')) {
+        toast.error('Fecha inválida', 'La fecha de cambio no puede ser anterior al inicio del período. Elige una fecha posterior.')
+      } else {
+        toast.error('Error al mover el estudiante', msg)
+      }
     } finally {
       setLoading(false)
     }
@@ -197,7 +239,9 @@ export function EstudianteMovimientoDialog({
               id="fecha_cambio"
               type="date"
               value={fechaCambio}
+              min={fechaCambioMin ?? undefined}
               onChange={(e) => setFechaCambio(e.target.value)}
+              title={fechaCambioMin ? `Debe ser al menos un día después del inicio (${fechaCambioMin})` : undefined}
             />
           </div>
           <div>
