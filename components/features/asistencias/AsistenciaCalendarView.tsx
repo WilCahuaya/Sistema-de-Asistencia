@@ -24,6 +24,7 @@ import { HabilitarCorreccionDialog } from './HabilitarCorreccionDialog'
 import { Badge } from '@/components/ui/badge'
 import { Unlock, UserPlus } from 'lucide-react'
 import { AgregarEstudianteMesDialog } from './AgregarEstudianteMesDialog'
+import { QuitarEstudianteMesDialog } from './QuitarEstudianteMesDialog'
 import { toast } from '@/lib/toast'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
@@ -97,6 +98,9 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const [selectedAsistenciaForHistorial, setSelectedAsistenciaForHistorial] = useState<Asistencia | null>(null)
   const [habilitarCorreccionOpen, setHabilitarCorreccionOpen] = useState(false)
   const [agregarEstudianteMesOpen, setAgregarEstudianteMesOpen] = useState(false)
+  const [quitarEstudianteMesOpen, setQuitarEstudianteMesOpen] = useState(false)
+  const [selectedEstudianteForQuitar, setSelectedEstudianteForQuitar] = useState<Estudiante | null>(null)
+  const [periodosQuitables, setPeriodosQuitables] = useState<Map<string, string>>(new Map())
   const [fechaParaEliminar, setFechaParaEliminar] = useState<string | null>(null)
   const [showAbbreviatedSticky, setShowAbbreviatedSticky] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
@@ -237,6 +241,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     correccionHabilitada &&
     (role === 'director' || role === 'secretario') &&
     !!selectedAula
+
+  const showQuitarEstudianteMes = showAgregarEstudianteMes
 
   // Función helper para convertir Date a string YYYY-MM-DD en zona horaria local
   const formatDateToLocalString = (date: Date): string => {
@@ -438,6 +444,21 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
           if (!errEst && estudiantesRango) {
             nuevosEstudiantes = estudiantesRango
           }
+
+          // Períodos quitables: exactamente este mes (fecha_inicio=first, fecha_fin=last)
+          const { data: periodosData } = await supabase
+            .from('estudiante_periodos')
+            .select('id, estudiante_id')
+            .eq('aula_id', selectedAula)
+            .eq('fecha_inicio', firstDay)
+            .eq('fecha_fin', lastDay)
+            .in('estudiante_id', ids)
+
+          const map = new Map<string, string>()
+          periodosData?.forEach((p: { id: string; estudiante_id: string }) => map.set(p.estudiante_id, p.id))
+          setPeriodosQuitables(map)
+        } else {
+          setPeriodosQuitables(new Map())
         }
 
         console.log('✅ Estudiantes de mes anterior (estudiante_periodos):', {
@@ -445,6 +466,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
           aula: selectedAula,
         })
       } else {
+        setPeriodosQuitables(new Map())
         // Si es el mes actual o futuro, cargar estudiantes basándose en su aula_id actual
         const { data, error } = await supabase
           .from('estudiantes')
@@ -1459,14 +1481,29 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                           <p className="text-sm text-muted-foreground">
                             {formatMonthYear(selectedMonth, selectedYear)}: {presentes} / {totalDias}
                           </p>
-                          <Button
-                            className="w-full gap-2"
-                            variant="outline"
-                            onClick={() => setSelectedEstudianteForModal(estudiante)}
-                          >
-                            <Calendar className="h-4 w-4" />
-                            Ver calendario
-                          </Button>
+                          <div className="flex flex-col gap-2">
+                            <Button
+                              className="w-full gap-2"
+                              variant="outline"
+                              onClick={() => setSelectedEstudianteForModal(estudiante)}
+                            >
+                              <Calendar className="h-4 w-4" />
+                              Ver calendario
+                            </Button>
+                            {showQuitarEstudianteMes && periodosQuitables.has(estudiante.id) && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
+                                onClick={() => {
+                                  setSelectedEstudianteForQuitar(estudiante)
+                                  setQuitarEstudianteMesOpen(true)
+                                }}
+                              >
+                                Quitar de este mes
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </Card>
                     )
@@ -1700,7 +1737,23 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                       <span className="sm:hidden">{showAbbreviatedSticky ? (estudiante.codigo.length >= 3 ? estudiante.codigo.slice(-3) : estudiante.codigo) : estudiante.codigo}</span>
                     </td>
                     <td className={`border border-border p-2 bg-muted sticky z-10 text-xs shadow-[2px_0_4px_rgba(0,0,0,0.1)] ${showAbbreviatedSticky ? 'left-[52px] min-w-[72px]' : 'left-[120px] min-w-[180px]'} sm:left-[120px] sm:min-w-[180px]`} title={estudiante.nombre_completo}>
-                      <span className={`block ${showAbbreviatedSticky ? 'truncate max-w-[80px]' : 'whitespace-normal break-words'} sm:truncate sm:max-w-[172px]`}>{estudiante.nombre_completo}</span>
+                      <div className="flex flex-col gap-0.5">
+                        <span className={`block ${showAbbreviatedSticky ? 'truncate max-w-[80px]' : 'whitespace-normal break-words'} sm:truncate sm:max-w-[172px]`}>{estudiante.nombre_completo}</span>
+                        {showQuitarEstudianteMes && periodosQuitables.has(estudiante.id) && (
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="h-auto p-0 text-destructive hover:text-destructive/80 text-[10px] sm:text-xs"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSelectedEstudianteForQuitar(estudiante)
+                              setQuitarEstudianteMesOpen(true)
+                            }}
+                          >
+                            Quitar de este mes
+                          </Button>
+                        )}
+                      </div>
                     </td>
                     {daysInMonth.map(({ day, date, fechaStr }) => {
                       const estado = getAsistenciaEstado(estudiante.id, fechaStr)
@@ -1814,6 +1867,28 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         mes={mesNum}
         mesLabel={formatMonthYear(selectedMonth, selectedYear)}
       />
+
+      {/* Diálogo quitar estudiante de este mes */}
+      {selectedAula && selectedEstudianteForQuitar && (
+        <QuitarEstudianteMesDialog
+          open={quitarEstudianteMesOpen}
+          onOpenChange={(open) => {
+            setQuitarEstudianteMesOpen(open)
+            if (!open) setSelectedEstudianteForQuitar(null)
+          }}
+          onSuccess={() => {
+            loadEstudiantes()
+            loadAsistenciasMes()
+          }}
+          estudiante={selectedEstudianteForQuitar}
+          periodoId={periodosQuitables.get(selectedEstudianteForQuitar.id) ?? null}
+          fcpId={fcpId}
+          aulaId={selectedAula}
+          firstDay={formatDateToLocalString(new Date(selectedYear, selectedMonth, 1))}
+          lastDay={formatDateToLocalString(new Date(selectedYear, selectedMonth + 1, 0))}
+          mesLabel={formatMonthYear(selectedMonth, selectedYear)}
+        />
+      )}
 
       {/* Diálogo agregar estudiante solo para este mes (director/secretario, mes pasado con corrección) */}
       {selectedAula && (
