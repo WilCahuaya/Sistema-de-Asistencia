@@ -30,6 +30,7 @@ interface Miembro {
   fcp_id: string
   rol: 'facilitador' | 'director' | 'secretario' | 'tutor'
   activo: boolean
+  nombre_display?: string | null
   usuario?: {
     email: string
     nombre_completo?: string
@@ -53,6 +54,7 @@ export function MiembroEditDialog({
   const [error, setError] = useState<string | null>(null)
   const [rol, setRol] = useState<Miembro['rol']>(miembro.rol)
   const [activo, setActivo] = useState(miembro.activo)
+  const [nombreDisplay, setNombreDisplay] = useState(miembro.nombre_display ?? '')
   const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
   const [selectedAulas, setSelectedAulas] = useState<string[]>([])
   const [loadingAulas, setLoadingAulas] = useState(false)
@@ -101,6 +103,7 @@ export function MiembroEditDialog({
   useEffect(() => {
     if (miembro) {
       setRol(miembro.rol)
+      setNombreDisplay(miembro.nombre_display ?? '')
       
       // Si el usuario es secretario y el miembro no es tutor, mostrar error
       if (isSecretario && miembro.rol !== 'tutor') {
@@ -437,6 +440,7 @@ export function MiembroEditDialog({
         .update({
           rol,
           activo,
+          nombre_display: nombreDisplay?.trim() || null,
         })
         .eq('id', miembro.id)
 
@@ -837,9 +841,14 @@ export function MiembroEditDialog({
       }
     }
 
-    // NOTA: La actualización de aulas del tutor ya se maneja en el bucle anterior
-    // cuando se procesa cada rol (líneas 539-540, 572, 610, 622, 659).
-    // No es necesario hacerlo nuevamente aquí para evitar duplicados.
+    // Actualizar nombre_display en el registro principal (el que se está editando)
+    const { error: nombreUpdateError } = await supabase
+      .from('fcp_miembros')
+      .update({ nombre_display: nombreDisplay?.trim() || null })
+      .eq('id', miembro.id)
+    if (nombreUpdateError) {
+      console.warn('Error actualizando nombre_display:', nombreUpdateError)
+    }
 
     console.log('✅ Actualización de roles completada exitosamente')
     setError(null)
@@ -855,7 +864,7 @@ export function MiembroEditDialog({
         <DialogHeader>
           <DialogTitle>Editar Miembro</DialogTitle>
           <DialogDescription>
-            Cambiar el rol o estado del miembro: {miembro.usuario?.nombre_completo || miembro.usuario?.email}
+            Cambiar el rol o estado del miembro: {miembro.nombre_display || miembro.usuario?.nombre_completo || miembro.usuario?.email}
           </DialogDescription>
         </DialogHeader>
         {error && (
@@ -878,6 +887,19 @@ export function MiembroEditDialog({
           </div>
         )}
         <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label htmlFor="nombreDisplay">Nombre a mostrar</Label>
+            <Input
+              id="nombreDisplay"
+              value={nombreDisplay}
+              onChange={(e) => setNombreDisplay(e.target.value)}
+              placeholder="Ej: Juan Pérez (opcional)"
+              disabled={!canEditThisMember}
+            />
+            <p className="text-xs text-muted-foreground">
+              Útil cuando el miembro se agregó con el correo de un conocido.
+            </p>
+          </div>
           <div className="grid gap-2">
             <Label htmlFor="email">Email</Label>
             <p className="text-sm text-muted-foreground font-mono">

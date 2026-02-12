@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Plus, GraduationCap, Upload, Search, ArrowRight, UserX, UserCheck, Edit, ChevronDown, ChevronUp } from 'lucide-react'
 import { EstudianteDialog } from './EstudianteDialog'
 import { EstudianteEditDialog } from './EstudianteEditDialog'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Table,
   TableBody,
@@ -54,6 +54,7 @@ interface Estudiante {
   aula?: {
     nombre: string
   }
+  tutor?: string // Nombre del tutor del aula asignada
   fcp_id: string
   fcp?: {
     razon_social: string
@@ -77,6 +78,7 @@ export function EstudianteList() {
   const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
   const [selectedAula, setSelectedAula] = useState<string | null>(null)
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
+  const [loadingFCPs, setLoadingFCPs] = useState(true)
   const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [includeInactivos, setIncludeInactivos] = useState(false)
@@ -89,6 +91,9 @@ export function EstudianteList() {
   const [isMobile, setIsMobile] = useState(false)
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null)
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const aulaIdFromUrl = searchParams.get('aulaId')
+  const fcpIdFromUrl = searchParams.get('fcpId')
 
   // Breakpoint sm (640px): PC = tabla original, móvil = cards con paginación
   useEffect(() => {
@@ -195,25 +200,29 @@ export function EstudianteList() {
     }
   }, [isResizingTable, resizeStartX, resizeStartWidth])
 
-  // Establecer selectedFCP basado en fcpIdFromRole o la primera FCP disponible
+  // Prioridad: URL (aulaId, fcpId) > rol seleccionado > primera FCP
   useEffect(() => {
-    // Si hay un fcpId del rol seleccionado, usarlo prioritariamente
-    if (fcpIdFromRole && !selectedFCP) {
-      // Verificar que la FCP del rol esté en la lista de FCPs del usuario
-      const fcpExists = userFCPs.find(fcp => fcp.id === fcpIdFromRole)
-      if (fcpExists) {
-        setSelectedFCP(fcpIdFromRole)
-        console.log('👤 [EstudianteList] Estableciendo selectedFCP desde fcpIdFromRole:', fcpIdFromRole)
+    if (loadingFCPs || userFCPs.length === 0) return
+
+    if (fcpIdFromUrl) {
+      const fcpDeUrl = userFCPs.find(fcp => fcp.id === fcpIdFromUrl)
+      if (fcpDeUrl) {
+        setSelectedFCP(fcpIdFromUrl)
+        setSelectedAula(aulaIdFromUrl)
         return
       }
     }
-    
-    // Si no hay selectedFCP y hay FCPs disponibles, usar la primera
-    if (userFCPs.length > 0 && !selectedFCP) {
-      setSelectedFCP(userFCPs[0].id)
-      console.log('👤 [EstudianteList] Estableciendo selectedFCP a la primera FCP:', userFCPs[0].id)
+
+    if (fcpIdFromRole && userFCPs.find(fcp => fcp.id === fcpIdFromRole)) {
+      setSelectedFCP(fcpIdFromRole)
+      if (aulaIdFromUrl) setSelectedAula(aulaIdFromUrl)
+      return
     }
-  }, [userFCPs, fcpIdFromRole, selectedFCP])
+
+    if (!selectedFCP) {
+      setSelectedFCP(userFCPs[0].id)
+    }
+  }, [userFCPs, fcpIdFromRole, fcpIdFromUrl, aulaIdFromUrl, loadingFCPs])
 
   // Asegurar que selectedFCP esté establecido para secretarios y directores
   useEffect(() => {
@@ -281,10 +290,14 @@ export function EstudianteList() {
   }, [searchTerm])
 
   const loadUserFCPs = async () => {
+    setLoadingFCPs(true)
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) {
+        setLoadingFCPs(false)
+        return
+      }
 
       let fcps: Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }> = []
 
@@ -326,15 +339,13 @@ export function EstudianteList() {
       }
 
       setUserFCPs(fcps)
-      
-      console.log('👥 [EstudianteList] FCPs cargadas:', {
-        fcps: fcps.length,
-        fcpIdFromRole,
-        selectedFCP,
-        rolSeleccionado: selectedRole?.role
-      })
+      if (fcps.length > 0) {
+        console.log('👥 [EstudianteList] FCPs cargadas:', { fcps: fcps.length, fcpIdFromRole, selectedFCP, rolSeleccionado: selectedRole?.role })
+      }
     } catch (error) {
       console.error('Error loading FCPs:', error)
+    } finally {
+      setLoadingFCPs(false)
     }
   }
 
@@ -652,8 +663,42 @@ export function EstudianteList() {
         throw error
       }
       
+      let estudiantesCargados = data || []
+
+      // Cargar tutores de las aulas para enriquecer la lista
+      const aulaIds = Array.from(new Set(estudiantesCargados.map((e: Estudiante) => e.aula_id).filter(Boolean)))
+      const tutorMap = new Map<string, string>()
+      const fcpIdParaTutores = fcpIdToUse || (estudiantesCargados[0] as Estudiante & { fcp_id?: string })?.fcp_id
+
+      if (aulaIds.length > 0 && fcpIdParaTutores) {
+        const { data: tutorAulasData } = await supabase
+          .from('tutor_aula')
+          .select(`
+            aula_id,
+            fcp_miembro:fcp_miembros(
+              nombre_display,
+              usuario:usuarios(nombre_completo, email)
+            )
+          `)
+          .eq('fcp_id', fcpIdParaTutores)
+          .eq('activo', true)
+          .in('aula_id', aulaIds)
+
+        tutorAulasData?.forEach((ta: any) => {
+          const fcpMiembro = ta.fcp_miembro
+          const usuario = fcpMiembro?.usuario
+          const tutorNombre = fcpMiembro?.nombre_display || usuario?.nombre_completo || usuario?.email || 'Sin tutor asignado'
+          tutorMap.set(ta.aula_id, tutorNombre)
+        })
+      }
+
+      // Enriquecer estudiantes con el nombre del tutor
+      estudiantesCargados = estudiantesCargados.map((est: Estudiante) => ({
+        ...est,
+        tutor: tutorMap.get(est.aula_id) || 'Sin tutor',
+      }))
+
       // Guardar TODOS los estudiantes cargados (sin filtro de búsqueda ni paginación)
-      const estudiantesCargados = data || []
       setEstudiantesCompletos(estudiantesCargados)
       
       // Aplicar filtro de búsqueda y paginación en memoria
@@ -664,7 +709,8 @@ export function EstudianteList() {
         const terminoBusqueda = searchTerm.toLowerCase().trim()
         estudiantesFiltrados = estudiantesCargados.filter((est: Estudiante) => 
           est.nombre_completo.toLowerCase().includes(terminoBusqueda) ||
-          est.codigo.toLowerCase().includes(terminoBusqueda)
+          est.codigo.toLowerCase().includes(terminoBusqueda) ||
+          (est.tutor && est.tutor.toLowerCase().includes(terminoBusqueda))
         )
       }
       
@@ -725,6 +771,10 @@ export function EstudianteList() {
     setIsReactivarDialogOpen(true)
   }
 
+  if (loadingFCPs) {
+    return <div className="text-center py-8">Cargando estudiantes...</div>
+  }
+
   if (userFCPs.length === 0) {
     return (
       <Card>
@@ -733,7 +783,7 @@ export function EstudianteList() {
           <p className="text-muted-foreground mb-4">
             No tienes FCPs asociadas. Primero crea o únete a una FCP.
           </p>
-            <Button onClick={() => router.push('/fcps')}>
+          <Button onClick={() => router.push('/fcps')}>
             Ir a FCPs
           </Button>
         </CardContent>
@@ -1030,6 +1080,9 @@ export function EstudianteList() {
                               <p className="text-sm text-muted-foreground">
                                 <span className="font-medium text-foreground">Aula:</span> {estudiante.aula?.nombre || 'Sin aula'}
                               </p>
+                              <p className="text-sm text-muted-foreground">
+                                <span className="font-medium text-foreground">Tutor:</span> {estudiante.tutor || 'Sin tutor'}
+                              </p>
                               <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']} fallback={null}>
                                 <div className="flex gap-2 pt-2">
                                   <Button variant="outline" size="sm" className="flex-1" onClick={() => { setSelectedEstudianteForEdit(estudiante); setIsEditDialogOpen(true) }}>
@@ -1062,12 +1115,13 @@ export function EstudianteList() {
               <>
                 <p className="mb-2 text-xs text-muted-foreground md:hidden">Desliza para ver más columnas →</p>
                 <div className="table-responsive overflow-x-auto">
-                  <Table className="min-w-[500px]">
+                  <Table className="min-w-[600px]">
                     <TableHeader>
                       <TableRow>
                         <TableHead>Código</TableHead>
                         <TableHead>Nombre Completo</TableHead>
                         <TableHead>Aula</TableHead>
+                        <TableHead>Tutor</TableHead>
                         <TableHead>Estado</TableHead>
                         <TableHead>Acciones</TableHead>
                       </TableRow>
@@ -1075,7 +1129,7 @@ export function EstudianteList() {
                     <TableBody>
                       {displayEstudiantes.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                             {searchTerm ? 'No se encontraron estudiantes con ese criterio' : 'No hay estudiantes'}
                           </TableCell>
                         </TableRow>
@@ -1085,6 +1139,7 @@ export function EstudianteList() {
                             <TableCell className="font-mono">{estudiante.codigo}</TableCell>
                             <TableCell>{estudiante.nombre_completo}</TableCell>
                             <TableCell>{estudiante.aula?.nombre || 'Sin aula'}</TableCell>
+                            <TableCell className="text-muted-foreground">{estudiante.tutor || 'Sin tutor'}</TableCell>
                             <TableCell>
                               <span
                                 className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${

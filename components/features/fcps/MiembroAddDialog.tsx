@@ -28,6 +28,7 @@ import { useUserRole } from '@/hooks/useUserRole'
 
 interface MiembroFormData {
   email: string
+  nombre?: string // Nombre para mostrar (opcional, útil cuando se agrega con email de un conocido)
   rol: 'secretario' | 'tutor' // Los directores solo pueden crear secretarios o tutores
   aulas?: string[] // IDs de aulas asignadas (solo para tutores)
 }
@@ -257,6 +258,7 @@ export function MiembroAddDialog({
             activo: true,
             usuario_id: usuarioData?.id || null, // Asegurar que se asocie si el usuario ya se registró
             email_pendiente: usuarioData ? null : emailNormalizado, // Limpiar si ya se registró
+            nombre_display: data.nombre?.trim() || null,
           })
           .eq('id', existingMember.id)
           .select('id')
@@ -343,6 +345,7 @@ export function MiembroAddDialog({
               fcp_id: fcpId,
               rol: 'director',
               activo: true,
+              nombre_display: data.nombre?.trim() || null,
             })
             .select('id, usuario_id')
             .single()
@@ -405,7 +408,8 @@ export function MiembroAddDialog({
         p_rol: insertData.rol,
         p_usuario_id: insertData.usuario_id || null,
         p_email_pendiente: insertData.email_pendiente || null,
-        p_activo: insertData.activo
+        p_activo: insertData.activo,
+        p_nombre_display: data.nombre?.trim() || null,
       })
 
       // La función retorna el objeto completo del miembro como JSONB
@@ -533,6 +537,18 @@ export function MiembroAddDialog({
         )}
         <form onSubmit={handleSubmit(onSubmit)}>
           <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="nombre">Nombre del miembro (opcional)</Label>
+              <Input
+                id="nombre"
+                type="text"
+                {...register('nombre')}
+                placeholder="Ej: Juan Pérez"
+              />
+              <p className="text-xs text-muted-foreground">
+                Útil cuando agregas a alguien con el correo de un conocido.
+              </p>
+            </div>
             <div className="grid gap-2">
               <Label htmlFor="email">Email del Usuario *</Label>
               <Input

@@ -20,7 +20,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '@/components/ui/pagination'
-import { Plus, GraduationCap, Users, Edit, Building2, Eye, EyeOff, Search, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, GraduationCap, Users, Edit, Building2, Eye, EyeOff, Search } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { AulaDialog } from './AulaDialog'
@@ -60,11 +60,11 @@ export function AulaList() {
   const [editingAula, setEditingAula] = useState<Aula | null>(null)
   const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
+  const [loadingFCPs, setLoadingFCPs] = useState(true)
   const [showInactive, setShowInactive] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [isMobile, setIsMobile] = useState(false)
-  const [expandedCardId, setExpandedCardId] = useState<string | null>(null)
   const router = useRouter()
   const { selectedRole } = useSelectedRole()
   
@@ -125,10 +125,14 @@ export function AulaList() {
   useEffect(() => setCurrentPage(1), [searchTerm])
 
   const loadUserFCPs = async () => {
+    setLoadingFCPs(true)
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) {
+        setLoadingFCPs(false)
+        return
+      }
 
       let fcps: Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }> = []
 
@@ -170,15 +174,13 @@ export function AulaList() {
       }
 
       setUserFCPs(fcps)
-      
-      console.log('📚 [AulaList] FCPs cargadas:', {
-        fcps: fcps.length,
-        fcpIdFromRole,
-        selectedFCP,
-        rolSeleccionado: selectedRole?.role
-      })
+      if (fcps.length > 0) {
+        console.log('📚 [AulaList] FCPs cargadas:', { fcps: fcps.length, fcpIdFromRole, selectedFCP, rolSeleccionado: selectedRole?.role })
+      }
     } catch (error) {
       console.error('Error loading FCPs:', error)
+    } finally {
+      setLoadingFCPs(false)
     }
   }
 
@@ -327,6 +329,7 @@ export function AulaList() {
             .select(`
               aula_id,
               fcp_miembro:fcp_miembros!inner(
+                nombre_display,
                 usuario:usuarios!inner(id, email, nombre_completo)
               )
             `)
@@ -342,11 +345,12 @@ export function AulaList() {
             if (tutoresData) {
               tutoresData.forEach((tutorData: any) => {
                 if (tutorData.fcp_miembro?.usuario && !tutoresMap.has(tutorData.aula_id)) {
-                  const usuario = tutorData.fcp_miembro.usuario
+                  const fcpMiembro = tutorData.fcp_miembro
+                  const usuario = fcpMiembro.usuario
                   tutoresMap.set(tutorData.aula_id, {
                     id: usuario.id,
                     email: usuario.email,
-                    nombre_completo: usuario.nombre_completo
+                    nombre_completo: fcpMiembro.nombre_display || usuario.nombre_completo
                   })
                 }
               })
@@ -391,6 +395,10 @@ export function AulaList() {
   const handleAssignTutor = (aula: Aula) => {
     setSelectedAulaForTutor(aula)
     setIsTutorDialogOpen(true)
+  }
+
+  if (loadingFCPs) {
+    return <div className="text-center py-8">Cargando aulas...</div>
   }
 
   if (userFCPs.length === 0) {
@@ -548,18 +556,19 @@ export function AulaList() {
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {displayAulas.map((aula) => {
-                const isExpanded = isMobile ? expandedCardId === aula.id : true
+                const handleVerEstudiantes = () => router.push(`/estudiantes?aulaId=${aula.id}&fcpId=${aula.fcp_id}`)
                 return (
                   <Card
                     key={aula.id}
                     className={`cursor-pointer hover:shadow-lg transition-shadow ${
                       !aula.activa ? 'opacity-60 border-dashed bg-muted/30' : ''
                     }`}
+                    onClick={(e) => {
+                      if ((e.target as HTMLElement).closest('button')) return
+                      handleVerEstudiantes()
+                    }}
                   >
-                    <div
-                      className={isMobile ? 'cursor-pointer' : ''}
-                      onClick={() => isMobile && setExpandedCardId(isExpanded ? null : aula.id)}
-                    >
+                    <div className={isMobile ? 'cursor-pointer' : ''}>
                       <CardHeader>
                         <div className="flex items-start justify-between gap-2">
                           <CardTitle className={`flex-1 ${!aula.activa ? 'text-muted-foreground' : ''}`}>
@@ -570,14 +579,11 @@ export function AulaList() {
                               </span>
                             )}
                           </CardTitle>
-                          {isMobile && (isExpanded ? <ChevronUp className="h-4 w-4 flex-shrink-0" /> : <ChevronDown className="h-4 w-4 flex-shrink-0" />)}
                         </div>
-                        {!isMobile && aula.descripcion && <CardDescription>{aula.descripcion}</CardDescription>}
+                        {aula.descripcion && <CardDescription>{aula.descripcion}</CardDescription>}
                       </CardHeader>
-                      {(isExpanded || !isMobile) && (
-                        <CardContent onClick={(e) => isMobile && e.stopPropagation()}>
+                      <CardContent>
                           <div className="space-y-2 text-sm">
-                            {aula.descripcion && isMobile && <CardDescription className="mb-2">{aula.descripcion}</CardDescription>}
                             {aula.fcp && (
                               <p className="text-muted-foreground">
                                 <span className="font-medium">FCP:</span> {aula.fcp.razon_social}
@@ -599,7 +605,7 @@ export function AulaList() {
                                   type="button"
                                   variant="outline"
                                   size="sm"
-                                  onClick={() => handleAssignTutor(aula)}
+                                  onClick={(e) => { e.stopPropagation(); handleAssignTutor(aula) }}
                                   className="text-xs"
                                 >
                                   <Edit className="mr-1 h-3 w-3" />
@@ -622,7 +628,8 @@ export function AulaList() {
                                   type="button"
                                   variant="outline"
                                   size="sm"
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.stopPropagation()
                                     setEditingAula(aula)
                                     setIsEditDialogOpen(true)
                                   }}
@@ -635,7 +642,6 @@ export function AulaList() {
                             </div>
                           </div>
                         </CardContent>
-                      )}
                     </div>
                   </Card>
                 )

@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import { Suspense } from 'react'
 import { EstudianteList } from '@/components/features/estudiantes/EstudianteList'
 
 export default async function EstudiantesPage() {
@@ -21,7 +22,9 @@ export default async function EstudiantesPage() {
         </p>
       </div>
 
-      <EstudianteList />
+      <Suspense fallback={<div className="text-center py-8">Cargando estudiantes...</div>}>
+        <EstudianteList />
+      </Suspense>
     </div>
   )
 }

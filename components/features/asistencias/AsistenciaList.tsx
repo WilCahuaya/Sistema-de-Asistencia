@@ -65,6 +65,7 @@ export function AsistenciaList() {
   const [selectedAula, setSelectedAula] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState<string>(() => getTodayInAppTimezone())
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string }>>([])
+  const [loadingFCPs, setLoadingFCPs] = useState(true)
   const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
@@ -96,10 +97,14 @@ export function AsistenciaList() {
   }, [selectedFCP, selectedAula, selectedDate])
 
   const loadUserFCPs = async () => {
+    setLoadingFCPs(true)
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) {
+        setLoadingFCPs(false)
+        return
+      }
 
       // Verificar si el usuario es facilitador en alguna FCP
       const { data: usuarioFcpData, error: usuarioFcpError } = await supabase
@@ -151,6 +156,8 @@ export function AsistenciaList() {
       setUserFCPs(fcps)
     } catch (error) {
       console.error('Error loading FCPs:', error)
+    } finally {
+      setLoadingFCPs(false)
     }
   }
 
@@ -281,6 +288,10 @@ export function AsistenciaList() {
   const shouldShowPagination = filteredAsistencias.length > itemsPerPage
 
   useEffect(() => setCurrentPage(1), [searchTerm])
+
+  if (loadingFCPs) {
+    return <div className="text-center py-8">Cargando asistencia...</div>
+  }
 
   if (userFCPs.length === 0) {
     return (

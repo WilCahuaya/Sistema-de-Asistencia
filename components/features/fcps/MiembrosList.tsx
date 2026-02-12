@@ -40,6 +40,7 @@ interface Miembro {
   id: string
   usuario_id: string | null
   email_pendiente?: string | null
+  nombre_display?: string | null
   fcp_id: string
   rol: 'facilitador' | 'director' | 'secretario' | 'tutor'
   activo: boolean
@@ -95,7 +96,7 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
   const filteredMiembros = searchTerm.trim()
     ? miembros.filter((m) => {
         const email = m.usuario?.email || m.email_pendiente || ''
-        const nombre = m.usuario?.nombre_completo || ''
+        const nombre = m.nombre_display || m.usuario?.nombre_completo || ''
         const term = searchTerm.toLowerCase()
         return email.toLowerCase().includes(term) || nombre.toLowerCase().includes(term)
       })
@@ -143,6 +144,7 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
           id,
           usuario_id,
           email_pendiente,
+          nombre_display,
           fcp_id,
           rol,
           activo,
@@ -198,11 +200,10 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
         }
         
         // Obtener email y nombre de los datos disponibles
-        // Si no hay datos de usuario pero hay usuario_id, el usuario existe en auth.users
-        // pero no se sincronizó a usuarios - mostrar ID como referencia
+        // Priorizar nombre_display cuando existe (útil para miembros agregados con email de conocido)
         const email = usuarioData?.email || miembro.email_pendiente || 
                      (miembro.usuario_id ? `Usuario ${miembro.usuario_id.substring(0, 8)}...` : 'Sin email')
-        const nombreCompleto = usuarioData?.nombre_completo || 
+        const nombreCompleto = miembro.nombre_display || usuarioData?.nombre_completo || 
                               (miembro.usuario_id && !usuarioData ? 'Usuario no sincronizado' : 'Sin nombre')
         
         // Cargar las aulas asignadas si el miembro tiene rol de tutor
@@ -472,7 +473,7 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                   ) : (
                     displayMiembros.map((miembro) => {
                       const email = miembro.usuario?.email || miembro.email_pendiente || 'Sin email'
-                      const nombre = miembro.usuario?.nombre_completo || 'Sin nombre'
+                      const nombre = miembro.nombre_display || miembro.usuario?.nombre_completo || 'Sin nombre'
                       const rolesActivos = miembro.roles?.filter((r: any) => r.activo) || []
                       const tieneRolesActivos = rolesActivos.length > 0
                       const miembroParaEditar = miembro.roles && miembro.roles.length > 0 ? { ...miembro, id: miembro.roles[0].id, rol: miembro.roles[0].rol, activo: miembro.roles[0].activo } : miembro
@@ -546,7 +547,7 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                       <TableBody>
                         {displayMiembros.map((miembro) => {
                           const email = miembro.usuario?.email || miembro.email_pendiente || 'Sin email'
-                          const nombre = miembro.usuario?.nombre_completo || 'Sin nombre'
+                          const nombre = miembro.nombre_display || miembro.usuario?.nombre_completo || 'Sin nombre'
                           const rolesActivos = miembro.roles?.filter((r: any) => r.activo) || []
                           const tieneRolesActivos = rolesActivos.length > 0
                           const miembroParaEditar = miembro.roles && miembro.roles.length > 0 ? { ...miembro, id: miembro.roles[0].id, rol: miembro.roles[0].rol, activo: miembro.roles[0].activo } : miembro

@@ -15,13 +15,17 @@ import {
 } from '@/components/ui/select'
 import { Building2 } from 'lucide-react'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
 
 export default function AsistenciasPage() {
   const searchParams = useSearchParams()
   const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
   const [selectedAula, setSelectedAula] = useState<string | null>(null)
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
+  const [loadingFCPs, setLoadingFCPs] = useState(true)
   const { selectedRole } = useSelectedRole()
+  const router = useRouter()
   
   // Determinar los flags basándose en el rol seleccionado
   const isDirector = selectedRole?.role === 'director'
@@ -53,10 +57,14 @@ export default function AsistenciasPage() {
   }, [searchParams])
 
   const loadUserFCPs = async () => {
+    setLoadingFCPs(true)
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) {
+        setLoadingFCPs(false)
+        return
+      }
 
       // Usar el rol seleccionado para determinar si es facilitador
       const esFacilitador = selectedRole?.role === 'facilitador'
@@ -100,14 +108,26 @@ export default function AsistenciasPage() {
         }
 
       setUserFCPs(fcps)
-      
       // Si hay un rol seleccionado con fcpId, establecerlo como FCP seleccionada
       if (selectedRole?.fcpId && !selectedFCP) {
         setSelectedFCP(selectedRole.fcpId)
       }
     } catch (error) {
       console.error('Error loading FCPs:', error)
+    } finally {
+      setLoadingFCPs(false)
     }
+  }
+
+  if (loadingFCPs) {
+    return (
+      <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-8 lg:px-8">
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Asistencias</h1>
+        </div>
+        <div className="text-center py-8">Cargando asistencia...</div>
+      </div>
+    )
   }
 
   if (userFCPs.length === 0) {
@@ -122,6 +142,9 @@ export default function AsistenciasPage() {
             <p className="text-muted-foreground mb-4">
               No tienes FCPs asociadas. Primero crea o únete a una FCP.
             </p>
+            <Button onClick={() => router.push('/fcps')}>
+              Ir a FCPs
+            </Button>
           </CardContent>
         </Card>
       </div>

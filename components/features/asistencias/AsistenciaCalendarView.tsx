@@ -22,7 +22,7 @@ import { useCorreccionMes, esMesPasado } from '@/hooks/useCorreccionMes'
 import { CorreccionMesBanner } from './CorreccionMesBanner'
 import { HabilitarCorreccionDialog } from './HabilitarCorreccionDialog'
 import { Badge } from '@/components/ui/badge'
-import { Unlock, UserPlus } from 'lucide-react'
+import { Unlock, UserPlus, User } from 'lucide-react'
 import { AgregarEstudianteMesDialog } from './AgregarEstudianteMesDialog'
 import { QuitarEstudianteMesDialog } from './QuitarEstudianteMesDialog'
 import { MoverEstudianteMesDialog } from './MoverEstudianteMesDialog'
@@ -85,6 +85,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const [selectedYear, setSelectedYear] = useState(initialYear !== null && initialYear !== undefined ? initialYear : new Date().getFullYear())
   const [selectedAula, setSelectedAula] = useState<string | null>(aulaId || null)
   const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
+  const [tutorNombre, setTutorNombre] = useState<string | null>(null)
   const [saving, setSaving] = useState<Set<string>>(new Set())
   const [savingDates, setSavingDates] = useState<Set<string>>(new Set()) // Para rastrear qué fechas están guardándose
   const [zoomLevel, setZoomLevel] = useState(1) // Nivel de zoom para la tabla
@@ -405,6 +406,35 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       console.error('Error loading aulas:', error)
     }
   }
+
+  // Cargar tutor del aula seleccionada
+  useEffect(() => {
+    if (!selectedAula || !fcpId) {
+      setTutorNombre(null)
+      return
+    }
+    const loadTutor = async () => {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('tutor_aula')
+        .select(`
+          fcp_miembro:fcp_miembros(
+            nombre_display,
+            usuario:usuarios(nombre_completo, email)
+          )
+        `)
+        .eq('aula_id', selectedAula)
+        .eq('fcp_id', fcpId)
+        .eq('activo', true)
+        .limit(1)
+        .maybeSingle()
+      const fcpMiembro = (data as any)?.fcp_miembro
+      const usuario = fcpMiembro?.usuario
+      const nombre = fcpMiembro?.nombre_display || usuario?.nombre_completo || usuario?.email || null
+      setTutorNombre(nombre)
+    }
+    loadTutor()
+  }, [selectedAula, fcpId])
 
   const loadEstudiantes = async () => {
     if (!selectedAula) {
@@ -1500,6 +1530,18 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         </div>
       </CardHeader>
       <CardContent>
+        {selectedAula && (
+          <div className="flex flex-wrap items-center gap-3 mb-4 py-3 px-4 rounded-lg bg-muted/50 border border-border/50">
+            <span className="text-sm font-medium text-foreground">
+              Salón: <span className="font-semibold">{aulas.find(a => a.id === selectedAula)?.nombre || 'Aula'}</span>
+            </span>
+            <span className="text-muted-foreground">·</span>
+            <span className="flex items-center gap-2 text-sm text-muted-foreground">
+              <User className="h-4 w-4" />
+              <span>Tutor: <span className="font-medium text-foreground">{tutorNombre || 'Sin tutor asignado'}</span></span>
+            </span>
+          </div>
+        )}
         {esMesPasadoVista && correccionMes && !correccionLoading && (
           <CorreccionMesBanner
             estado={correccionMes.estado}

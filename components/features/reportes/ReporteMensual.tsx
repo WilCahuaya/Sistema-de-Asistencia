@@ -41,6 +41,7 @@ interface ReporteMensualProps {
 
 interface NivelData {
   nivel: string
+  tutor?: string // Nombre del tutor del aula/nivel
   asistenPromed: number // Suma de asistencias "presente" en el mes
   registrados: number // Total de estudiantes activos en el nivel
   porcentaje: number // (asistenPromed / registrados) * 100
@@ -452,6 +453,30 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         throw todasAsistenciasError
       }
 
+      // Cargar tutores de las aulas para el reporte
+      const aulaIds = aulasData?.map((a: any) => a.id) || []
+      const aulaTutorMap = new Map<string, string>()
+      if (aulaIds.length > 0) {
+        const { data: tutorAulasData } = await supabase
+          .from('tutor_aula')
+          .select(`
+            aula_id,
+            fcp_miembro:fcp_miembros(
+              nombre_display,
+              usuario:usuarios(nombre_completo, email)
+            )
+          `)
+          .eq('fcp_id', fcpIdParaReporte)
+          .eq('activo', true)
+          .in('aula_id', aulaIds)
+        tutorAulasData?.forEach((ta: any) => {
+          const fcpMiembro = ta.fcp_miembro
+          const usuario = fcpMiembro?.usuario
+          const tutorNombre = fcpMiembro?.nombre_display || usuario?.nombre_completo || usuario?.email || 'Sin tutor asignado'
+          aulaTutorMap.set(ta.aula_id, tutorNombre)
+        })
+      }
+
       // Obtener asistencias "presente" para el cálculo del reporte
       const asistenciasPresente = todasAsistenciasData?.filter(a => a.estado === 'presente') || []
 
@@ -602,6 +627,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
 
         niveles.push({
           nivel: aula.nombre,
+          tutor: aulaTutorMap.get(aula.id) || 'Sin tutor',
           asistenPromed,
           registrados,
           porcentaje,
@@ -710,12 +736,13 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       y += 5
 
       // Preparar datos para la tabla
-      const headers: string[] = ['Niveles', 'Asisten. Promed', 'Registrados', 'Porcentaje']
+      const headers: string[] = ['Nivel', 'Tutor', 'Asisten. Promed', 'Registrados', 'Porcentaje']
       const body: any[] = []
 
       reporteData.niveles.forEach((nivel) => {
         body.push([
           nivel.nivel,
+          nivel.tutor || 'Sin tutor',
           nivel.asistenPromed.toFixed(2),
           nivel.registrados.toString(),
           `${nivel.porcentaje.toFixed(2)}%`,
@@ -725,6 +752,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       // Fila de totales
       body.push([
         'Total',
+        '—',
         reporteData.totalAsistenPromed.toFixed(2),
         reporteData.totalRegistrados.toString(),
         `${reporteData.totalPorcentaje.toFixed(2)}%`,
@@ -733,11 +761,12 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       const availableWidth = getAvailableTableWidth(doc, 20)
       const columnConfigs: PDFTableColumnConfig[] = [
         { type: 'text', weight: 1.5, halign: 'left' },
+        { type: 'text', weight: 1.2, halign: 'left' },
         { type: 'numeric', weight: 1, halign: 'center' },
         { type: 'numeric', weight: 1, halign: 'center' },
         { type: 'numeric', weight: 1, halign: 'center' },
       ]
-      const columnStyles = getProportionalColumnStyles(4, availableWidth, columnConfigs)
+      const columnStyles = getProportionalColumnStyles(5, availableWidth, columnConfigs)
 
       const tableOptions = {
         startY: y,
@@ -848,15 +877,17 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         [],
         ['I. ASISTENCIA CONTACTO ESENCIAL'],
         [],
-        ['Niveles', 'Asisten. Promed', 'Registrados', 'Porcentaje'],
+        ['Nivel', 'Tutor', 'Asisten. Promed', 'Registrados', 'Porcentaje'],
         ...reporteData.niveles.map(nivel => [
           nivel.nivel,
+          nivel.tutor || 'Sin tutor',
           nivel.asistenPromed.toFixed(2),
           nivel.registrados,
           `${nivel.porcentaje.toFixed(2)}%`,
         ]),
         [
           'Total',
+          '—',
           reporteData.totalAsistenPromed.toFixed(2),
           reporteData.totalRegistrados,
           `${reporteData.totalPorcentaje.toFixed(2)}%`,
@@ -881,7 +912,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       }
       
       // Encabezado de tabla
-      const headerRange = XLSX.utils.encode_range({ s: { c: 0, r: headerRowIndex }, e: { c: 3, r: headerRowIndex } })
+      const headerRange = XLSX.utils.encode_range({ s: { c: 0, r: headerRowIndex }, e: { c: 4, r: headerRowIndex } })
       applyStyle(ws, headerRange, headerStyle)
       
       // Celdas de datos con filas alternadas
@@ -889,7 +920,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       const dataEndRow = headerRowIndex + reporteData.niveles.length
       if (reporteData.niveles.length > 0) {
         for (let R = dataStartRow; R <= dataEndRow; ++R) {
-          const rowRange = XLSX.utils.encode_range({ s: { c: 0, r: R }, e: { c: 3, r: R } })
+          const rowRange = XLSX.utils.encode_range({ s: { c: 0, r: R }, e: { c: 4, r: R } })
           const isEvenRow = (R - dataStartRow) % 2 === 0
           applyStyle(ws, rowRange, isEvenRow ? cellStyle : alternateRowStyle)
         }
@@ -897,11 +928,11 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       
       // Fila de totales
       const totalRow = headerRowIndex + 1 + reporteData.niveles.length
-      const totalRange = XLSX.utils.encode_range({ s: { c: 0, r: totalRow }, e: { c: 3, r: totalRow } })
+      const totalRange = XLSX.utils.encode_range({ s: { c: 0, r: totalRow }, e: { c: 4, r: totalRow } })
       applyStyle(ws, totalRange, totalStyle)
       
       // Anchos de columna
-      ws['!cols'] = [{ wch: 25 }, { wch: 18 }, { wch: 15 }, { wch: 15 }]
+      ws['!cols'] = [{ wch: 20 }, { wch: 25 }, { wch: 18 }, { wch: 15 }, { wch: 15 }]
       
       XLSX.utils.book_append_sheet(wb, ws, 'Resumen Mensual')
 
@@ -1110,7 +1141,10 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
                 {isMobile ? (
                   (() => {
                     const filtered = mobileSearch.trim()
-                      ? reporteData.niveles.filter((n) => n.nivel.toLowerCase().includes(mobileSearch.toLowerCase()))
+                      ? reporteData.niveles.filter((n) =>
+                          n.nivel.toLowerCase().includes(mobileSearch.toLowerCase()) ||
+                          (n.tutor && n.tutor.toLowerCase().includes(mobileSearch.toLowerCase()))
+                        )
                       : reporteData.niveles
                     const perPage = 8
                     const totalPages = Math.max(1, Math.ceil(filtered.length / perPage))
@@ -1126,6 +1160,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
                             <Card key={nivel.nivel}>
                               <CardContent className="p-4">
                                 <p className="font-medium">{nivel.nivel}</p>
+                                <p className="text-sm text-muted-foreground mt-1">Tutor: {nivel.tutor || 'Sin tutor asignado'}</p>
                                 <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
                                   <span>Asisten. Promed: {nivel.asistenPromed.toFixed(2)}</span>
                                   <span>Registrados: {nivel.registrados}</span>
@@ -1166,7 +1201,8 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
                   <table className="w-full min-w-[320px] border-collapse border border-border text-sm">
                     <thead>
                       <tr className="bg-muted/50">
-                        <th className="border border-border p-2 bg-muted/50 text-left text-foreground">Niveles</th>
+                        <th className="border border-border p-2 bg-muted/50 text-left text-foreground">Nivel</th>
+                        <th className="border border-border p-2 bg-muted/50 text-left text-foreground">Tutor</th>
                         <th className="border border-border p-2 bg-muted/50 text-right text-foreground">Asisten. Promed</th>
                         <th className="border border-border p-2 bg-muted/50 text-right text-foreground">Registrados</th>
                         <th className="border border-border p-2 bg-muted/50 text-right text-foreground">Porcentaje</th>
@@ -1176,6 +1212,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
                       {reporteData.niveles.map((nivel, index) => (
                         <tr key={index} className={`border-b border-border ${index % 2 === 0 ? 'bg-background' : 'bg-muted/30'} hover:bg-accent/50`}>
                           <td className="border border-border p-2 text-foreground">{nivel.nivel}</td>
+                          <td className="border border-border p-2 text-muted-foreground">{nivel.tutor || 'Sin tutor'}</td>
                           <td className="border border-border p-2 text-right text-foreground">{nivel.asistenPromed.toFixed(2)}</td>
                           <td className="border border-border p-2 text-right text-foreground">{nivel.registrados}</td>
                           <td className="border border-border p-2 text-right text-foreground">{nivel.porcentaje.toFixed(2)}%</td>
@@ -1183,6 +1220,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
                       ))}
                       <tr className="bg-accent font-bold">
                         <td className="border border-border p-2 text-foreground">Total</td>
+                        <td className="border border-border p-2 text-muted-foreground">—</td>
                         <td className="border border-border p-2 text-right text-foreground">{reporteData.totalAsistenPromed.toFixed(2)}</td>
                         <td className="border border-border p-2 text-right text-foreground">{reporteData.totalRegistrados}</td>
                         <td className="border border-border p-2 text-right text-foreground">{reporteData.totalPorcentaje.toFixed(2)}%</td>
