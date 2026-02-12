@@ -23,7 +23,7 @@ BEGIN
 
   IF FOUND THEN
     v_aula_nombre := v_conflicto.aula_nombre;
-    RAISE EXCEPTION 'Un estudiante no puede estar en dos salones al mismo tiempo. Ya tiene un período en "%" que se superpone con las fechas indicadas (% al %).',
+    RAISE EXCEPTION 'Este estudiante ya está registrado en el salón "%". No puede estar en este salón en esa fecha (% al %).',
       v_aula_nombre,
       NEW.fecha_inicio,
       COALESCE(NEW.fecha_fin::text, 'vigente');

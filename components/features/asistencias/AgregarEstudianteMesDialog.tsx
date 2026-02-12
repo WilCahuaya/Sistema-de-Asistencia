@@ -144,7 +144,7 @@ export function AgregarEstudianteMesDialog({
         ok: false,
         mensaje: esMismoAula
           ? `Ya existe un período para este estudiante en ${nombreAula} que se cruza con ${mesLabel}.`
-          : `El estudiante ya tiene un período en "${nombreAula}" que se superpone con este mes. Un estudiante no puede estar en dos salones al mismo tiempo.`,
+          : `Este estudiante ya está registrado en el salón "${nombreAula}". No puede estar en este salón (${aulaNombre}) en esa fecha.`,
       }
     }
     return { ok: true }
@@ -184,7 +184,8 @@ export function AgregarEstudianteMesDialog({
 
     try {
       setLoading(true)
-      await crearPeriodoParaMes(estudianteSeleccionado.id)
+      const ok = await crearPeriodoParaMes(estudianteSeleccionado.id)
+      if (!ok) return
       toast.success('Estudiante agregado', `${estudianteSeleccionado.nombre_completo} quedó registrado solo para ${mesLabel}.`)
       onSuccess()
       onOpenChange(false)
