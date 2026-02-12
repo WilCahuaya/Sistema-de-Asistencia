@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/select'
 import { useForm } from 'react-hook-form'
 import { toast } from '@/lib/toast'
+import { getTodayInAppTimezone } from '@/lib/utils/dateUtils'
 
 interface EstudianteFormData {
   codigo: string
@@ -40,7 +41,14 @@ interface EstudianteDialogProps {
 export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId, aulas }: EstudianteDialogProps) {
   const [loading, setLoading] = useState(false)
   const [selectedAulaId, setSelectedAulaId] = useState(aulaId || '')
+  const [fechaInicio, setFechaInicio] = useState<string>(() => getTodayInAppTimezone())
   const { register, handleSubmit, reset, formState: { errors } } = useForm<EstudianteFormData>()
+
+  useEffect(() => {
+    if (open) {
+      setFechaInicio(getTodayInAppTimezone())
+    }
+  }, [open])
 
   useEffect(() => {
     if (aulaId) {
@@ -52,12 +60,17 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId,
 
   const onSubmit = async (data: EstudianteFormData) => {
     if (!fcpId) {
-      toast.warning('Selecciona una ONG', 'Por favor, selecciona una ONG primero.')
+      toast.warning('Selecciona una FCP', 'Por favor, selecciona una FCP primero.')
       return
     }
 
     if (!selectedAulaId) {
       toast.warning('Selecciona un aula', 'Por favor, selecciona un aula.')
+      return
+    }
+
+    if (!fechaInicio) {
+      toast.warning('Fecha de inicio', 'Indica desde qué fecha inicia el estudiante en este salón.')
       return
     }
 
@@ -73,7 +86,7 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId,
 
       const { user, supabase } = authResult
 
-      const { error } = await supabase
+      const { data: nuevoEstudiante, error: errorEstudiante } = await supabase
         .from('estudiantes')
         .insert({
           codigo: data.codigo,
@@ -82,17 +95,36 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId,
           aula_id: selectedAulaId,
           created_by: user.id,
         })
+        .select('id')
+        .single()
 
-      if (error) throw error
+      if (errorEstudiante) throw errorEstudiante
+
+      const { error: errorPeriodo } = await supabase
+        .from('estudiante_periodos')
+        .insert({
+          estudiante_id: nuevoEstudiante.id,
+          aula_id: selectedAulaId,
+          fecha_inicio: fechaInicio,
+          fecha_fin: null,
+          created_by: user.id,
+        })
+
+      if (errorPeriodo) {
+        console.error('Error creando periodo:', errorPeriodo)
+        await supabase.from('estudiantes').delete().eq('id', nuevoEstudiante.id)
+        throw errorPeriodo
+      }
 
       reset()
       setSelectedAulaId(aulas.length > 0 ? aulas[0].id : '')
+      setFechaInicio(getTodayInAppTimezone())
       toast.created('Estudiante')
       onSuccess()
     } catch (error: any) {
       console.error('Error creating estudiante:', error)
       if (error.code === '23505') {
-        toast.error('Código duplicado', 'El código del estudiante ya existe en esta ONG.')
+        toast.error('Código duplicado', 'El código del estudiante ya existe en esta FCP.')
       } else {
         toast.error('Error al crear el estudiante', error?.message || 'Intenta nuevamente.')
       }
@@ -135,7 +167,7 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId,
               )}
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="aula_id">Aula *</Label>
+              <Label htmlFor="aula_id">Aula / Salón *</Label>
               <Select
                 value={selectedAulaId || ''}
                 onValueChange={(value) => setSelectedAulaId(value)}
@@ -156,6 +188,15 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId,
               {!selectedAulaId && (
                 <p className="text-sm text-red-500">Debes seleccionar un aula</p>
               )}
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="fecha_inicio">¿Desde qué fecha inicia en este salón? *</Label>
+              <Input
+                id="fecha_inicio"
+                type="date"
+                value={fechaInicio}
+                onChange={(e) => setFechaInicio(e.target.value)}
+              />
             </div>
           </div>
           <DialogFooter>

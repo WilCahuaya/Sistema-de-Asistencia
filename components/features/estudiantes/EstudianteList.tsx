@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Plus, GraduationCap, Upload, Search, ArrowRight, UserX, UserCheck, Loader2, Edit, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, GraduationCap, Upload, Search, ArrowRight, UserX, UserCheck, Edit, ChevronDown, ChevronUp } from 'lucide-react'
 import { EstudianteDialog } from './EstudianteDialog'
 import { EstudianteEditDialog } from './EstudianteEditDialog'
 import { useRouter } from 'next/navigation'
@@ -19,6 +19,8 @@ import {
 } from '@/components/ui/table'
 import { EstudianteUploadDialog } from './EstudianteUploadDialog'
 import { EstudianteMovimientoDialog } from './EstudianteMovimientoDialog'
+import { EstudianteRetirarDialog } from './EstudianteRetirarDialog'
+import { EstudianteReactivarDialog } from './EstudianteReactivarDialog'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
@@ -42,7 +44,6 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Building2 } from 'lucide-react'
 import { toast } from '@/lib/toast'
-import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 interface Estudiante {
   id: string
@@ -67,6 +68,10 @@ export function EstudianteList() {
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false)
   const [isMovimientoDialogOpen, setIsMovimientoDialogOpen] = useState(false)
   const [selectedEstudianteForMovimiento, setSelectedEstudianteForMovimiento] = useState<Estudiante | null>(null)
+  const [isRetirarDialogOpen, setIsRetirarDialogOpen] = useState(false)
+  const [selectedEstudianteForRetirar, setSelectedEstudianteForRetirar] = useState<Estudiante | null>(null)
+  const [isReactivarDialogOpen, setIsReactivarDialogOpen] = useState(false)
+  const [selectedEstudianteForReactivar, setSelectedEstudianteForReactivar] = useState<Estudiante | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [selectedEstudianteForEdit, setSelectedEstudianteForEdit] = useState<Estudiante | null>(null)
   const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
@@ -710,48 +715,14 @@ export function EstudianteList() {
     setIsUploadDialogOpen(false)
   }
 
-  const [togglingId, setTogglingId] = useState<string | null>(null)
-  const [estudianteParaInactivar, setEstudianteParaInactivar] = useState<Estudiante | null>(null)
-
-  const handleToggleActivo = (est: Estudiante) => {
-    const nuevoActivo = !est.activo
-    if (!nuevoActivo) {
-      setEstudianteParaInactivar(est)
-      return
-    }
-    doToggleActivo(est, true)
+  const handleRetirar = (est: Estudiante) => {
+    setSelectedEstudianteForRetirar(est)
+    setIsRetirarDialogOpen(true)
   }
 
-  const doToggleActivo = async (est: Estudiante, nuevoActivo: boolean) => {
-    const action = nuevoActivo ? 'reactivar' : 'inactivar'
-    try {
-      setTogglingId(est.id)
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('No autenticado')
-      const { error } = await supabase
-        .from('estudiantes')
-        .update({
-          activo: nuevoActivo,
-          updated_at: new Date().toISOString(),
-          updated_by: user.id,
-        })
-        .eq('id', est.id)
-      if (error) throw error
-      toast.success(nuevoActivo ? 'Estudiante reactivado' : 'Estudiante inactivado')
-      loadEstudiantes()
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Error al ' + action
-      toast.error(`Error al ${action} estudiante`, msg)
-    } finally {
-      setTogglingId(null)
-    }
-  }
-
-  const handleConfirmInactivar = async () => {
-    if (!estudianteParaInactivar) return
-    await doToggleActivo(estudianteParaInactivar, false)
-    setEstudianteParaInactivar(null)
+  const handleReactivar = (est: Estudiante) => {
+    setSelectedEstudianteForReactivar(est)
+    setIsReactivarDialogOpen(true)
   }
 
   if (userFCPs.length === 0) {
@@ -1065,10 +1036,16 @@ export function EstudianteList() {
                                     <Edit className="h-4 w-4 mr-1" />
                                     Editar
                                   </Button>
-                                  <Button variant="outline" size="sm" onClick={() => handleToggleActivo(estudiante)} disabled={togglingId === estudiante.id}>
-                                    {togglingId === estudiante.id ? <Loader2 className="h-4 w-4 animate-spin" /> : estudiante.activo ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
-                                  </Button>
-                                  <Button variant="outline" size="sm" onClick={() => { setSelectedEstudianteForMovimiento(estudiante); setIsMovimientoDialogOpen(true) }} disabled={!estudiante.activo || aulas.length <= 1}>
+                                  {estudiante.activo ? (
+                                    <Button variant="outline" size="sm" onClick={() => handleRetirar(estudiante)} title="Retirar estudiante">
+                                      <UserX className="h-4 w-4" />
+                                    </Button>
+                                  ) : (
+                                    <Button variant="outline" size="sm" onClick={() => handleReactivar(estudiante)} title="Reactivar en salón">
+                                      <UserCheck className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                  <Button variant="outline" size="sm" onClick={() => { setSelectedEstudianteForMovimiento(estudiante); setIsMovimientoDialogOpen(true) }} disabled={!estudiante.activo || aulas.length <= 1} title="Cambiar de salón">
                                     <ArrowRight className="h-4 w-4" />
                                   </Button>
                                 </div>
@@ -1129,10 +1106,16 @@ export function EstudianteList() {
                                   <Button variant="ghost" size="sm" onClick={() => { setSelectedEstudianteForEdit(estudiante); setIsEditDialogOpen(true) }} title="Editar datos del estudiante">
                                     <Edit className="h-4 w-4" />
                                   </Button>
-                                  <Button variant="ghost" size="sm" onClick={() => handleToggleActivo(estudiante)} disabled={togglingId === estudiante.id} title={estudiante.activo ? 'Inactivar' : 'Reactivar estudiante'}>
-                                    {togglingId === estudiante.id ? <Loader2 className="h-4 w-4 animate-spin" /> : estudiante.activo ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
-                                  </Button>
-                                  <Button variant="ghost" size="sm" onClick={() => { setSelectedEstudianteForMovimiento(estudiante); setIsMovimientoDialogOpen(true) }} disabled={!estudiante.activo || aulas.length <= 1} title="Mover a otra aula">
+                                  {estudiante.activo ? (
+                                    <Button variant="ghost" size="sm" onClick={() => handleRetirar(estudiante)} title="Retirar estudiante">
+                                      <UserX className="h-4 w-4" />
+                                    </Button>
+                                  ) : (
+                                    <Button variant="ghost" size="sm" onClick={() => handleReactivar(estudiante)} title="Reactivar en salón">
+                                      <UserCheck className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                  <Button variant="ghost" size="sm" onClick={() => { setSelectedEstudianteForMovimiento(estudiante); setIsMovimientoDialogOpen(true) }} disabled={!estudiante.activo || aulas.length <= 1} title="Cambiar de salón">
                                     <ArrowRight className="h-4 w-4" />
                                   </Button>
                                 </div>
@@ -1284,22 +1267,38 @@ export function EstudianteList() {
         />
       )}
 
-      <ConfirmDialog
-        open={!!estudianteParaInactivar}
-        onOpenChange={(open) => {
-          if (!open) setEstudianteParaInactivar(null)
-        }}
-        title="Inactivar estudiante"
-        message={
-          estudianteParaInactivar
-            ? `¿Inactivar a ${estudianteParaInactivar.nombre_completo}? No aparecerá en la lista ni para marcar asistencia en meses nuevos. Sí seguirá visible en meses anteriores.`
-            : ''
-        }
-        confirmLabel="Sí, inactivar"
-        cancelLabel="Cancelar"
-        onConfirm={handleConfirmInactivar}
-        loading={!!togglingId}
-      />
+      {selectedEstudianteForRetirar && (
+        <EstudianteRetirarDialog
+          open={isRetirarDialogOpen}
+          onOpenChange={(open) => {
+            setIsRetirarDialogOpen(open)
+            if (!open) setSelectedEstudianteForRetirar(null)
+          }}
+          onSuccess={() => {
+            loadEstudiantes()
+            setIsRetirarDialogOpen(false)
+            setSelectedEstudianteForRetirar(null)
+          }}
+          estudiante={selectedEstudianteForRetirar}
+        />
+      )}
+
+      {selectedEstudianteForReactivar && (
+        <EstudianteReactivarDialog
+          open={isReactivarDialogOpen}
+          onOpenChange={(open) => {
+            setIsReactivarDialogOpen(open)
+            if (!open) setSelectedEstudianteForReactivar(null)
+          }}
+          onSuccess={() => {
+            loadEstudiantes()
+            setIsReactivarDialogOpen(false)
+            setSelectedEstudianteForReactivar(null)
+          }}
+          estudiante={selectedEstudianteForReactivar}
+          aulas={aulas}
+        />
+      )}
     </div>
   )
 }

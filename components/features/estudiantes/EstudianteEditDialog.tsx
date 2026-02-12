@@ -15,6 +15,14 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useForm } from 'react-hook-form'
 import { toast } from '@/lib/toast'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 
 interface EstudianteFormData {
   codigo: string
@@ -44,7 +52,27 @@ export function EstudianteEditDialog({
   estudiante,
 }: EstudianteEditDialogProps) {
   const [loading, setLoading] = useState(false)
+  const [periodos, setPeriodos] = useState<Array<{ aula: { nombre: string } | null; fecha_inicio: string; fecha_fin: string | null }>>([])
   const { register, handleSubmit, reset, formState: { errors } } = useForm<EstudianteFormData>()
+
+  useEffect(() => {
+    if (open && estudiante) {
+      ;(async () => {
+        try {
+          const auth = await ensureAuthenticated()
+          if (!auth?.supabase) return
+          const { data } = await auth.supabase
+            .from('estudiante_periodos')
+            .select('fecha_inicio, fecha_fin, aula:aulas(nombre)')
+            .eq('estudiante_id', estudiante.id)
+            .order('fecha_inicio', { ascending: false })
+          setPeriodos(data || [])
+        } catch {
+          setPeriodos([])
+        }
+      })()
+    }
+  }, [open, estudiante])
 
   useEffect(() => {
     if (open && estudiante) {
@@ -132,6 +160,32 @@ export function EstudianteEditDialog({
                 <p className="text-sm text-red-500">{errors.nombre_completo.message}</p>
               )}
             </div>
+
+            {periodos.length > 0 && (
+              <div className="grid gap-2 pt-2 border-t">
+                <Label>Historial de participación</Label>
+                <div className="rounded-md border overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Salón</TableHead>
+                        <TableHead>Inicio</TableHead>
+                        <TableHead>Fin</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {periodos.map((p, i) => (
+                        <TableRow key={i}>
+                          <TableCell>{p.aula?.nombre ?? '-'}</TableCell>
+                          <TableCell>{new Date(p.fecha_inicio + 'T12:00:00').toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })}</TableCell>
+                          <TableCell>{p.fecha_fin ? new Date(p.fecha_fin + 'T12:00:00').toLocaleDateString('es-ES', { month: 'short', year: 'numeric' }) : 'Actual'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button

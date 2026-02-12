@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/select'
 import { ArrowRight, AlertCircle } from 'lucide-react'
 import { toast } from '@/lib/toast'
+import { getTodayInAppTimezone } from '@/lib/utils/dateUtils'
 
 interface Estudiante {
   id: string
@@ -52,13 +53,14 @@ export function EstudianteMovimientoDialog({
 }: EstudianteMovimientoDialogProps) {
   const [loading, setLoading] = useState(false)
   const [selectedAulaId, setSelectedAulaId] = useState<string>('')
+  const [fechaCambio, setFechaCambio] = useState<string>(() => getTodayInAppTimezone())
   const [motivo, setMotivo] = useState<string>('')
 
   useEffect(() => {
     if (open && estudiante) {
       setSelectedAulaId('')
       setMotivo('')
-      // Excluir el aula actual del listado
+      setFechaCambio(getTodayInAppTimezone())
       const aulasDisponibles = aulas.filter(a => a.id !== estudiante.aula_id)
       if (aulasDisponibles.length > 0) {
         setSelectedAulaId(aulasDisponibles[0].id)
@@ -77,6 +79,11 @@ export function EstudianteMovimientoDialog({
       return
     }
 
+    if (!fechaCambio) {
+      toast.warning('Fecha de cambio', 'Indica desde qué fecha cambia de salón.')
+      return
+    }
+
     try {
       setLoading(true)
 
@@ -89,39 +96,51 @@ export function EstudianteMovimientoDialog({
 
       const { user, supabase } = authResult
 
-      // Obtener el aula anterior antes de actualizar
-      const aulaAnteriorId = estudiante.aula_id
+      // Obtener el período activo actual
+      const { data: periodoActual } = await supabase
+        .from('estudiante_periodos')
+        .select('id')
+        .eq('estudiante_id', estudiante.id)
+        .is('fecha_fin', null)
+        .single()
 
-      // Actualizar el aula del estudiante
-      const { error: updateError } = await supabase
-        .from('estudiantes')
-        .update({
-          aula_id: selectedAulaId,
-          updated_by: user.id,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', estudiante.id)
+      const [y, m, d] = fechaCambio.split('-').map(Number)
+      const fechaCambioDate = new Date(y, m - 1, d)
+      fechaCambioDate.setDate(fechaCambioDate.getDate() - 1)
+      const fechaFinStr = `${fechaCambioDate.getFullYear()}-${String(fechaCambioDate.getMonth() + 1).padStart(2, '0')}-${String(fechaCambioDate.getDate()).padStart(2, '0')}`
 
-      if (updateError) throw updateError
-
-      // Registrar el movimiento en el historial
-      const { error: historialError } = await supabase
-        .from('historial_movimientos')
-        .insert({
+      if (periodoActual) {
+        const { error: updateErr } = await supabase
+          .from('estudiante_periodos')
+          .update({ fecha_fin: fechaFinStr, motivo_retiro: motivo || null })
+          .eq('id', periodoActual.id)
+        if (updateErr) throw updateErr
+      } else {
+        // Legacy: crear período cerrado para el aula actual (inicio = primer día del mes del cambio)
+        const inicioStr = `${y}-${String(m).padStart(2, '0')}-01`
+        await supabase.from('estudiante_periodos').insert({
           estudiante_id: estudiante.id,
-          aula_anterior_id: aulaAnteriorId,
-          aula_nueva_id: selectedAulaId,
-          motivo: motivo || null,
+          aula_id: estudiante.aula_id,
+          fecha_inicio: inicioStr,
+          fecha_fin: fechaFinStr,
+          motivo_retiro: motivo || 'Cambio de salón',
           created_by: user.id,
         })
-
-      if (historialError) {
-        console.error('Error saving movement history:', historialError)
-        // No lanzamos error aquí, ya que el movimiento principal fue exitoso
-        // Solo registramos el error en la consola
       }
 
-      toast.success('Estudiante movido', 'El estudiante fue asignado a la nueva aula.')
+      // Crear nuevo período con el aula destino
+      const { error: insertErr } = await supabase
+        .from('estudiante_periodos')
+        .insert({
+          estudiante_id: estudiante.id,
+          aula_id: selectedAulaId,
+          fecha_inicio: fechaCambio,
+          fecha_fin: null,
+          created_by: user.id,
+        })
+      if (insertErr) throw insertErr
+
+      toast.success('Cambio de salón registrado', 'El estudiante fue asignado al nuevo salón.')
       onSuccess()
       setSelectedAulaId('')
       setMotivo('')
@@ -150,9 +169,9 @@ export function EstudianteMovimientoDialog({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Mover Estudiante a Otra Aula</DialogTitle>
+          <DialogTitle>Cambiar de Salón</DialogTitle>
           <DialogDescription>
-            Mueve el estudiante a un aula diferente. El historial de asistencias se conservará.
+            Registra el cambio de salón del estudiante. El histórico se conserva en su perfil.
           </DialogDescription>
         </DialogHeader>
 
@@ -173,8 +192,17 @@ export function EstudianteMovimientoDialog({
           </div>
 
           <div>
+            <Label htmlFor="fecha_cambio" className="mb-2 block">¿Desde qué fecha cambia?</Label>
+            <Input
+              id="fecha_cambio"
+              type="date"
+              value={fechaCambio}
+              onChange={(e) => setFechaCambio(e.target.value)}
+            />
+          </div>
+          <div>
             <Label htmlFor="aula-destino" className="mb-2 block">
-              Nueva Aula: <span className="text-red-500">*</span>
+              Nuevo Salón: <span className="text-red-500">*</span>
             </Label>
             {aulasDisponibles.length === 0 ? (
               <div className="rounded-md bg-yellow-50 p-4 dark:bg-yellow-900/20">
@@ -237,7 +265,7 @@ export function EstudianteMovimientoDialog({
             ) : (
               <>
                 <ArrowRight className="mr-2 h-4 w-4" />
-                Mover Estudiante
+                Confirmar Cambio
               </>
             )}
           </Button>
