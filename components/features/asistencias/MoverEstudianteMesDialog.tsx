@@ -115,17 +115,19 @@ export function MoverEstudianteMesDialog({
         (p) =>
           p.fecha_inicio <= lastDay && (p.fecha_fin === null || p.fecha_fin >= firstDay)
       )
+      let necesitaInsertar = true
       if (periodo) {
         const prevLast = lastDayOfPrevMonth(firstDay)
         const nextFirst = firstDayOfNextMonth(lastDay)
         const esExacto = periodo.fecha_inicio === firstDay && periodo.fecha_fin === lastDay
 
         if (esExacto) {
-          const { error: errDel } = await supabase
+          const { error: errUpd } = await supabase
             .from('estudiante_periodos')
-            .delete()
+            .update({ aula_id: aulaDestinoId })
             .eq('id', periodo.id)
-          if (errDel) throw errDel
+          if (errUpd) throw errUpd
+          necesitaInsertar = false
         } else {
           const spansBefore = periodo.fecha_inicio < firstDay
           const spansAfter = !periodo.fecha_fin || periodo.fecha_fin > lastDay
@@ -151,16 +153,16 @@ export function MoverEstudianteMesDialog({
         }
       }
 
-      // 3) Crear período en aula destino
-      const { error: errInsert } = await supabase.from('estudiante_periodos').insert({
-        estudiante_id: estudiante.id,
-        aula_id: aulaDestinoId,
-        fecha_inicio: firstDay,
-        fecha_fin: lastDay,
-        created_by: user.id,
-      })
-
-      if (errInsert) throw errInsert
+      if (necesitaInsertar) {
+        const { error: errInsert } = await supabase.from('estudiante_periodos').insert({
+          estudiante_id: estudiante.id,
+          aula_id: aulaDestinoId,
+          fecha_inicio: firstDay,
+          fecha_fin: lastDay,
+          created_by: user.id,
+        })
+        if (errInsert) throw errInsert
+      }
 
       const nombreDestino = aulas.find((a) => a.id === aulaDestinoId)?.nombre || 'salón'
       toast.success('Estudiante movido', `${estudiante.nombre_completo} fue movido a ${nombreDestino} para ${mesLabel}.`)

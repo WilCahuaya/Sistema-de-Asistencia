@@ -78,9 +78,7 @@ export function EstudianteMovimientoDialog({
             .is('fecha_fin', null)
             .single()
           if (data?.fecha_inicio) {
-            const [y, m] = data.fecha_inicio.split('-').map(Number)
-            const primerDiaSiguienteMes = new Date(y, m, 1)
-            setFechaCambioMin(primerDiaSiguienteMes.toISOString().slice(0, 10))
+            setFechaCambioMin(data.fecha_inicio)
           }
         } catch {
           // ignorar
@@ -117,61 +115,68 @@ export function EstudianteMovimientoDialog({
 
       const { user, supabase } = authResult
 
-      // Obtener el período activo actual
       const { data: periodoActual } = await supabase
         .from('estudiante_periodos')
-        .select('id')
+        .select('id, fecha_inicio')
         .eq('estudiante_id', estudiante.id)
         .is('fecha_fin', null)
         .single()
 
-      const inicioNuevoPeriodo = firstDayOfMonthFromDate(fechaCambio)
-      const [y, m] = fechaCambio.split('-').map(Number)
-      const ultimoDiaMesAnterior = new Date(y, m - 1, 0)
-      const fechaFinStr = `${ultimoDiaMesAnterior.getFullYear()}-${String(ultimoDiaMesAnterior.getMonth() + 1).padStart(2, '0')}-${String(ultimoDiaMesAnterior.getDate()).padStart(2, '0')}`
+      const mesCambio = fechaCambio.slice(0, 7) // YYYY-MM
+      const mesPeriodo = periodoActual?.fecha_inicio?.slice(0, 7) // YYYY-MM
 
-      if (periodoActual) {
-        const { data: periodoWithInicio } = await supabase
-          .from('estudiante_periodos')
-          .select('fecha_inicio')
-          .eq('id', periodoActual.id)
-          .single()
-        if (periodoWithInicio && fechaFinStr < periodoWithInicio.fecha_inicio) {
-          toast.error(
-            'Fecha inválida',
-            `La fecha de cambio no puede ser anterior al inicio del período (${periodoWithInicio.fecha_inicio}).`
-          )
-          setLoading(false)
-          return
-        }
+      if (periodoActual && mesCambio === mesPeriodo) {
+        // Mismo mes: solo actualizar el aula del período. No se cierra, no se crea otro.
         const { error: updateErr } = await supabase
           .from('estudiante_periodos')
-          .update({ fecha_fin: fechaFinStr, motivo_retiro: motivo || null })
+          .update({ aula_id: selectedAulaId })
           .eq('id', periodoActual.id)
         if (updateErr) throw updateErr
       } else {
-        const inicioStr = firstDayOfMonthFromDate(fechaFinStr)
-        const { error: legacyErr } = await supabase.from('estudiante_periodos').insert({
-          estudiante_id: estudiante.id,
-          aula_id: estudiante.aula_id,
-          fecha_inicio: inicioStr,
-          fecha_fin: fechaFinStr,
-          motivo_retiro: motivo || 'Cambio de salón',
-          created_by: user.id,
-        })
-        if (legacyErr) throw legacyErr
-      }
+        // Mes diferente: cerrar período actual y crear uno nuevo
+        const inicioNuevoPeriodo = firstDayOfMonthFromDate(fechaCambio)
+        const [y, m] = fechaCambio.split('-').map(Number)
+        const ultimoDiaMesAnterior = new Date(y, m - 1, 0)
+        const fechaFinStr = `${ultimoDiaMesAnterior.getFullYear()}-${String(ultimoDiaMesAnterior.getMonth() + 1).padStart(2, '0')}-${String(ultimoDiaMesAnterior.getDate()).padStart(2, '0')}`
 
-      const { error: insertErr } = await supabase
-        .from('estudiante_periodos')
-        .insert({
-          estudiante_id: estudiante.id,
-          aula_id: selectedAulaId,
-          fecha_inicio: inicioNuevoPeriodo,
-          fecha_fin: null,
-          created_by: user.id,
-        })
-      if (insertErr) throw insertErr
+        if (periodoActual) {
+          if (fechaFinStr < periodoActual.fecha_inicio) {
+            toast.error(
+              'Fecha inválida',
+              `La fecha de cambio no puede ser anterior al inicio del período (${periodoActual.fecha_inicio}).`
+            )
+            setLoading(false)
+            return
+          }
+          const { error: updateErr } = await supabase
+            .from('estudiante_periodos')
+            .update({ fecha_fin: fechaFinStr, motivo_retiro: motivo || null })
+            .eq('id', periodoActual.id)
+          if (updateErr) throw updateErr
+        } else {
+          const inicioStr = firstDayOfMonthFromDate(fechaFinStr)
+          const { error: legacyErr } = await supabase.from('estudiante_periodos').insert({
+            estudiante_id: estudiante.id,
+            aula_id: estudiante.aula_id,
+            fecha_inicio: inicioStr,
+            fecha_fin: fechaFinStr,
+            motivo_retiro: motivo || 'Cambio de salón',
+            created_by: user.id,
+          })
+          if (legacyErr) throw legacyErr
+        }
+
+        const { error: insertErr } = await supabase
+          .from('estudiante_periodos')
+          .insert({
+            estudiante_id: estudiante.id,
+            aula_id: selectedAulaId,
+            fecha_inicio: inicioNuevoPeriodo,
+            fecha_fin: null,
+            created_by: user.id,
+          })
+        if (insertErr) throw insertErr
+      }
 
       toast.success('Cambio de salón registrado', 'El estudiante fue asignado al nuevo salón.')
       onSuccess()
@@ -238,7 +243,7 @@ export function EstudianteMovimientoDialog({
               value={fechaCambio}
               min={fechaCambioMin ?? undefined}
               onChange={(e) => setFechaCambio(e.target.value)}
-              title={fechaCambioMin ? `Debe ser al menos un día después del inicio (${fechaCambioMin})` : undefined}
+              title={fechaCambioMin ? `Mismo mes = solo cambia salón. Otro mes = cierra y crea período.` : undefined}
             />
           </div>
           <div>

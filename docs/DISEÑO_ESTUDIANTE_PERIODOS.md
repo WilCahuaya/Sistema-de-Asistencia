@@ -32,7 +32,9 @@ Transformar el modelo de estudiantes de "un estudiante = un aula actual" a un mo
 - Los períodos representan **meses completos** (día 1 al 28/29/30/31 según el mes).
 - **Creación:** No se pregunta fecha de inicio. Se usa el **mes actual** (primer día del mes).
 - **Retiro:** Si se retira el 10 de mayo → `fecha_fin = 31-05` (último día del mes).
-- **Cambio de salón:** Se usa primer día del mes de cambio; el anterior termina el último día del mes anterior.
+- **Cambio de salón:**
+  - Si el cambio es **en el mismo mes** que el inicio del período → solo se actualiza `aula_id`. No se cierra el período ni se crea uno nuevo.
+  - Si el cambio es **en otro mes** → el anterior termina el último día del mes anterior; se crea nuevo período (primer día del mes de cambio).
 
 ### Compatibilidad con modelo actual
 - **estudiantes.aula_id**: Se mantiene como "aula actual" (sincronizada desde el período activo)
@@ -64,8 +66,8 @@ Transformar el modelo de estudiantes de "un estudiante = un aula actual" a un mo
 
 ### CASO 5: Cambio de salón
 - Usuario: Perfil estudiante → "Cambiar de salón" → fecha de cambio
-- Cerrar período actual (fecha_fin = fecha - 1 día)
-- Crear nuevo período (aula nueva, fecha_inicio = fecha)
+- **Mismo mes que el inicio:** Solo actualizar `aula_id` del período. No se divide el mes.
+- **Otro mes:** Cerrar período actual (fecha_fin = último día del mes anterior). Crear nuevo período (aula nueva, fecha_inicio = primer día del mes de cambio).
 
 ## Interfaz
 
