@@ -397,6 +397,7 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
             }) || []
 
             // Detectar días completos para esta aula usando aula_id de la asistencia
+            // IMPORTANTE: Usar la MISMA lógica que ReporteMensual - iterar sobre cada día del mes
             const estudiantesAulaIds = new Set(estudiantesAula.map(e => e.id))
             const asistenciasPorFecha = new Map<string, Set<string>>() // fecha -> Set<estudiante_id>
 
@@ -410,39 +411,23 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
               }
             })
 
-            // Validar días completos y contar días de clases (igual que ReporteMensual)
+            // Validar días completos iterando cada día del mes (igual que ReporteMensual)
             let diasDeClases = 0
-            const fechasDiasCompletos = new Set<string>() // Guardar fechas de días completos
-            
-            asistenciasPorFecha.forEach((estudiantesMarcados, fecha) => {
-              const marcados = estudiantesMarcados.size
-              // Parsear fecha como fecha local para evitar problemas de zona horaria
-              const [year, monthNum, day] = fecha.split('-').map(Number)
-              const fechaDate = new Date(year, monthNum - 1, day)
-              const esDelMes = fechaDate.getFullYear() === selectedYear && fechaDate.getMonth() === mes
-              
-              if (!esDelMes) return // Solo procesar fechas del mes actual
-              
-              // Para detectar días incompletos, usar TODOS los estudiantes del aula (como en la página de asistencias)
-              // NO filtrar por created_at porque los estudiantes pueden haber sido agregados después
-              const totalEstudiantesEnFecha = registrados
-              
-              // Solo contar días completos (todos los estudiantes de esta aula marcados) del mes correspondiente
+            const fechasDiasCompletos = new Set<string>()
+            const diasDelMes = new Date(selectedYear, mes + 1, 0).getDate()
+
+            for (let dia = 1; dia <= diasDelMes; dia++) {
+              const fechaStr = `${selectedYear}-${String(mes + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
+              const estudiantesConAsistencia = asistenciasPorFecha.get(fechaStr) || new Set()
+              const marcados = estudiantesConAsistencia.size
+
               if (marcados === registrados && registrados > 0) {
                 diasDeClases++
-                fechasDiasCompletos.add(fecha)
+                fechasDiasCompletos.add(fechaStr)
               } else if (marcados > 0 && marcados < registrados && registrados > 0) {
-                // Día incompleto: hay algunos estudiantes marcados pero no todos los que deberían tener asistencia
-                console.log('⚠️ [ReporteParticipantesPorMes] Día incompleto detectado:', {
-                  fecha,
-                  aula: aula.nombre,
-                  marcados,
-                  registrados,
-                  fcp: fcp.nombre
-                })
-                
+                const fechaDate = new Date(selectedYear, mes, dia)
                 diasIncompletosGlobales.push({
-                  fecha,
+                  fecha: fechaStr,
                   fechaFormateada: fechaDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' }),
                   nivel: aula.nombre,
                   aulaId: aula.id,
@@ -450,7 +435,7 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
                   total: registrados,
                 })
               }
-            })
+            }
 
             // Contar asistencias "presente" para estudiantes de esta aula SOLO de días completos
             // Usar aula_id de la asistencia para filtrar correctamente
