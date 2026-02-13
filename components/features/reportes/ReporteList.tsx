@@ -1973,14 +1973,14 @@ export function ReporteList() {
                       if (isDragging) setIsDragging(false)
                     }}
                   >
-                    <table className="w-full border-collapse border border-border text-sm" style={{ minWidth: 'max-content' }}>
+                    <table className="w-full border-collapse border border-border text-sm table-auto" style={{ minWidth: 'max-content' }}>
                       <thead>
                         <tr className="bg-muted/50">
-                          <th className="border border-border p-2 bg-muted/50 text-center w-12 text-foreground">No</th>
-                          <th className="border border-border p-2 bg-muted/50 text-left max-w-[150px] text-foreground">ESTUDIANTE</th>
-                          <th className="border border-border p-2 bg-muted/50 text-center w-16 text-foreground">Cod</th>
-                          <th className="border border-border p-2 bg-muted/50 text-center w-16 text-foreground">Niv</th>
-                          <th className="border border-border p-2 bg-muted/50 text-left text-foreground">TUTOR</th>
+                          <th className="border border-border p-2 bg-muted/50 text-center min-w-[2rem] text-foreground">No</th>
+                          <th className="border border-border p-2 bg-muted/50 text-left min-w-[140px] max-w-[220px] text-foreground">ESTUDIANTE</th>
+                          <th className="border border-border p-2 bg-muted/50 text-center min-w-[6rem] text-foreground">Cod</th>
+                          <th className="border border-border p-2 bg-muted/50 text-center min-w-[7.5rem] whitespace-nowrap text-foreground">Niv</th>
+                          <th className="border border-border p-2 bg-muted/50 text-left min-w-[140px] text-foreground">TUTOR</th>
                           {reporteData.fechasUnicas?.map((fecha) => {
                             // Parsear fecha manualmente para evitar problemas de zona horaria
                             const [year, month, day] = fecha.split('-').map(Number)
@@ -1998,11 +1998,11 @@ export function ReporteList() {
                       <tbody>
                         {reporteData.reporteDetallado.map((row, index) => (
                           <tr key={index} className={`border-b border-border ${index % 2 === 0 ? 'bg-background' : 'bg-muted/30'} hover:bg-accent/50`}>
-                            <td className="border border-border p-2 text-center w-12 text-foreground">{row.no}</td>
-                            <td className="border border-border p-2 max-w-[150px] truncate text-foreground" title={row.persona}>{row.persona}</td>
-                            <td className="border border-border p-2 text-center font-mono w-16 text-foreground">{row.codigo}</td>
-                            <td className="border border-border p-2 text-center w-16 text-foreground">{row.nivel}</td>
-                            <td className="border border-border p-2 text-foreground">{row.tutor}</td>
+                            <td className="border border-border p-2 text-center min-w-[2rem] text-foreground">{row.no}</td>
+                            <td className="border border-border p-2 min-w-[140px] max-w-[220px] truncate text-foreground" title={row.persona}>{row.persona}</td>
+                            <td className="border border-border p-2 text-center font-mono min-w-[6rem] text-foreground">{row.codigo}</td>
+                            <td className="border border-border p-2 text-center min-w-[7.5rem] whitespace-nowrap text-foreground">{row.nivel}</td>
+                            <td className="border border-border p-2 min-w-[140px] text-foreground">{row.tutor}</td>
                             {reporteData.fechasUnicas?.map((fecha) => (
                               <td
                                 key={fecha}
