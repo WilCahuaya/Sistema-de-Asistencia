@@ -1017,7 +1017,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
 
         // Fila de subtotal
         const subtotalRow: any[] = [
-          nivel.nivel,
+          'Subtotal',
           'Subtotal',
         ]
 
@@ -1306,7 +1306,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
 
         // Fila de subtotal
         const subtotalRow: any[] = [
-          nivel.nivel,
+          'Subtotal',
           'Subtotal',
         ]
 
@@ -1953,7 +1953,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
                       ))}
                       {/* Fila de subtotal */}
                       <tr className="bg-muted font-bold">
-                        <td className="border border-border p-2 text-foreground">{nivel.nivel}</td>
+                        <td className="border border-border p-2 text-foreground">Subtotal</td>
                         <td className="border border-border p-2 text-foreground">Subtotal</td>
                         {reporteData.fechasUnicas.map((fecha) => {
                           const totalFecha = nivel.aulas.reduce((sum, a) => {
