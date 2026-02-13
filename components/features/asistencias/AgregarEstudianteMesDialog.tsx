@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { ensureAuthenticated } from '@/lib/supabase/auth-helpers'
 import {
   Dialog,
@@ -23,6 +23,7 @@ interface Estudiante {
   id: string
   codigo: string
   nombre_completo: string
+  aula_nombre?: string // Salón actual (solo cuando es de otro salón)
 }
 
 interface AgregarEstudianteMesDialogProps {
@@ -78,8 +79,11 @@ export function AgregarEstudianteMesDialog({
   const [loading, setLoading] = useState(false)
   const [busqueda, setBusqueda] = useState('')
   const [estudiantesDelSalon, setEstudiantesDelSalon] = useState<Estudiante[]>([])
+  const [estudiantesOtrosSalones, setEstudiantesOtrosSalones] = useState<Estudiante[]>([])
   const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set())
   const [loadingEstudiantes, setLoadingEstudiantes] = useState(false)
+  const [loadingBusqueda, setLoadingBusqueda] = useState(false)
+  const debounceRef = useRef<NodeJS.Timeout | null>(null)
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormNuevo>()
 
@@ -90,6 +94,7 @@ export function AgregarEstudianteMesDialog({
     const load = async () => {
       setLoadingEstudiantes(true)
       setEstudiantesDelSalon([])
+      setEstudiantesOtrosSalones([])
       setSeleccionados(new Set())
       try {
         const auth = await ensureAuthenticated()
@@ -134,20 +139,89 @@ export function AgregarEstudianteMesDialog({
       setModo('existente')
       setBusqueda('')
       setEstudiantesDelSalon([])
+      setEstudiantesOtrosSalones([])
       setSeleccionados(new Set())
       reset()
     }
   }, [open, reset])
 
-  // Filtrar por búsqueda (código o nombre)
+  // Búsqueda en otros salones (debounced): alumnos trasladados que necesitan asistencia del mes anterior
+  useEffect(() => {
+    const term = busqueda.trim()
+    if (!open || modo !== 'existente' || !fcpId || !aulaId || term.length < 2) {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+        debounceRef.current = null
+      }
+      setEstudiantesOtrosSalones([])
+      return
+    }
+
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(async () => {
+      setLoadingBusqueda(true)
+      try {
+        const auth = await ensureAuthenticated()
+        if (!auth?.supabase) return
+
+        const { first, last } = getFirstLastDayOfMonth(anio, mes)
+
+        const { data: estudiantesData, error: errEst } = await auth.supabase
+          .from('estudiantes')
+          .select('id, codigo, nombre_completo, aula_id, aula:aulas(nombre)')
+          .eq('fcp_id', fcpId)
+          .neq('aula_id', aulaId)
+          .eq('activo', true)
+          .or(`codigo.ilike.%${term}%,nombre_completo.ilike.%${term}%`)
+          .order('nombre_completo')
+          .limit(30)
+
+        if (errEst) throw errEst
+        const deOtros = (estudiantesData || []).map((e: any) => ({
+          id: e.id,
+          codigo: e.codigo,
+          nombre_completo: e.nombre_completo,
+          aula_nombre: (e.aula as { nombre?: string })?.nombre || 'Otro salón',
+        }))
+
+        const { data: periodosData, error: errPer } = await auth.supabase
+          .from('estudiante_periodos')
+          .select('estudiante_id')
+          .eq('aula_id', aulaId)
+          .lte('fecha_inicio', last)
+          .gte('fecha_fin', first)
+
+        if (errPer) throw errPer
+        const idsConPeriodo = new Set((periodosData || []).map((p: { estudiante_id: string }) => p.estudiante_id))
+        const candidatos = deOtros.filter((e) => !idsConPeriodo.has(e.id))
+        setEstudiantesOtrosSalones(candidatos)
+      } catch (e) {
+        console.error(e)
+        setEstudiantesOtrosSalones([])
+      } finally {
+        setLoadingBusqueda(false)
+      }
+    }, 350)
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [open, modo, busqueda, fcpId, aulaId, anio, mes])
+
+  // Lista combinada: salón actual (filtrado si hay búsqueda) + resultados de otros salones
   const terminoBusqueda = busqueda.trim().toLowerCase()
-  const estudiantesFiltrados = terminoBusqueda
+  const delSalonFiltrados = terminoBusqueda
     ? estudiantesDelSalon.filter(
         (e) =>
           e.codigo.toLowerCase().includes(terminoBusqueda) ||
           e.nombre_completo.toLowerCase().includes(terminoBusqueda)
       )
     : estudiantesDelSalon
+  const idsDelSalon = new Set(delSalonFiltrados.map((e) => e.id))
+  const estudiantesFiltrados = [
+    ...delSalonFiltrados,
+    ...estudiantesOtrosSalones.filter((e) => !idsDelSalon.has(e.id)),
+  ]
 
   const toggleSeleccion = (id: string) => {
     setSeleccionados((prev) => {
@@ -348,11 +422,14 @@ export function AgregarEstudianteMesDialog({
           <div className="space-y-4">
             <div className="flex gap-2">
               <Input
-                placeholder="Buscar por código o nombre..."
+                placeholder="Buscar por código o nombre (incl. otros salones)..."
                 value={busqueda}
                 onChange={(e) => setBusqueda(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
               />
+              {loadingBusqueda && (
+                <span className="text-xs text-muted-foreground self-center">Buscando…</span>
+              )}
             </div>
             {estudiantesFiltrados.length > 0 && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -367,9 +444,11 @@ export function AgregarEstudianteMesDialog({
             )}
             {loadingEstudiantes ? (
               <div className="py-8 text-center text-muted-foreground text-sm">Cargando estudiantes…</div>
-            ) : estudiantesDelSalon.length === 0 ? (
+            ) : estudiantesFiltrados.length === 0 && !loadingBusqueda ? (
               <div className="py-8 text-center text-muted-foreground text-sm">
-                No hay estudiantes en este salón que puedan agregarse. Todos ya tienen período en este mes.
+                {estudiantesDelSalon.length === 0 && !terminoBusqueda
+                  ? 'No hay estudiantes en este salón que puedan agregarse. Todos ya tienen período en este mes.'
+                  : 'Ningún estudiante coincide con la búsqueda. Escribe código o nombre (p. ej. para buscar en otros salones).'}
               </div>
             ) : (
               <div className="border rounded-md max-h-48 overflow-y-auto divide-y">
@@ -382,16 +461,16 @@ export function AgregarEstudianteMesDialog({
                       checked={seleccionados.has(e.id)}
                       onCheckedChange={() => toggleSeleccion(e.id)}
                     />
-                    <div className="flex flex-col gap-0.5 min-w-0">
+                    <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                       <span className="font-mono text-sm">{e.codigo}</span>
                       <span className="text-sm truncate">{e.nombre_completo}</span>
+                      {e.aula_nombre && (
+                        <span className="text-xs text-muted-foreground">Salón actual: {e.aula_nombre}</span>
+                      )}
                     </div>
                   </label>
                 ))}
               </div>
-            )}
-            {terminoBusqueda && estudiantesFiltrados.length === 0 && estudiantesDelSalon.length > 0 && (
-              <p className="text-sm text-muted-foreground">Ningún estudiante coincide con la búsqueda.</p>
             )}
             <DialogFooter>
               <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
