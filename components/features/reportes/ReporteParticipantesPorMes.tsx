@@ -306,6 +306,12 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
           // Determinar si este mes es anterior al actual
           const esMesAnterior = selectedYear < añoActual || (selectedYear === añoActual && mes < mesActual)
 
+          // Rango del mes en formato YYYY-MM-DD (evita problemas de timezone al filtrar)
+          const mesInicioDate = new Date(selectedYear, mes, 1)
+          const mesFinDate = new Date(selectedYear, mes + 1, 0)
+          const mesInicioStr = toLocalDateString(mesInicioDate)
+          const mesFinStr = toLocalDateString(mesFinDate)
+
           let totalAsistenPromed = 0
           let totalOportunidadesAsistencia = 0
 
@@ -314,14 +320,9 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
 
           if (esMesAnterior) {
             // Para meses anteriores, obtener aulas únicas de las asistencias de ese mes específico
-            const mesInicio = new Date(selectedYear, mes, 1)
-            const mesFin = new Date(selectedYear, mes + 1, 0)
-            const mesInicioStr = toLocalDateString(mesInicio)
-            const mesFinStr = toLocalDateString(mesFin)
-
             const asistenciasDelMes = todasAsistenciasData?.filter((a: any) => {
-              const fechaAsistencia = new Date(a.fecha)
-              return fechaAsistencia >= mesInicio && fechaAsistencia <= mesFin
+              const fechaStr = a.fecha
+              return fechaStr >= mesInicioStr && fechaStr <= mesFinStr
             }) || []
 
             const aulasMap = new Map<string, any>()
@@ -344,14 +345,9 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
 
           if (esMesAnterior) {
             // Para meses anteriores, obtener estudiantes únicos de las asistencias de ese mes específico
-            const mesInicio = new Date(selectedYear, mes, 1)
-            const mesFin = new Date(selectedYear, mes + 1, 0)
-            const mesInicioStr = toLocalDateString(mesInicio)
-            const mesFinStr = toLocalDateString(mesFin)
-
             const asistenciasDelMes = todasAsistenciasData?.filter((a: any) => {
-              const fechaAsistencia = new Date(a.fecha)
-              return fechaAsistencia >= mesInicio && fechaAsistencia <= mesFin
+              const fechaStr = a.fecha
+              return fechaStr >= mesInicioStr && fechaStr <= mesFinStr
             }) || []
 
             const estudiantesMap = new Map<string, any>()
@@ -378,12 +374,9 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
 
             if (esMesAnterior) {
               // Para meses anteriores, filtrar asistencias que pertenecen a esta aula según aula_id de la asistencia
-              const mesInicio = new Date(selectedYear, mes, 1)
-              const mesFin = new Date(selectedYear, mes + 1, 0)
-
               const asistenciasDeAula = todasAsistenciasData?.filter((a: any) => {
-                const fechaAsistencia = new Date(a.fecha)
-                return a.aula_id === aula.id && fechaAsistencia >= mesInicio && fechaAsistencia <= mesFin
+                const fechaStr = a.fecha
+                return a.aula_id === aula.id && fechaStr >= mesInicioStr && fechaStr <= mesFinStr
               }) || []
 
               const estudiantesIdsEnAula = new Set(asistenciasDeAula.map((a: any) => a.estudiante_id))
@@ -398,12 +391,9 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
             if (registrados === 0) return
 
             // IMPORTANTE: Filtrar asistencias de esta aula para este mes específico
-            const mesInicio = new Date(selectedYear, mes, 1)
-            const mesFin = new Date(selectedYear, mes + 1, 0)
-
             const asistenciasDeAula = todasAsistenciasData?.filter((a: any) => {
-              const fechaAsistencia = new Date(a.fecha)
-              return a.aula_id === aula.id && fechaAsistencia >= mesInicio && fechaAsistencia <= mesFin
+              const fechaStr = a.fecha
+              return a.aula_id === aula.id && fechaStr >= mesInicioStr && fechaStr <= mesFinStr
             }) || []
 
             // Detectar días completos para esta aula usando aula_id de la asistencia
