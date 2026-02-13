@@ -52,28 +52,36 @@ export function getCurrentMonthYearInAppTimezone(): { year: number; month: numbe
 
 /**
  * Devuelve el rango del mes (inicio y fin) como YYYY-MM-DD para un año/mes dados.
- * month es 0-11.
+ * month es 0-11. Usa strings directos para evitar problemas de zona horaria.
  */
 export function getMonthRangeInAppTimezone(year: number, month: number): { start: string; end: string } {
-  const start = new Date(year, month, 1)
-  const end = new Date(year, month + 1, 0)
+  const m = String(month + 1).padStart(2, '0')
+  const lastDay = new Date(year, month + 1, 0).getDate()
+  const dEnd = String(lastDay).padStart(2, '0')
   return {
-    start: toLocalDateString(start),
-    end: toLocalDateString(end),
+    start: `${year}-${m}-01`,
+    end: `${year}-${m}-${dEnd}`,
   }
 }
 
 /**
- * Formatea una fecha como YYYY-MM-DD usando la fecha local (no UTC).
- * Evita que en zonas horarias UTC- el último día del mes se convierta al día
- * siguiente en UTC (ej. 31 ene 23:59 Lima → 1 feb UTC) y se incluyan datos
- * del mes siguiente en reportes filtrados por mes.
+ * Formatea una fecha como YYYY-MM-DD usando la zona horaria de la app (Perú/America/Lima).
+ * Evita que en servidor (Vercel/UTC) se use medianoche UTC y se incluyan datos del día
+ * siguiente/anterior. Usa Intl para garantizar consistencia en servidor y cliente.
  */
 export function toLocalDateString(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+  const tz = getAppTimezone()
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  const parts = formatter.formatToParts(d)
+  const year = parts.find(p => p.type === 'year')?.value ?? ''
+  const month = parts.find(p => p.type === 'month')?.value ?? ''
+  const day = parts.find(p => p.type === 'day')?.value ?? ''
+  return `${year}-${month}-${day}`
 }
 
 /**
@@ -98,7 +106,7 @@ export function lastDayOfMonthFromDate(dateStr: string): string {
 /**
  * Nombre del mes actual en la zona de la app (ej. "enero"), para títulos.
  */
-export function getCurrentMonthLabelInAppTimezone(locale = 'es-ES'): string {
+export function getCurrentMonthLabelInAppTimezone(locale = 'es-PE'): string {
   const { year, month } = getCurrentMonthYearInAppTimezone()
   return new Date(year, month, 1).toLocaleDateString(locale, { month: 'long', year: 'numeric' })
 }

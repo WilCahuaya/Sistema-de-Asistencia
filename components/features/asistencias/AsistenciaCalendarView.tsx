@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { CheckCircle2, XCircle, Clock, CheckCheck, X, Info, Calendar, Search } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
+import { toLocalDateString } from '@/lib/utils/dateUtils'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import {
   Select,
@@ -248,15 +249,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
 
   const showQuitarEstudianteMes = showAgregarEstudianteMes
 
-  // Función helper para convertir Date a string YYYY-MM-DD en zona horaria local
-  const formatDateToLocalString = (date: Date): string => {
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    return `${year}-${month}-${day}`
-  }
-
-  // Generar días del mes seleccionado
+  // Generar días del mes seleccionado (usa zona horaria Perú via dateUtils)
   const getDaysInMonth = (month: number, year: number) => {
     const daysCount = new Date(year, month + 1, 0).getDate()
     const days: Array<{ day: number; date: Date; dayName: string; fechaStr: string }> = []
@@ -268,7 +261,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         day,
         date,
         dayName: dayNames[date.getDay()],
-        fechaStr: formatDateToLocalString(date),
+        fechaStr: toLocalDateString(date),
       })
     }
     return days
@@ -497,8 +490,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       
       if (esMesAnterior) {
         // Mes anterior: usar estudiantes_activos_en_rango (estudiante_periodos)
-        const firstDay = formatDateToLocalString(new Date(selectedYear, selectedMonth, 1))
-        const lastDay = formatDateToLocalString(new Date(selectedYear, selectedMonth + 1, 0))
+        const firstDay = toLocalDateString(new Date(selectedYear, selectedMonth, 1))
+        const lastDay = toLocalDateString(new Date(selectedYear, selectedMonth + 1, 0))
 
         const { data: idsRango, error: rangoError } = await supabase.rpc('estudiantes_activos_en_rango', {
           p_aula_id: selectedAula,
@@ -615,8 +608,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     try {
       const supabase = createClient()
       // Usar formato local para evitar problemas de zona horaria
-      const firstDay = formatDateToLocalString(new Date(selectedYear, selectedMonth, 1))
-      const lastDay = formatDateToLocalString(new Date(selectedYear, selectedMonth + 1, 0))
+      const firstDay = toLocalDateString(new Date(selectedYear, selectedMonth, 1))
+      const lastDay = toLocalDateString(new Date(selectedYear, selectedMonth + 1, 0))
 
       const estudianteIds = estudiantes.map((e) => e.id)
 
@@ -2092,8 +2085,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
           aulaOrigenId={selectedAula}
           aulaOrigenNombre={aulas.find((a) => a.id === selectedAula)?.nombre || 'Salón'}
           aulas={aulas}
-          firstDay={formatDateToLocalString(new Date(selectedYear, selectedMonth, 1))}
-          lastDay={formatDateToLocalString(new Date(selectedYear, selectedMonth + 1, 0))}
+          firstDay={toLocalDateString(new Date(selectedYear, selectedMonth, 1))}
+          lastDay={toLocalDateString(new Date(selectedYear, selectedMonth + 1, 0))}
           mesLabel={formatMonthYear(selectedMonth, selectedYear)}
         />
       )}
@@ -2114,8 +2107,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
           periodoId={periodosQuitables.get(selectedEstudianteForQuitar.id) ?? null}
           fcpId={fcpId}
           aulaId={selectedAula}
-          firstDay={formatDateToLocalString(new Date(selectedYear, selectedMonth, 1))}
-          lastDay={formatDateToLocalString(new Date(selectedYear, selectedMonth + 1, 0))}
+          firstDay={toLocalDateString(new Date(selectedYear, selectedMonth, 1))}
+          lastDay={toLocalDateString(new Date(selectedYear, selectedMonth + 1, 0))}
           mesLabel={formatMonthYear(selectedMonth, selectedYear)}
         />
       )}

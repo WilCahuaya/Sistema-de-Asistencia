@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Search, UserPlus } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { useForm } from 'react-hook-form'
@@ -76,51 +77,93 @@ export function AgregarEstudianteMesDialog({
   const [modo, setModo] = useState<Modo>('existente')
   const [loading, setLoading] = useState(false)
   const [busqueda, setBusqueda] = useState('')
-  const [estudiantesEncontrados, setEstudiantesEncontrados] = useState<Estudiante[]>([])
-  const [busquedaLoading, setBusquedaLoading] = useState(false)
-  const [estudianteSeleccionado, setEstudianteSeleccionado] = useState<Estudiante | null>(null)
+  const [estudiantesDelSalon, setEstudiantesDelSalon] = useState<Estudiante[]>([])
+  const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set())
+  const [loadingEstudiantes, setLoadingEstudiantes] = useState(false)
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormNuevo>()
+
+  // Cargar estudiantes del salón que aún no tienen período en este mes
+  useEffect(() => {
+    if (!open || modo !== 'existente' || !fcpId || !aulaId) return
+
+    const load = async () => {
+      setLoadingEstudiantes(true)
+      setEstudiantesDelSalon([])
+      setSeleccionados(new Set())
+      try {
+        const auth = await ensureAuthenticated()
+        if (!auth?.supabase) return
+
+        const { first, last } = getFirstLastDayOfMonth(anio, mes)
+
+        const { data: estudiantesData, error: errEst } = await auth.supabase
+          .from('estudiantes')
+          .select('id, codigo, nombre_completo')
+          .eq('fcp_id', fcpId)
+          .eq('aula_id', aulaId)
+          .eq('activo', true)
+          .order('nombre_completo')
+
+        if (errEst) throw errEst
+        const todos = estudiantesData || []
+
+        const { data: periodosData, error: errPer } = await auth.supabase
+          .from('estudiante_periodos')
+          .select('estudiante_id')
+          .eq('aula_id', aulaId)
+          .lte('fecha_inicio', last)
+          .gte('fecha_fin', first)
+
+        if (errPer) throw errPer
+        const idsConPeriodo = new Set((periodosData || []).map((p: { estudiante_id: string }) => p.estudiante_id))
+        const candidatos = todos.filter((e) => !idsConPeriodo.has(e.id))
+        setEstudiantesDelSalon(candidatos)
+      } catch (e) {
+        console.error(e)
+        toast.error('Error al cargar', 'No se pudieron cargar los estudiantes del salón.')
+      } finally {
+        setLoadingEstudiantes(false)
+      }
+    }
+    load()
+  }, [open, modo, fcpId, aulaId, anio, mes])
 
   useEffect(() => {
     if (!open) {
       setModo('existente')
       setBusqueda('')
-      setEstudiantesEncontrados([])
-      setEstudianteSeleccionado(null)
+      setEstudiantesDelSalon([])
+      setSeleccionados(new Set())
       reset()
     }
   }, [open, reset])
 
-  const buscarEstudiantes = async () => {
-    const term = busqueda.trim()
-    if (!term) return
+  // Filtrar por búsqueda (código o nombre)
+  const terminoBusqueda = busqueda.trim().toLowerCase()
+  const estudiantesFiltrados = terminoBusqueda
+    ? estudiantesDelSalon.filter(
+        (e) =>
+          e.codigo.toLowerCase().includes(terminoBusqueda) ||
+          e.nombre_completo.toLowerCase().includes(terminoBusqueda)
+      )
+    : estudiantesDelSalon
 
-    setBusquedaLoading(true)
-    setEstudiantesEncontrados([])
-    setEstudianteSeleccionado(null)
-    try {
-      const auth = await ensureAuthenticated()
-      if (!auth?.supabase) return
+  const toggleSeleccion = (id: string) => {
+    setSeleccionados((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
-      const { data, error } = await auth.supabase
-        .from('estudiantes')
-        .select('id, codigo, nombre_completo')
-        .eq('fcp_id', fcpId)
-        .or(`codigo.ilike.%${term}%,nombre_completo.ilike.%${term}%`)
-        .limit(20)
+  const marcarTodo = () => {
+    setSeleccionados(new Set(estudiantesFiltrados.map((e) => e.id)))
+  }
 
-      if (error) throw error
-      setEstudiantesEncontrados(data || [])
-      if (data?.length === 0) {
-        toast.info('Sin resultados', `No se encontraron estudiantes con "${term}".`)
-      }
-    } catch (e) {
-      console.error(e)
-      toast.error('Error al buscar', 'No se pudo buscar estudiantes.')
-    } finally {
-      setBusquedaLoading(false)
-    }
+  const desmarcarTodo = () => {
+    setSeleccionados(new Set())
   }
 
   const validarSuperposicion = async (
@@ -177,18 +220,29 @@ export function AgregarEstudianteMesDialog({
   }
 
   const handleConfirmarExistente = async () => {
-    if (!estudianteSeleccionado) {
-      toast.warning('Selecciona un estudiante', 'Elige un estudiante de la lista.')
+    const ids = Array.from(seleccionados)
+    if (ids.length === 0) {
+      toast.warning('Selecciona al menos un estudiante', 'Marca los estudiantes que deseas agregar.')
       return
     }
 
     try {
       setLoading(true)
-      const ok = await crearPeriodoParaMes(estudianteSeleccionado.id)
-      if (!ok) return
-      toast.success('Estudiante agregado', `${estudianteSeleccionado.nombre_completo} quedó registrado solo para ${mesLabel}.`)
-      onSuccess()
-      onOpenChange(false)
+      let agregados = 0
+      for (const id of ids) {
+        const ok = await crearPeriodoParaMes(id)
+        if (ok) agregados++
+      }
+      if (agregados > 0) {
+        toast.success(
+          agregados === 1 ? 'Estudiante agregado' : `${agregados} estudiantes agregados`,
+          agregados === 1
+            ? `Quedó registrado solo para ${mesLabel}.`
+            : `Quedaron registrados solo para ${mesLabel}.`
+        )
+        onSuccess()
+        onOpenChange(false)
+      }
     } catch (e: unknown) {
       console.error(e)
       toast.error('Error al agregar', e instanceof Error ? e.message : 'Intenta nuevamente.')
@@ -297,33 +351,54 @@ export function AgregarEstudianteMesDialog({
                 placeholder="Buscar por código o nombre..."
                 value={busqueda}
                 onChange={(e) => setBusqueda(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), buscarEstudiantes())}
+                onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
               />
-              <Button type="button" variant="secondary" onClick={buscarEstudiantes} disabled={busquedaLoading}>
-                {busquedaLoading ? 'Buscando…' : 'Buscar'}
-              </Button>
             </div>
-            {estudiantesEncontrados.length > 0 && (
+            {estudiantesFiltrados.length > 0 && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Button type="button" variant="ghost" size="sm" onClick={marcarTodo}>
+                  Marcar todo
+                </Button>
+                <span className="text-muted-foreground/50">|</span>
+                <Button type="button" variant="ghost" size="sm" onClick={desmarcarTodo}>
+                  Desmarcar todo
+                </Button>
+              </div>
+            )}
+            {loadingEstudiantes ? (
+              <div className="py-8 text-center text-muted-foreground text-sm">Cargando estudiantes…</div>
+            ) : estudiantesDelSalon.length === 0 ? (
+              <div className="py-8 text-center text-muted-foreground text-sm">
+                No hay estudiantes en este salón que puedan agregarse. Todos ya tienen período en este mes.
+              </div>
+            ) : (
               <div className="border rounded-md max-h-48 overflow-y-auto divide-y">
-                {estudiantesEncontrados.map((e) => (
-                  <button
+                {estudiantesFiltrados.map((e) => (
+                  <label
                     key={e.id}
-                    type="button"
-                    className={`w-full text-left px-3 py-2 flex flex-col gap-0.5 hover:bg-muted/50 ${estudianteSeleccionado?.id === e.id ? 'bg-primary/10' : ''}`}
-                    onClick={() => setEstudianteSeleccionado(estudianteSeleccionado?.id === e.id ? null : e)}
+                    className="flex items-center gap-3 px-3 py-2 hover:bg-muted/50 cursor-pointer"
                   >
-                    <span className="font-mono text-sm">{e.codigo}</span>
-                    <span className="text-sm">{e.nombre_completo}</span>
-                  </button>
+                    <Checkbox
+                      checked={seleccionados.has(e.id)}
+                      onCheckedChange={() => toggleSeleccion(e.id)}
+                    />
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <span className="font-mono text-sm">{e.codigo}</span>
+                      <span className="text-sm truncate">{e.nombre_completo}</span>
+                    </div>
+                  </label>
                 ))}
               </div>
+            )}
+            {terminoBusqueda && estudiantesFiltrados.length === 0 && estudiantesDelSalon.length > 0 && (
+              <p className="text-sm text-muted-foreground">Ningún estudiante coincide con la búsqueda.</p>
             )}
             <DialogFooter>
               <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
                 Cancelar
               </Button>
-              <Button onClick={handleConfirmarExistente} disabled={loading || !estudianteSeleccionado}>
-                {loading ? 'Agregando…' : 'Agregar a este mes'}
+              <Button onClick={handleConfirmarExistente} disabled={loading || seleccionados.size === 0}>
+                {loading ? 'Agregando…' : seleccionados.size === 0 ? 'Agregar a este mes' : `Agregar ${seleccionados.size} estudiante${seleccionados.size > 1 ? 's' : ''}`}
               </Button>
             </DialogFooter>
           </div>

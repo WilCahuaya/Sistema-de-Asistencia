@@ -17,7 +17,7 @@ function formatFecha(s: string | null): string {
   if (!s) return ''
   try {
     const d = new Date(s + 'T12:00:00')
-    return d.toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })
+    return d.toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Lima' })
   } catch {
     return s
   }

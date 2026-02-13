@@ -430,7 +430,7 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
                 const fechaDate = new Date(selectedYear, mes, dia)
                 diasIncompletosGlobales.push({
                   fecha: fechaStr,
-                  fechaFormateada: fechaDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' }),
+                  fechaFormateada: fechaDate.toLocaleDateString('es-PE', { day: 'numeric', month: 'long', timeZone: 'America/Lima' }),
                   nivel: aula.nombre,
                   aulaId: aula.id,
                   marcados,

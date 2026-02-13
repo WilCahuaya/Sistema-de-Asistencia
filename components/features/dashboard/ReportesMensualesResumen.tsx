@@ -195,8 +195,8 @@ export function ReportesMensualesResumen() {
             const fechaDate = new Date(year, month - 1, day)
             const esDelMesSeleccionado = fechaDate.getFullYear() === mesActual.year && fechaDate.getMonth() === mesActual.month
 
-            // Solo contar días completos (todos marcados) o días sin atención (ninguno marcado)
-            if ((marcados === registrados || marcados === 0) && esDelMesSeleccionado) {
+            // Días completos: solo cuenta cuando TODOS tienen estado (presente/faltó/permiso)
+            if (marcados === registrados && registrados > 0 && esDelMesSeleccionado) {
               diasDeClases++
             }
           })

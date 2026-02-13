@@ -749,7 +749,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
             if (fechaDate.getFullYear() === selectedYear && fechaDate.getMonth() === selectedMonth) {
               diasIncompletosGlobales.push({
                 fecha,
-                fechaFormateada: fechaDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' }),
+                fechaFormateada: fechaDate.toLocaleDateString('es-PE', { day: 'numeric', month: 'long', timeZone: 'America/Lima' }),
                 nivel: aula.nombre,
                 tutorNombre,
                 marcados: marcadosEnFecha,
