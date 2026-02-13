@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { ensureAuthenticated } from '@/lib/supabase/auth-helpers'
 import {
   Dialog,
@@ -83,7 +83,6 @@ export function AgregarEstudianteMesDialog({
   const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set())
   const [loadingEstudiantes, setLoadingEstudiantes] = useState(false)
   const [loadingBusqueda, setLoadingBusqueda] = useState(false)
-  const debounceRef = useRef<NodeJS.Timeout | null>(null)
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormNuevo>()
 
@@ -145,68 +144,58 @@ export function AgregarEstudianteMesDialog({
     }
   }, [open, reset])
 
-  // Búsqueda en otros salones (debounced): alumnos trasladados que necesitan asistencia del mes anterior
-  useEffect(() => {
+  const buscarOtrosSalones = async () => {
     const term = busqueda.trim()
-    if (!open || modo !== 'existente' || !fcpId || !aulaId || term.length < 2) {
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current)
-        debounceRef.current = null
-      }
+    if (!term || !fcpId || !aulaId) {
+      if (!term) toast.info('Escribe para buscar', 'Ingresa código o nombre y haz clic en Buscar para buscar en otros salones.')
       setEstudiantesOtrosSalones([])
       return
     }
 
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(async () => {
-      setLoadingBusqueda(true)
-      try {
-        const auth = await ensureAuthenticated()
-        if (!auth?.supabase) return
+    setLoadingBusqueda(true)
+    try {
+      const auth = await ensureAuthenticated()
+      if (!auth?.supabase) return
 
-        const { first, last } = getFirstLastDayOfMonth(anio, mes)
+      const { first, last } = getFirstLastDayOfMonth(anio, mes)
 
-        const { data: estudiantesData, error: errEst } = await auth.supabase
-          .from('estudiantes')
-          .select('id, codigo, nombre_completo, aula_id, aula:aulas(nombre)')
-          .eq('fcp_id', fcpId)
-          .neq('aula_id', aulaId)
-          .eq('activo', true)
-          .or(`codigo.ilike.%${term}%,nombre_completo.ilike.%${term}%`)
-          .order('nombre_completo')
-          .limit(30)
+      const { data: estudiantesData, error: errEst } = await auth.supabase
+        .from('estudiantes')
+        .select('id, codigo, nombre_completo, aula_id, aula:aulas(nombre)')
+        .eq('fcp_id', fcpId)
+        .neq('aula_id', aulaId)
+        .eq('activo', true)
+        .or(`codigo.ilike.%${term}%,nombre_completo.ilike.%${term}%`)
+        .order('nombre_completo')
+        .limit(30)
 
-        if (errEst) throw errEst
-        const deOtros = (estudiantesData || []).map((e: any) => ({
-          id: e.id,
-          codigo: e.codigo,
-          nombre_completo: e.nombre_completo,
-          aula_nombre: (e.aula as { nombre?: string })?.nombre || 'Otro salón',
-        }))
+      if (errEst) throw errEst
+      const deOtros = (estudiantesData || []).map((e: any) => ({
+        id: e.id,
+        codigo: e.codigo,
+        nombre_completo: e.nombre_completo,
+        aula_nombre: (e.aula as { nombre?: string })?.nombre || 'Otro salón',
+      }))
 
-        const { data: periodosData, error: errPer } = await auth.supabase
-          .from('estudiante_periodos')
-          .select('estudiante_id')
-          .eq('aula_id', aulaId)
-          .lte('fecha_inicio', last)
-          .gte('fecha_fin', first)
+      const { data: periodosData, error: errPer } = await auth.supabase
+        .from('estudiante_periodos')
+        .select('estudiante_id')
+        .eq('aula_id', aulaId)
+        .lte('fecha_inicio', last)
+        .gte('fecha_fin', first)
 
-        if (errPer) throw errPer
-        const idsConPeriodo = new Set((periodosData || []).map((p: { estudiante_id: string }) => p.estudiante_id))
-        const candidatos = deOtros.filter((e) => !idsConPeriodo.has(e.id))
-        setEstudiantesOtrosSalones(candidatos)
-      } catch (e) {
-        console.error(e)
-        setEstudiantesOtrosSalones([])
-      } finally {
-        setLoadingBusqueda(false)
-      }
-    }, 350)
-
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current)
+      if (errPer) throw errPer
+      const idsConPeriodo = new Set((periodosData || []).map((p: { estudiante_id: string }) => p.estudiante_id))
+      const candidatos = deOtros.filter((e) => !idsConPeriodo.has(e.id))
+      setEstudiantesOtrosSalones(candidatos)
+    } catch (e) {
+      console.error(e)
+      toast.error('Error al buscar', 'No se pudo buscar en otros salones.')
+      setEstudiantesOtrosSalones([])
+    } finally {
+      setLoadingBusqueda(false)
     }
-  }, [open, modo, busqueda, fcpId, aulaId, anio, mes])
+  }
 
   // Lista combinada: salón actual (filtrado si hay búsqueda) + resultados de otros salones
   const terminoBusqueda = busqueda.trim().toLowerCase()
@@ -422,14 +411,22 @@ export function AgregarEstudianteMesDialog({
           <div className="space-y-4">
             <div className="flex gap-2">
               <Input
-                placeholder="Buscar por código o nombre (incl. otros salones)..."
+                placeholder="Buscar por código o nombre..."
                 value={busqueda}
-                onChange={(e) => setBusqueda(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
+                onChange={(e) => {
+                  setBusqueda(e.target.value)
+                  setEstudiantesOtrosSalones([]) // Limpiar resultados de otros salones al cambiar término
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), buscarOtrosSalones())}
               />
-              {loadingBusqueda && (
-                <span className="text-xs text-muted-foreground self-center">Buscando…</span>
-              )}
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={buscarOtrosSalones}
+                disabled={loadingBusqueda}
+              >
+                {loadingBusqueda ? 'Buscando…' : 'Buscar'}
+              </Button>
             </div>
             {estudiantesFiltrados.length > 0 && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
