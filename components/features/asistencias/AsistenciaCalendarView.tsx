@@ -280,7 +280,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     if (fcpId) {
       loadAulas()
     }
-  }, [fcpId])
+  }, [fcpId, role])
 
   // Actualizar aula seleccionada cuando cambia el prop aulaId
   useEffect(() => {
@@ -386,21 +386,61 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const loadAulas = async () => {
     try {
       const supabase = createClient()
-      const { data, error } = await supabase
-        .from('aulas')
-        .select('id, nombre')
-        .eq('fcp_id', fcpId)
-        .eq('activa', true)
-        .order('nombre', { ascending: true })
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        setAulas([])
+        return
+      }
 
-      if (error) throw error
-      setAulas(data || [])
+      let aulasData: Array<{ id: string; nombre: string }> = []
+
+      // Si es tutor, cargar solo las aulas asignadas a él
+      if (role === 'tutor') {
+        const { data: tutorMiembrosData, error: tutorMiembrosError } = await supabase
+          .from('fcp_miembros')
+          .select('id')
+          .eq('usuario_id', user.id)
+          .eq('fcp_id', fcpId)
+          .eq('rol', 'tutor')
+          .eq('activo', true)
+
+        if (tutorMiembrosError) throw tutorMiembrosError
+
+        if (tutorMiembrosData && tutorMiembrosData.length > 0) {
+          const tutorMiembroIds = tutorMiembrosData.map((tm: any) => tm.id)
+          const { data: tutorAulasData, error: tutorAulasError } = await supabase
+            .from('tutor_aula')
+            .select('aula_id, aula:aulas(id, nombre, activa)')
+            .in('fcp_miembro_id', tutorMiembroIds)
+            .eq('activo', true)
+
+          if (tutorAulasError) throw tutorAulasError
+
+          aulasData = (tutorAulasData || [])
+            .map((ta: any) => ta.aula)
+            .filter((aula: any) => aula && aula.activa)
+            .map((a: any) => ({ id: a.id, nombre: a.nombre }))
+            .sort((a, b) => a.nombre.localeCompare(b.nombre))
+        }
+      } else {
+        const { data, error } = await supabase
+          .from('aulas')
+          .select('id, nombre')
+          .eq('fcp_id', fcpId)
+          .eq('activa', true)
+          .order('nombre', { ascending: true })
+
+        if (error) throw error
+        aulasData = data || []
+      }
+
+      setAulas(aulasData)
       
       // Si hay aulaId prop y no hay aula seleccionada, seleccionarla
-      if (aulaId && !selectedAula) {
+      if (aulaId && aulasData.some(a => a.id === aulaId) && !selectedAula) {
         setSelectedAula(aulaId)
-      } else if (data && data.length > 0 && !selectedAula) {
-        setSelectedAula(data[0].id)
+      } else if (aulasData.length > 0 && !selectedAula) {
+        setSelectedAula(aulasData[0].id)
       }
     } catch (error) {
       console.error('Error loading aulas:', error)

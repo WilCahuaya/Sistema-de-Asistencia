@@ -539,7 +539,8 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
           })
         }
 
-        // Validar días completos y contar días de clases usando aula_id de la asistencia
+        // Días completos: solo cuenta un día cuando TODOS los estudiantes tienen registro
+        // (presente, faltó o permiso). Si algún estudiante no tiene estado ese día, no cuenta.
         let diasDeClases = 0
         let totalAsistenciasPresente = 0
         const todasAsistenciasPorEstudianteFecha: { [key: string]: string } = {}
@@ -575,8 +576,8 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
             }
           })
           
-          // Verificar si todos los estudiantes del aula tienen asistencia registrada
-          // Un día está completo si TODOS los estudiantes tienen asistencia registrada (presente, faltó o permiso)
+          // Un día está completo solo si TODOS los estudiantes tienen estado (presente/faltó/permiso).
+          // Si falta el registro de algún estudiante, ese día NO cuenta para el porcentaje.
           if (marcados === registradosEnFecha && registradosEnFecha > 0) {
             // Día completo: todos los estudiantes están marcados, contar como día de clases
             diasDeClases++

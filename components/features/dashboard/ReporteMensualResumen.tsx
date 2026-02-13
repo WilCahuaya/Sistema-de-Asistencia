@@ -182,11 +182,11 @@ export function ReporteMensualResumen() {
           }
         })
 
-        // Contar días completos (días donde todos los estudiantes están marcados)
+        // Días completos: solo cuenta un día cuando TODOS tienen estado (presente/faltó/permiso).
+        // Si algún estudiante no tiene registro ese día, no cuenta para el porcentaje.
         let diasDeClases = 0
         let totalAsistenciasPresente = 0
 
-        // Verificar que las fechas sean del mes actual
         asistenciasPorFecha.forEach((estudiantesMarcados, fecha) => {
           const marcados = estudiantesMarcados.size
           

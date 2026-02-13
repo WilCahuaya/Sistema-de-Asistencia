@@ -411,7 +411,8 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
               }
             })
 
-            // Validar días completos iterando cada día del mes (igual que ReporteMensual)
+            // Días completos: solo cuenta un día cuando TODOS los estudiantes tienen registro
+            // (presente, faltó o permiso). Si algún estudiante no tiene estado ese día, no cuenta.
             let diasDeClases = 0
             const fechasDiasCompletos = new Set<string>()
             const diasDelMes = new Date(selectedYear, mes + 1, 0).getDate()
@@ -419,8 +420,9 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
             for (let dia = 1; dia <= diasDelMes; dia++) {
               const fechaStr = `${selectedYear}-${String(mes + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
               const estudiantesConAsistencia = asistenciasPorFecha.get(fechaStr) || new Set()
-              const marcados = estudiantesConAsistencia.size
+              const marcados = estudiantesConAsistencia.size // Estudiantes con estado (presente/faltó/permiso)
 
+              // Solo día completo: todos tienen registro; si falta alguno, no cuenta
               if (marcados === registrados && registrados > 0) {
                 diasDeClases++
                 fechasDiasCompletos.add(fechaStr)
