@@ -1600,8 +1600,20 @@ export function ReporteList() {
     }
   }
 
+  // Mientras se determina el rol, mostrar cargando
+  if (roleLoading) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-12">
+          <BarChart3 className="h-12 w-12 text-muted-foreground mb-4 animate-pulse" />
+          <p className="text-muted-foreground">Cargando reporte general...</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
   // Si no hay fcpId y no es facilitador, mostrar mensaje
-  if (!fcpIdFinal && !esFacilitador && !roleLoading) {
+  if (!fcpIdFinal && !esFacilitador) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">

@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { MonthPicker } from '@/components/ui/month-picker'
-import { FileSpreadsheet, FileText, Calendar, Download, Search, ChevronDown, ChevronUp } from 'lucide-react'
+import { FileSpreadsheet, FileText, Calendar, Download, Search, ChevronDown, ChevronUp, BarChart3 } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useRouter } from 'next/navigation'
@@ -1515,9 +1515,8 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
-          <p className="text-muted-foreground mb-4">
-            Cargando FCPs...
-          </p>
+          <BarChart3 className="h-12 w-12 text-muted-foreground mb-4 animate-pulse" />
+          <p className="text-muted-foreground">Cargando reporte por nivel...</p>
         </CardContent>
       </Card>
     )

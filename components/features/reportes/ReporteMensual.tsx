@@ -951,9 +951,8 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
-          <p className="text-muted-foreground mb-4">
-            Cargando FCPs...
-          </p>
+          <Calendar className="h-12 w-12 text-muted-foreground mb-4 animate-pulse" />
+          <p className="text-muted-foreground">Cargando reporte mensual...</p>
         </CardContent>
       </Card>
     )

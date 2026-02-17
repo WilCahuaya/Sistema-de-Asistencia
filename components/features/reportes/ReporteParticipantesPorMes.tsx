@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { FileSpreadsheet, FileText, Calendar, Building2, Search, ChevronDown, ChevronUp } from 'lucide-react'
+import { FileSpreadsheet, FileText, Calendar, Building2, Search, ChevronDown, ChevronUp, BarChart3 } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import { RoleGuard } from '@/components/auth/RoleGuard'
@@ -844,7 +844,8 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
-          <p className="text-muted-foreground mb-4">Cargando FCPs...</p>
+          <BarChart3 className="h-12 w-12 text-muted-foreground mb-4 animate-pulse" />
+          <p className="text-muted-foreground">Cargando FCPs por meses...</p>
         </CardContent>
       </Card>
     )
