@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { MonthPicker } from '@/components/ui/month-picker'
-import { BarChart3, FileSpreadsheet, FileText, Calendar, Download, Search, ChevronDown, ChevronUp } from 'lucide-react'
+import { BarChart3, FileSpreadsheet, FileText, Calendar, Download, Search, ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -1600,27 +1600,25 @@ export function ReporteList() {
     }
   }
 
-  // Mientras se verifica el rol (contexto o useUserRole), mostrar cargando
+  // Mientras se verifica el rol (contexto o useUserRole), mostrar loader
   if (roleLoading || roleContextLoading) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
-          <BarChart3 className="h-12 w-12 text-muted-foreground mb-4 animate-pulse" />
+          <Loader2 className="h-12 w-12 text-muted-foreground mb-4 animate-spin" />
           <p className="text-muted-foreground">Cargando reporte general...</p>
         </CardContent>
       </Card>
     )
   }
 
-  // Si no hay fcpId y no es facilitador (ya se verificó el rol), mostrar mensaje
+  // Si no hay fcpId y no es facilitador (ya se verificó el rol), mostrar loader
   if (!fcpIdFinal && !esFacilitador) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
-          <BarChart3 className="h-12 w-12 text-muted-foreground mb-4" />
-          <p className="text-muted-foreground">
-            No tienes un rol seleccionado. Por favor, selecciona un rol para continuar.
-          </p>
+          <Loader2 className="h-12 w-12 text-muted-foreground mb-4 animate-spin" />
+          <p className="text-muted-foreground">Cargando reporte...</p>
         </CardContent>
       </Card>
     )
