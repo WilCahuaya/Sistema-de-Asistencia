@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Building2, Users, GraduationCap, ClipboardList } from 'lucide-react'
+import { Building2, Users, GraduationCap, ClipboardList, CheckCircle2, XCircle } from 'lucide-react'
 import Link from 'next/link'
 import { ReportesMensualesResumen } from '@/components/features/dashboard/ReportesMensualesResumen'
 import { ReporteMensualResumen } from '@/components/features/dashboard/ReporteMensualResumen'
@@ -508,37 +508,41 @@ export default async function DashboardPage() {
               // Obtener asistencias del mes actual (rango en zona horaria de la app)
               const { data: asistenciasData } = await supabase
                 .from('asistencias')
-                .select('estado')
+                .select('estado, fecha')
                 .in('estudiante_id', estudianteIds)
                 .gte('fecha', inicioMesStr)
                 .lte('fecha', finMesStr)
               
-              // Contar por estado
+              // Contar por estado y días atendidos (fechas distintas con registro)
               let presentes = 0
               let faltos = 0
               let permisos = 0
+              const fechasConRegistro = new Set<string>()
               
               if (asistenciasData) {
                 asistenciasData.forEach((asist: any) => {
+                  fechasConRegistro.add(asist.fecha)
                   if (asist.estado === 'presente') presentes++
                   else if (asist.estado === 'falto') faltos++
                   else if (asist.estado === 'permiso') permisos++
                 })
               }
               
-              // Agregar estadísticas al objeto aula
+              // Agregar estadísticas al objeto aula (días atendidos = fechas distintas de ese salón)
               aula.estadisticas = {
                 presentes,
                 faltos,
                 permisos,
-                totalEstudiantes: count || 0
+                totalEstudiantes: count || 0,
+                diasAtendidos: fechasConRegistro.size
               }
             } else {
               aula.estadisticas = {
                 presentes: 0,
                 faltos: 0,
                 permisos: 0,
-                totalEstudiantes: count || 0
+                totalEstudiantes: count || 0,
+                diasAtendidos: 0
               }
             }
           }
@@ -546,15 +550,64 @@ export default async function DashboardPage() {
       }
     }
 
+    // Calcular estadísticas generales (agregado de todas las aulas del tutor)
+    let totalPresentes = 0
+    let totalFaltos = 0
+    let totalPermisos = 0
+
+    tutorAulas.forEach((aula: any) => {
+      if (aula?.estadisticas) {
+        totalPresentes += aula.estadisticas.presentes || 0
+        totalFaltos += aula.estadisticas.faltos || 0
+        totalPermisos += aula.estadisticas.permisos || 0
+      }
+    })
+
+    const totalRegistros = totalPresentes + totalFaltos + totalPermisos
+    const asistenciaPromedio = totalRegistros > 0 ? Math.round((totalPresentes / totalRegistros) * 100) : 0
+    const inasistenciaPromedio = totalRegistros > 0 ? Math.round(((totalFaltos + totalPermisos) / totalRegistros) * 100) : 0
+    const mesLabel = getCurrentMonthLabelInAppTimezone('es-PE')
+
     return (
       <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-8 lg:px-8">
-        <div className="mb-4 sm:mb-8">
+        <div className="mb-6 sm:mb-8">
           <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
-            Dashboard
+            Estadísticas del Mes – Salón
           </h1>
-          <p className="mt-2 text-sm text-foreground/80 sm:text-base">
-            Bienvenido, {usuario?.nombre_completo || user.user_metadata?.full_name || user.user_metadata?.name || user.email}
+          <p className="mt-2 text-lg font-medium text-foreground/90">
+            {mesLabel}
           </p>
+        </div>
+
+        {/* Resumen General - Vista rápida (promedios agregados de todos los salones) */}
+        <div className="grid gap-4 sm:gap-6 grid-cols-2 lg:grid-cols-4 mb-8">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total estudiantes</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{totalEstudiantesTutor}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Asistencia promedio</CardTitle>
+              <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600 dark:text-green-400">{asistenciaPromedio}%</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Inasistencia promedio</CardTitle>
+              <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-red-600 dark:text-red-400">{inasistenciaPromedio}%</div>
+            </CardContent>
+          </Card>
         </div>
 
         <div className="grid gap-4 sm:gap-6 grid-cols-1 md:grid-cols-2">
@@ -573,16 +626,18 @@ export default async function DashboardPage() {
           </Link>
 
           {/* Card de Estudiantes */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Estudiantes</CardTitle>
-              <GraduationCap className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totalEstudiantesTutor}</div>
-              <p className="text-xs text-muted-foreground">Estudiantes en mis aulas</p>
-            </CardContent>
-          </Card>
+          <Link href="/asistencias">
+            <Card className="cursor-pointer transition-shadow hover:shadow-lg">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Estudiantes</CardTitle>
+                <GraduationCap className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{totalEstudiantesTutor}</div>
+                <p className="text-xs text-muted-foreground">Ir a registrar asistencias</p>
+              </CardContent>
+            </Card>
+          </Link>
         </div>
 
         {/* Estadísticas de asistencia por salón */}
@@ -600,6 +655,7 @@ export default async function DashboardPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Salón</TableHead>
+                        <TableHead className="text-center">Días atendidos</TableHead>
                         <TableHead className="text-center">Asistió</TableHead>
                         <TableHead className="text-center">Faltó</TableHead>
                         <TableHead className="text-center">Permiso</TableHead>
@@ -610,6 +666,9 @@ export default async function DashboardPage() {
                       {tutorAulas.map((aula: any) => (
                         <TableRow key={aula.id}>
                           <TableCell className="font-medium">{aula.nombre}</TableCell>
+                          <TableCell className="text-center">
+                            {aula.estadisticas?.diasAtendidos ?? 0}
+                          </TableCell>
                           <TableCell className="text-center text-green-600 dark:text-green-400">
                             {aula.estadisticas?.presentes || 0}
                           </TableCell>

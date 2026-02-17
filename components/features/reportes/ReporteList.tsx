@@ -76,7 +76,7 @@ interface ReporteData {
     codigo: string
     nivel: string
     tutor: string
-    asistenciasPorFecha: { [fecha: string]: boolean } // true si asistió (presente)
+    asistenciasPorFecha: { [fecha: string]: 'presente' | 'falto' | 'permiso' | undefined } // estado por día
   }>
   fechasUnicas?: string[] // Fechas únicas ordenadas para las columnas
   diasIncompletos?: Array<{
@@ -897,16 +897,53 @@ export function ReporteList() {
           fechasUnicas: fechasUnicas
         })
 
+        // Obtener estudiantes activos por (aula, fecha) usando estudiante_periodos
+        // Así usamos la lista correcta: quiénes debían estar en el aula en cada fecha
+        const aulaIds = Array.from(aulasMap.keys())
+        const activosPorAulaYFecha = new Map<string, Set<string>>() // `${aulaId}|${fecha}` -> Set<estudiante_id>
+
+        let hayPeriodos = false
+        if (aulaIds.length > 0) {
+          const { data: periodosData } = await supabase
+            .from('estudiante_periodos')
+            .select('aula_id, estudiante_id, fecha_inicio, fecha_fin')
+            .in('aula_id', aulaIds)
+            .lte('fecha_inicio', fechaFin)
+            .or(`fecha_fin.is.null,fecha_fin.gte.${fechaInicio}`)
+
+          // Construir map: para cada (aulaId, fecha) en fechasUnicas, estudiantes activos
+          fechasUnicas.forEach((fecha) => {
+            const [y, m, d] = fecha.split('-').map(Number)
+            const fechaDate = new Date(y, m - 1, d)
+            const [yi, mi, di] = fechaInicio.split('-').map(Number)
+            const [yf, mf, df] = fechaFin.split('-').map(Number)
+            if (fechaDate < new Date(yi, mi - 1, di) || fechaDate > new Date(yf, mf - 1, df)) return
+
+            aulaIds.forEach((aulaId) => {
+              const key = `${aulaId}|${fecha}`
+              const activos = new Set<string>()
+              periodosData?.forEach((p: { aula_id: string; estudiante_id: string; fecha_inicio: string; fecha_fin: string | null }) => {
+                if (p.aula_id !== aulaId) return
+                const fi = p.fecha_inicio
+                const ff = p.fecha_fin
+                if (fi <= fecha && (!ff || ff >= fecha)) {
+                  activos.add(p.estudiante_id)
+                }
+              })
+              activosPorAulaYFecha.set(key, activos)
+            })
+          })
+          hayPeriodos = (periodosData?.length ?? 0) > 0
+        }
+
+
         // Detectar días incompletos por aula (reutilizar aulasMap ya creado arriba)
-        // Por cada aula, verificar días incompletos en TODAS las fechas del rango
         aulasMap.forEach((aula, aulaId) => {
-          const totalEstudiantes = aula.estudiantesIds.length
           const asistenciasPorFecha = new Map<string, Set<string>>() // fecha -> Set<estudiante_id>
 
-          // Agrupar asistencias por fecha para esta aula usando aula_id de la asistencia
+          // Agrupar asistencias por fecha para esta aula (cualquier estado: presente, falto, permiso)
           asistenciasData?.forEach((asist: any) => {
-            // Solo incluir asistencias que pertenecen a esta aula según aula_id de la asistencia
-            if (asist.aula_id === aulaId && aula.estudiantesIds.includes(asist.estudiante_id)) {
+            if (asist.aula_id === aulaId) {
               const fecha = asist.fecha
               // Verificar que la fecha esté en el rango
               const [year, month, day] = fecha.split('-').map(Number)
@@ -926,11 +963,10 @@ export function ReporteList() {
             }
           })
 
-          // Obtener todas las fechas únicas con asistencias registradas para esta aula usando aula_id de la asistencia
+          // Obtener todas las fechas únicas con asistencias registradas para esta aula
           const fechasConAsistencias = new Set<string>()
           asistenciasData?.forEach((asist: any) => {
-            // Solo incluir asistencias que pertenecen a esta aula según aula_id de la asistencia
-            if (asist.aula_id === aulaId && aula.estudiantesIds.includes(asist.estudiante_id)) {
+            if (asist.aula_id === aulaId) {
               const fecha = asist.fecha
               // Verificar que la fecha esté en el rango seleccionado
               const [year, month, day] = fecha.split('-').map(Number)
@@ -949,7 +985,6 @@ export function ReporteList() {
           console.log('')
           console.log('🔍 [ReporteList] Detección de días incompletos para aula:', {
             aula: aula.aulaNombre,
-            totalEstudiantes: aula.estudiantesIds.length,
             fechasConAsistencias: Array.from(fechasConAsistencias).sort(),
             totalFechas: fechasConAsistencias.size,
             asistenciasPorFechaSize: asistenciasPorFecha.size
@@ -976,16 +1011,19 @@ export function ReporteList() {
             console.log(`\n📅 [ReporteList] Procesando fecha: ${fecha} para aula: ${aula.aulaNombre}`)
             const estudiantesMarcados = asistenciasPorFecha.get(fecha) || new Set<string>()
             console.log(`   📊 Estudiantes marcados en asistenciasPorFecha: ${estudiantesMarcados.size}`)
-            
-            // Para detectar días incompletos, usar TODOS los estudiantes del aula (como en la página de asistencias)
-            // NO filtrar por created_at porque los estudiantes pueden haber sido agregados después
-            // pero aún así deberían tener asistencia registrada para fechas anteriores
-            const totalEstudiantesEnFecha = aula.estudiantesIds.length
-            
-            // Contar estudiantes marcados que pertenecen a esta aula
-            const estudiantesAulaSet = new Set(aula.estudiantesIds)
-            const marcados = Array.from(estudiantesMarcados).filter(estId => 
-              estudiantesAulaSet.has(estId)
+
+            // Usar estudiantes_activos en esa fecha (estudiante_periodos)
+            const key = `${aulaId}|${fecha}`
+            let estudiantesActivosEnFecha = activosPorAulaYFecha.get(key) || new Set<string>()
+            // Fallback: si la FCP no usa estudiante_periodos, usar lista del aula
+            if (!hayPeriodos && estudiantesActivosEnFecha.size === 0 && aula.estudiantesIds.length > 0) {
+              estudiantesActivosEnFecha = new Set(aula.estudiantesIds)
+            }
+            const totalEstudiantesEnFecha = estudiantesActivosEnFecha.size
+
+            // Contar cuántos de los que debían estar tienen registro (presente, falto o permiso)
+            const marcados = Array.from(estudiantesMarcados).filter(estId =>
+              estudiantesActivosEnFecha.has(estId)
             ).length
             
             // Debug: Log para TODAS las fechas para diagnóstico
@@ -1094,29 +1132,26 @@ export function ReporteList() {
           }
         })
 
-        // Crear mapa de asistencias por estudiante y fecha (TODAS las asistencias registradas)
-        // IMPORTANTE: También actualizar el aula_nombre del estudiante usando el aula_id de la asistencia
-        const asistenciasMap = new Map<string, Map<string, boolean>>() // estudiante_id -> fecha -> presente
+        // Crear mapa de asistencias por estudiante y fecha (presente, falto, permiso)
+        const asistenciasMap = new Map<string, Map<string, 'presente' | 'falto' | 'permiso'>>()
 
         asistenciasData?.forEach((asist: any) => {
           const estudiante = estudiantesData?.find(e => e.id === asist.estudiante_id)
           if (!estudiante) return
-          
+
+          const estado = asist.estado as 'presente' | 'falto' | 'permiso'
+          if (!estado || !['presente', 'falto', 'permiso'].includes(estado)) return
+
           // IMPORTANTE: Solo actualizar el aula_nombre usando el aula_id de la asistencia para meses anteriores
-          // Para meses actuales, mantener el aula_nombre que se estableció usando el aula_id actual del estudiante
           const estudianteResumen = resumenPorEstudianteMap.get(asist.estudiante_id)
           if (estudianteResumen && esMesAnterior && asist.aula_id && asist.aula) {
             const aulaNombreDeAsistencia = asist.aula.nombre || 'Sin aula'
-            // Actualizar el aula_nombre si es diferente (para preservar el aula histórica)
             if (estudianteResumen.aula_nombre !== aulaNombreDeAsistencia) {
               estudianteResumen.aula_nombre = aulaNombreDeAsistencia
             }
           }
-          // Para meses actuales, NO sobrescribir el aula_nombre (ya está correcto desde la inicialización)
-          
+
           const fecha = asist.fecha
-          
-          // Verificar que la fecha esté en el rango seleccionado
           const [year, month, day] = fecha.split('-').map(Number)
           const fechaDate = new Date(year, month - 1, day)
           const [yearInicio, monthInicio, dayInicio] = fechaInicio.split('-').map(Number)
@@ -1124,13 +1159,12 @@ export function ReporteList() {
           const [yearFin, monthFin, dayFin] = fechaFin.split('-').map(Number)
           const fechaFinDate = new Date(yearFin, monthFin - 1, dayFin)
           const esDelRango = fechaDate >= fechaInicioDate && fechaDate <= fechaFinDate
-          
-          // Incluir TODAS las asistencias "presente" dentro del rango (no solo días completos)
-          if (esDelRango && asist.estado === 'presente') {
+
+          if (esDelRango) {
             if (!asistenciasMap.has(asist.estudiante_id)) {
               asistenciasMap.set(asist.estudiante_id, new Map())
             }
-            asistenciasMap.get(asist.estudiante_id)!.set(asist.fecha, true)
+            asistenciasMap.get(asist.estudiante_id)!.set(fecha, estado)
           }
         })
 
@@ -1148,10 +1182,10 @@ export function ReporteList() {
           const tutor = aulaTutorMap.get(aulaId) || 'Sin tutor asignado'
           const nivel = est.aula_nombre // Ya está usando el aula_nombre correcto del resumenPorEstudianteMap
 
-          const asistenciasPorFecha: { [fecha: string]: boolean } = {}
+          const asistenciasPorFecha: { [fecha: string]: 'presente' | 'falto' | 'permiso' | undefined } = {}
           const asistMap = asistenciasMap.get(est.estudiante_id)
           fechasUnicas.forEach((fecha) => {
-            asistenciasPorFecha[fecha] = asistMap?.get(fecha) === true
+            asistenciasPorFecha[fecha] = asistMap?.get(fecha)
           })
 
           return {
@@ -1324,9 +1358,10 @@ export function ReporteList() {
             row.tutor,
           ]
 
-          // Agregar asistencias por fecha
+          // Agregar asistencias por fecha (presente=1, falto=F, permiso=P)
           fechasUnicasArray.forEach(fecha => {
-            rowData.push(row.asistenciasPorFecha[fecha] ? '1' : '')
+            const e = row.asistenciasPorFecha[fecha]
+            rowData.push(e === 'presente' ? '1' : e === 'falto' ? 'F' : e === 'permiso' ? 'P' : '')
           })
 
           return rowData
@@ -1508,10 +1543,11 @@ export function ReporteList() {
             row.tutor,
           ]
 
-          // Agregar asistencias por fecha
+          // Agregar asistencias por fecha (presente=1, falto=F, permiso=P)
           if (reporteData.fechasUnicas) {
             reporteData.fechasUnicas.forEach(fecha => {
-              rowData.push(row.asistenciasPorFecha[fecha] ? '1' : '')
+              const e = row.asistenciasPorFecha[fecha]
+              rowData.push(e === 'presente' ? '1' : e === 'falto' ? 'F' : e === 'permiso' ? 'P' : '')
             })
           }
 
@@ -1875,8 +1911,10 @@ export function ReporteList() {
                         </div>
                         <div className="space-y-3">
                           {displayRows.map((row, idx) => {
-                            const presentes = reporteData.fechasUnicas?.filter((f) => row.asistenciasPorFecha[f]).length || 0
-                            const globalIndex = filtered.indexOf(row)
+                            const presentes = reporteData.fechasUnicas?.filter((f) => row.asistenciasPorFecha[f] === 'presente').length || 0
+                            const faltas = reporteData.fechasUnicas?.filter((f) => row.asistenciasPorFecha[f] === 'falto').length || 0
+                            const permisos = reporteData.fechasUnicas?.filter((f) => row.asistenciasPorFecha[f] === 'permiso').length || 0
+                            const sinRegistro = reporteData.fechasUnicas?.filter((f) => !row.asistenciasPorFecha[f]).length || 0
                             const isExpanded = expandedCardId === row.no
                             return (
                               <Card key={row.no}>
@@ -1889,8 +1927,11 @@ export function ReporteList() {
                                       <p className="font-mono text-xs text-muted-foreground">{row.codigo}</p>
                                       <p className="font-medium truncate">{row.persona}</p>
                                       <p className="text-sm text-muted-foreground">{row.nivel} · {row.tutor}</p>
-                                      <p className="text-sm mt-1">
-                                        {presentes} / {totalDias} presentes
+                                      <p className="text-sm mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                                        <span className="text-green-600 dark:text-green-400">{presentes} presente{presentes !== 1 ? 's' : ''}</span>
+                                        <span className="text-red-600 dark:text-red-400">{faltas} falta{faltas !== 1 ? 's' : ''}</span>
+                                        <span className="text-amber-600 dark:text-amber-400">{permisos} permiso{permisos !== 1 ? 's' : ''}</span>
+                                        {sinRegistro > 0 && <span className="text-muted-foreground">{sinRegistro} sin registrar</span>}
                                       </p>
                                     </div>
                                     {isExpanded ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
@@ -1899,15 +1940,20 @@ export function ReporteList() {
                                     <div className="mt-4 pt-3 border-t grid grid-cols-7 gap-1">
                                       {reporteData.fechasUnicas.map((fecha) => {
                                         const [y, m, d] = fecha.split('-').map(Number)
-                                        const asisto = row.asistenciasPorFecha[fecha]
+                                        const estado = row.asistenciasPorFecha[fecha]
+                                        const bgClass = estado === 'presente' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                                          : estado === 'falto' ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                                          : estado === 'permiso' ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                                          : 'bg-muted text-muted-foreground'
+                                        const simbolo = estado === 'presente' ? '✓' : estado === 'falto' ? '✗' : estado === 'permiso' ? 'P' : '—'
                                         return (
                                           <div
                                             key={fecha}
-                                            className={`text-center py-1 rounded text-xs ${asisto ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-muted text-muted-foreground'}`}
-                                            title={fecha}
+                                            className={`text-center py-1 rounded text-xs ${bgClass}`}
+                                            title={estado ? `${fecha}: ${estado}` : `${fecha}: sin registrar`}
                                           >
                                             <span className="block font-medium">{d}</span>
-                                            <span>{asisto ? '✓' : '—'}</span>
+                                            <span>{simbolo}</span>
                                           </div>
                                         )
                                       })}
@@ -2003,14 +2049,18 @@ export function ReporteList() {
                             <td className="border border-border p-2 text-center font-mono min-w-[6rem] text-foreground">{row.codigo}</td>
                             <td className="border border-border p-2 text-center min-w-[7.5rem] whitespace-nowrap text-foreground">{row.nivel}</td>
                             <td className="border border-border p-2 min-w-[140px] text-foreground">{row.tutor}</td>
-                            {reporteData.fechasUnicas?.map((fecha) => (
-                              <td
-                                key={fecha}
-                                className="border border-border p-2 text-center text-foreground"
-                              >
-                                {row.asistenciasPorFecha[fecha] ? '1' : ''}
-                              </td>
-                            ))}
+                            {reporteData.fechasUnicas?.map((fecha) => {
+                              const estado = row.asistenciasPorFecha[fecha]
+                              const celda = estado === 'presente' ? '1' : estado === 'falto' ? 'F' : estado === 'permiso' ? 'P' : ''
+                              return (
+                                <td
+                                  key={fecha}
+                                  className="border border-border p-2 text-center text-foreground"
+                                >
+                                  {celda}
+                                </td>
+                              )
+                            })}
                           </tr>
                         ))}
                       </tbody>
