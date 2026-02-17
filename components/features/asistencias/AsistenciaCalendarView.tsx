@@ -82,11 +82,13 @@ interface AsistenciaCalendarViewProps {
   aulaId?: string | null
   initialMonth?: number | null
   initialYear?: number | null
+  /** Fecha YYYY-MM-DD para móvil: ir directamente al día que falta corregir */
+  initialDate?: string | null
 }
 
 type AsistenciaEstado = 'presente' | 'falto' | 'permiso' | null
 
-export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYear }: AsistenciaCalendarViewProps) {
+export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYear, initialDate }: AsistenciaCalendarViewProps) {
   const [estudiantes, setEstudiantes] = useState<Estudiante[]>([])
   const [asistencias, setAsistencias] = useState<Map<string, Asistencia>>(new Map())
   const [loading, setLoading] = useState(false)
@@ -120,7 +122,10 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const [selectedEstudianteForModal, setSelectedEstudianteForModal] = useState<Estudiante | null>(null)
   const [mobilePage, setMobilePage] = useState(1)
   const [mobileSearch, setMobileSearch] = useState('')
-  const [mobileSelectedDate, setMobileSelectedDate] = useState<string>(() => getTodayInAppTimezone())
+  const [mobileSelectedDate, setMobileSelectedDate] = useState<string>(() => {
+    if (initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate)) return initialDate
+    return getTodayInAppTimezone()
+  })
   const [mobileDatePickerOpen, setMobileDatePickerOpen] = useState(false)
   const tableContainerRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)

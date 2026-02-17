@@ -112,6 +112,7 @@ export function AsistenciasPageContent() {
   const monthParam = searchParams.get('month')
   const yearParam = searchParams.get('year')
   const aulaIdFromUrl = searchParams.get('aulaId') || searchParams.get('aulald')
+  const dateFromUrl = searchParams.get('date')
   const monthNum = monthParam != null && monthParam !== '' ? parseInt(monthParam, 10) : NaN
   const yearNum = yearParam != null && yearParam !== '' ? parseInt(yearParam, 10) : NaN
   const initialMonth = !Number.isNaN(monthNum) && monthNum >= 0 && monthNum <= 11 ? monthNum : null
@@ -211,6 +212,7 @@ export function AsistenciasPageContent() {
           aulaId={selectedAula || aulaIdFromUrl}
           initialMonth={initialMonth}
           initialYear={initialYear}
+          initialDate={dateFromUrl}
         />
       )}
     </div>
