@@ -40,32 +40,37 @@ export function SelectedRoleProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      // Verificar si hay un rol seleccionado: primero localStorage, luego cookies (sincronizar con servidor)
+      // 1. PRIMERO: Obtener rol desde el servidor (cookies). Es la fuente de verdad que usa Dashboard.
+      // Las cookies se envían automáticamente en la petición same-origin.
+      try {
+        const res = await fetch('/api/get-selected-role', { credentials: 'include' })
+        if (res.ok) {
+          const { role } = await res.json()
+          if (role) {
+            const roleToSet = {
+              roleId: role.roleId,
+              role: role.role as RolType,
+              fcpId: role.fcpId ?? null,
+              fcp: role.fcp
+            }
+            setSelectedRoleState(roleToSet)
+            // Sincronizar a localStorage para consistencia
+            localStorage.setItem('selectedRoleId', role.roleId)
+            localStorage.setItem('selectedRole', role.role)
+            if (role.fcpId) localStorage.setItem('selectedFcpId', role.fcpId)
+            else localStorage.removeItem('selectedFcpId')
+            setLoading(false)
+            return
+          }
+        }
+      } catch (e) {
+        console.warn('SelectedRoleContext: fallback a localStorage tras error en API:', e)
+      }
+
+      // 2. FALLBACK: localStorage (por si la API falla o no hay cookies)
       let savedRoleId = typeof window !== 'undefined' ? localStorage.getItem('selectedRoleId') : null
       let savedRole = (typeof window !== 'undefined' ? localStorage.getItem('selectedRole') : null) as RolType | null
       let savedFcpId = typeof window !== 'undefined' ? localStorage.getItem('selectedFcpId') : null
-
-      // Si localStorage está vacío, intentar leer desde cookies (el servidor las establece al seleccionar rol)
-      if ((!savedRoleId || !savedRole) && typeof document !== 'undefined' && document.cookie) {
-        const cookies = document.cookie.split(';').reduce((acc, c) => {
-          const [k, v] = c.trim().split('=')
-          if (k && v) acc[k] = decodeURIComponent(v)
-          return acc
-        }, {} as Record<string, string>)
-        const cookieRoleId = cookies['selectedRoleId']
-        const cookieRole = cookies['selectedRole'] as RolType | undefined
-        const cookieFcpId = cookies['selectedFcpId'] || null
-        if (cookieRoleId && cookieRole) {
-          savedRoleId = cookieRoleId
-          savedRole = cookieRole
-          savedFcpId = cookieFcpId
-          // Sincronizar a localStorage para consistencia
-          localStorage.setItem('selectedRoleId', cookieRoleId)
-          localStorage.setItem('selectedRole', cookieRole)
-          if (cookieFcpId) localStorage.setItem('selectedFcpId', cookieFcpId)
-          else localStorage.removeItem('selectedFcpId')
-        }
-      }
 
       if (savedRoleId && savedRole) {
         // Facilitador unificado (facilitador-sistema, fcpId null): validar solo en facilitadores
