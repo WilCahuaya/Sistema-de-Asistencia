@@ -1635,7 +1635,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
               (e) => getAsistenciaEstado(e.id, fechaStr) === 'falto'
             ).length
             const countRegistrados = countPresente + countPermiso + countFalto
-            const faltanPorRegistrar = total > 0 && countRegistrados < total
+            const faltanPorRegistrar = countRegistrados > 0 && countRegistrados < total
 
             const formatFechaDisplay = (d: string) => {
               const [y, m, day] = d.split('-')
