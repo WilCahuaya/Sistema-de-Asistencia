@@ -1,19 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Building2, Users, GraduationCap, ClipboardList, CheckCircle2, XCircle } from 'lucide-react'
+import { Building2, Users, GraduationCap, ClipboardList } from 'lucide-react'
 import Link from 'next/link'
 import { ReportesMensualesResumen } from '@/components/features/dashboard/ReportesMensualesResumen'
 import { ReporteMensualResumen } from '@/components/features/dashboard/ReporteMensualResumen'
 import { getUserHighestRoleFromDB } from '@/lib/utils/get-user-highest-role'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import {
   getCurrentMonthYearInAppTimezone,
   getMonthRangeInAppTimezone,
@@ -457,7 +449,6 @@ export default async function DashboardPage() {
       .eq('activo', true)
 
     let tutorAulas: any[] = []
-    let totalEstudiantesTutor = 0
 
     if (!tutorMiembrosError && tutorMiembrosData && tutorMiembrosData.length > 0) {
       const tutorMiembroIds = tutorMiembrosData.map((tm: any) => tm.id)
@@ -493,8 +484,6 @@ export default async function DashboardPage() {
               .eq('aula_id', aula.id)
               .eq('activo', true)
             
-            totalEstudiantesTutor += count || 0
-            
             // Obtener estadísticas de asistencia del mes actual para esta aula
             const { data: estudiantesAula } = await supabase
               .from('estudiantes')
@@ -508,16 +497,18 @@ export default async function DashboardPage() {
               // Obtener asistencias del mes actual (rango en zona horaria de la app)
               const { data: asistenciasData } = await supabase
                 .from('asistencias')
-                .select('estado, fecha')
+                .select('estado, fecha, estudiante_id')
                 .in('estudiante_id', estudianteIds)
                 .gte('fecha', inicioMesStr)
                 .lte('fecha', finMesStr)
               
-              // Contar por estado y días atendidos (fechas distintas con registro)
+              // Contar por estado y días atendidos
               let presentes = 0
               let faltos = 0
               let permisos = 0
               const fechasConRegistro = new Set<string>()
+              const porFecha = new Map<string, { presentes: number; total: number }>()
+              const porEstudiante = new Map<string, { presentes: number; total: number }>()
               
               if (asistenciasData) {
                 asistenciasData.forEach((asist: any) => {
@@ -525,16 +516,47 @@ export default async function DashboardPage() {
                   if (asist.estado === 'presente') presentes++
                   else if (asist.estado === 'falto') faltos++
                   else if (asist.estado === 'permiso') permisos++
+                  // Por fecha
+                  const pf = porFecha.get(asist.fecha) || { presentes: 0, total: 0 }
+                  pf.total++
+                  if (asist.estado === 'presente') pf.presentes++
+                  porFecha.set(asist.fecha, pf)
+                  // Por estudiante
+                  const pe = porEstudiante.get(asist.estudiante_id) || { presentes: 0, total: 0 }
+                  pe.total++
+                  if (asist.estado === 'presente') pe.presentes++
+                  porEstudiante.set(asist.estudiante_id, pe)
                 })
               }
               
-              // Agregar estadísticas al objeto aula (días atendidos = fechas distintas de ese salón)
+              const totalRegistros = presentes + faltos + permisos
+              const asistenciaGeneral = totalRegistros > 0 ? Math.round((presentes / totalRegistros) * 100) : 0
+              
+              let diaMayor = { fecha: '', pct: 0 }
+              let diaMenor = { fecha: '', pct: 100 }
+              porFecha.forEach((v, fecha) => {
+                if (v.total > 0) {
+                  const pct = Math.round((v.presentes / v.total) * 100)
+                  if (pct >= diaMayor.pct) diaMayor = { fecha, pct }
+                  if (pct <= diaMenor.pct && v.total > 0) diaMenor = { fecha, pct }
+                }
+              })
+              
+              let estudiantesEnRiesgo = 0
+              porEstudiante.forEach((v) => {
+                if (v.total > 0 && (v.presentes / v.total) < 0.7) estudiantesEnRiesgo++
+              })
+              
               aula.estadisticas = {
                 presentes,
                 faltos,
                 permisos,
                 totalEstudiantes: count || 0,
-                diasAtendidos: fechasConRegistro.size
+                diasAtendidos: fechasConRegistro.size,
+                asistenciaGeneral,
+                diaMayorAsistencia: diaMayor.fecha ? diaMayor : null,
+                diaMenorAsistencia: diaMenor.fecha ? diaMenor : null,
+                estudiantesEnRiesgo
               }
             } else {
               aula.estadisticas = {
@@ -542,7 +564,11 @@ export default async function DashboardPage() {
                 faltos: 0,
                 permisos: 0,
                 totalEstudiantes: count || 0,
-                diasAtendidos: 0
+                diasAtendidos: 0,
+                asistenciaGeneral: 0,
+                diaMayorAsistencia: null,
+                diaMenorAsistencia: null,
+                estudiantesEnRiesgo: 0
               }
             }
           }
@@ -550,146 +576,61 @@ export default async function DashboardPage() {
       }
     }
 
-    // Calcular estadísticas generales (agregado de todas las aulas del tutor)
-    let totalPresentes = 0
-    let totalFaltos = 0
-    let totalPermisos = 0
-
-    tutorAulas.forEach((aula: any) => {
-      if (aula?.estadisticas) {
-        totalPresentes += aula.estadisticas.presentes || 0
-        totalFaltos += aula.estadisticas.faltos || 0
-        totalPermisos += aula.estadisticas.permisos || 0
-      }
-    })
-
-    const totalRegistros = totalPresentes + totalFaltos + totalPermisos
-    const asistenciaPromedio = totalRegistros > 0 ? Math.round((totalPresentes / totalRegistros) * 100) : 0
-    const inasistenciaPromedio = totalRegistros > 0 ? Math.round(((totalFaltos + totalPermisos) / totalRegistros) * 100) : 0
     const mesLabel = getCurrentMonthLabelInAppTimezone('es-PE')
+    const mesesCorto = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+    const formatDiaMes = (fechaStr: string) => {
+      const [y, m, d] = fechaStr.split('-').map(Number)
+      return `${d} ${mesesCorto[(m || 1) - 1]}`
+    }
 
     return (
       <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-8 lg:px-8">
         <div className="mb-6 sm:mb-8">
           <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
-            Estadísticas del Mes – Salón
+            Dashboard de Salón
           </h1>
-          <p className="mt-2 text-lg font-medium text-foreground/90">
-            {mesLabel}
-          </p>
         </div>
 
-        {/* Resumen General - Vista rápida (promedios agregados de todos los salones) */}
-        <div className="grid gap-4 sm:gap-6 grid-cols-2 lg:grid-cols-4 mb-8">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total estudiantes</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totalEstudiantesTutor}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Asistencia promedio</CardTitle>
-              <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-600 dark:text-green-400">{asistenciaPromedio}%</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Inasistencia promedio</CardTitle>
-              <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-red-600 dark:text-red-400">{inasistenciaPromedio}%</div>
-            </CardContent>
-          </Card>
+        {/* Resumen por aula: mes - aula, asistencia general, día mayor/menor, estudiantes en riesgo */}
+        <div className="space-y-6">
+          {tutorAulas.map((aula: any) => {
+            const stats = aula.estadisticas
+            const tituloAula = `${mesLabel} – ${aula.nombre}`
+            return (
+              <Link key={aula.id} href="/asistencias">
+                <Card className="cursor-pointer transition-shadow hover:shadow-lg">
+                  <CardHeader>
+                    <CardTitle className="text-lg">{tituloAula}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <p className="text-sm">
+                      <span className="font-medium">Asistencia general:</span>{' '}
+                      <span className="text-green-600 dark:text-green-400 font-semibold">{stats?.asistenciaGeneral ?? 0}%</span>
+                    </p>
+                    {stats?.diaMayorAsistencia?.fecha && (
+                      <p className="text-sm">
+                        <span className="font-medium">Día con mayor asistencia:</span>{' '}
+                        {formatDiaMes(stats.diaMayorAsistencia.fecha)} ({stats.diaMayorAsistencia.pct}%)
+                      </p>
+                    )}
+                    {stats?.diaMenorAsistencia?.fecha && (
+                      <p className="text-sm">
+                        <span className="font-medium">Día con menor asistencia:</span>{' '}
+                        {formatDiaMes(stats.diaMenorAsistencia.fecha)} ({stats.diaMenorAsistencia.pct}%)
+                      </p>
+                    )}
+                    <p className="text-sm">
+                      <span className="font-medium">Estudiantes en riesgo:</span>{' '}
+                      <span className={stats?.estudiantesEnRiesgo ? 'text-amber-600 dark:text-amber-400 font-semibold' : ''}>
+                        {stats?.estudiantesEnRiesgo ?? 0}
+                      </span>
+                    </p>
+                  </CardContent>
+                </Card>
+              </Link>
+            )
+          })}
         </div>
-
-        <div className="grid gap-4 sm:gap-6 grid-cols-1 md:grid-cols-2">
-          {/* Card de Mis Aulas */}
-          <Link href="/aulas">
-            <Card className="cursor-pointer transition-shadow hover:shadow-lg">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Mis Aulas</CardTitle>
-                <Users className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{tutorAulas.length}</div>
-                <p className="text-xs text-muted-foreground">Aulas asignadas</p>
-              </CardContent>
-            </Card>
-          </Link>
-
-          {/* Card de Estudiantes */}
-          <Link href="/asistencias">
-            <Card className="cursor-pointer transition-shadow hover:shadow-lg">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Estudiantes</CardTitle>
-                <GraduationCap className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{totalEstudiantesTutor}</div>
-                <p className="text-xs text-muted-foreground">Ir a registrar asistencias</p>
-              </CardContent>
-            </Card>
-          </Link>
-        </div>
-
-        {/* Estadísticas de asistencia por salón */}
-        {tutorAulas.length > 0 && (
-          <div className="mt-8">
-            <Card>
-              <CardHeader>
-                <CardTitle>Asistencia por Salón - {getCurrentMonthLabelInAppTimezone().toUpperCase()}</CardTitle>
-                <CardDescription>Estadísticas de asistencia del mes actual</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="mb-2 text-xs text-muted-foreground sm:hidden">Desliza para ver más columnas →</p>
-                <div className="table-responsive">
-                  <Table className="min-w-[400px]">
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Salón</TableHead>
-                        <TableHead className="text-center">Días atendidos</TableHead>
-                        <TableHead className="text-center">Asistió</TableHead>
-                        <TableHead className="text-center">Faltó</TableHead>
-                        <TableHead className="text-center">Permiso</TableHead>
-                        <TableHead className="text-center">Total Estudiantes</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {tutorAulas.map((aula: any) => (
-                        <TableRow key={aula.id}>
-                          <TableCell className="font-medium">{aula.nombre}</TableCell>
-                          <TableCell className="text-center">
-                            {aula.estadisticas?.diasAtendidos ?? 0}
-                          </TableCell>
-                          <TableCell className="text-center text-green-600 dark:text-green-400">
-                            {aula.estadisticas?.presentes || 0}
-                          </TableCell>
-                          <TableCell className="text-center text-red-600 dark:text-red-400">
-                            {aula.estadisticas?.faltos || 0}
-                          </TableCell>
-                          <TableCell className="text-center text-yellow-600 dark:text-yellow-400">
-                            {aula.estadisticas?.permisos || 0}
-                          </TableCell>
-                          <TableCell className="text-center">
-                            {aula.estadisticas?.totalEstudiantes || 0}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
 
         {/* Información del usuario */}
         <div className="mt-8">
