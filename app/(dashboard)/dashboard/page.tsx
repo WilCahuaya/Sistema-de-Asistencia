@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Building2, Users, GraduationCap, ClipboardList } from 'lucide-react'
+import { Building2, Users, GraduationCap, ClipboardList, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react'
 import Link from 'next/link'
 import { ReportesMensualesResumen } from '@/components/features/dashboard/ReportesMensualesResumen'
 import { ReporteMensualResumen } from '@/components/features/dashboard/ReporteMensualResumen'
@@ -521,10 +521,11 @@ export default async function DashboardPage() {
                   pf.total++
                   if (asist.estado === 'presente') pf.presentes++
                   porFecha.set(asist.fecha, pf)
-                  // Por estudiante
-                  const pe = porEstudiante.get(asist.estudiante_id) || { presentes: 0, total: 0 }
+                  // Por estudiante (presentes, faltos, total)
+                  const pe = porEstudiante.get(asist.estudiante_id) || { presentes: 0, faltos: 0, total: 0 }
                   pe.total++
                   if (asist.estado === 'presente') pe.presentes++
+                  else if (asist.estado === 'falto') pe.faltos = (pe.faltos || 0) + 1
                   porEstudiante.set(asist.estudiante_id, pe)
                 })
               }
@@ -542,9 +543,10 @@ export default async function DashboardPage() {
                 }
               })
               
+              // Estudiantes en riesgo = los que más faltan (2+ ausencias en el mes)
               let estudiantesEnRiesgo = 0
               porEstudiante.forEach((v) => {
-                if (v.total > 0 && (v.presentes / v.total) < 0.7) estudiantesEnRiesgo++
+                if (v.faltos >= 2) estudiantesEnRiesgo++
               })
               
               aula.estadisticas = {
@@ -586,46 +588,80 @@ export default async function DashboardPage() {
     return (
       <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-8 lg:px-8">
         <div className="mb-6 sm:mb-8">
-          <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
+          <h1 className="text-xl font-bold text-foreground sm:text-2xl">
             Dashboard de Salón
           </h1>
+          <p className="mt-1 text-sm text-muted-foreground">Resumen del mes actual por aula</p>
         </div>
 
-        {/* Resumen por aula: mes - aula, asistencia general, día mayor/menor, estudiantes en riesgo */}
+        {/* Resumen por aula: diseño mejorado */}
         <div className="space-y-6">
           {tutorAulas.map((aula: any) => {
             const stats = aula.estadisticas
             const tituloAula = `${mesLabel} – ${aula.nombre}`
+            const pct = stats?.asistenciaGeneral ?? 0
+            const riesgoCount = stats?.estudiantesEnRiesgo ?? 0
             return (
               <Link key={aula.id} href="/asistencias">
-                <Card className="cursor-pointer transition-shadow hover:shadow-lg">
-                  <CardHeader>
-                    <CardTitle className="text-lg">{tituloAula}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <p className="text-sm">
-                      <span className="font-medium">Asistencia general:</span>{' '}
-                      <span className="text-green-600 dark:text-green-400 font-semibold">{stats?.asistenciaGeneral ?? 0}%</span>
-                    </p>
-                    {stats?.diaMayorAsistencia?.fecha && (
-                      <p className="text-sm">
-                        <span className="font-medium">Día con mayor asistencia:</span>{' '}
-                        {formatDiaMes(stats.diaMayorAsistencia.fecha)} ({stats.diaMayorAsistencia.pct}%)
-                      </p>
-                    )}
-                    {stats?.diaMenorAsistencia?.fecha && (
-                      <p className="text-sm">
-                        <span className="font-medium">Día con menor asistencia:</span>{' '}
-                        {formatDiaMes(stats.diaMenorAsistencia.fecha)} ({stats.diaMenorAsistencia.pct}%)
-                      </p>
-                    )}
-                    <p className="text-sm">
-                      <span className="font-medium">Estudiantes en riesgo:</span>{' '}
-                      <span className={stats?.estudiantesEnRiesgo ? 'text-amber-600 dark:text-amber-400 font-semibold' : ''}>
-                        {stats?.estudiantesEnRiesgo ?? 0}
-                      </span>
-                    </p>
-                  </CardContent>
+                <Card className="group cursor-pointer transition-all duration-200 hover:shadow-xl hover:border-primary/30 overflow-hidden">
+                  <div className="bg-gradient-to-br from-primary/5 via-background to-background p-6 sm:p-8">
+                    <h2 className="text-lg font-semibold text-foreground mb-5 group-hover:text-primary transition-colors">
+                      {tituloAula}
+                    </h2>
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                      {/* Asistencia general */}
+                      <div className="flex items-center gap-3 rounded-lg bg-background/80 p-4 border border-border/50 shadow-sm">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-500/15">
+                          <span className="text-lg font-bold text-green-600 dark:text-green-400">{pct}%</span>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Asistencia general</p>
+                          <p className="text-lg font-bold text-foreground">{pct}%</p>
+                        </div>
+                      </div>
+                      {/* Día mayor asistencia */}
+                      {stats?.diaMayorAsistencia?.fecha ? (
+                        <div className="flex items-center gap-3 rounded-lg bg-background/80 p-4 border border-border/50 shadow-sm">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/15">
+                            <TrendingUp className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Mejor día</p>
+                            <p className="text-sm font-semibold text-foreground">
+                              {formatDiaMes(stats.diaMayorAsistencia.fecha)} <span className="text-green-600 dark:text-green-400">({stats.diaMayorAsistencia.pct}%)</span>
+                            </p>
+                          </div>
+                        </div>
+                      ) : null}
+                      {/* Día menor asistencia */}
+                      {stats?.diaMenorAsistencia?.fecha ? (
+                        <div className="flex items-center gap-3 rounded-lg bg-background/80 p-4 border border-border/50 shadow-sm">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-500/15">
+                            <TrendingDown className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Día con menor asistencia</p>
+                            <p className="text-sm font-semibold text-foreground">
+                              {formatDiaMes(stats.diaMenorAsistencia.fecha)} <span className="text-amber-600 dark:text-amber-400">({stats.diaMenorAsistencia.pct}%)</span>
+                            </p>
+                          </div>
+                        </div>
+                      ) : null}
+                      {/* Estudiantes en riesgo (los que más faltan) */}
+                      <div className="flex items-center gap-3 rounded-lg bg-background/80 p-4 border border-border/50 shadow-sm">
+                        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${riesgoCount > 0 ? 'bg-amber-500/20' : 'bg-muted'}`}>
+                          <AlertTriangle className={`h-5 w-5 ${riesgoCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`} />
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Con más faltas</p>
+                          <p className={`text-lg font-bold ${riesgoCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'}`}>
+                            {riesgoCount} {riesgoCount === 1 ? 'estudiante' : 'estudiantes'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="mt-4 text-xs text-muted-foreground">Toca para ir a registrar asistencias →</p>
+                  </div>
                 </Card>
               </Link>
             )
