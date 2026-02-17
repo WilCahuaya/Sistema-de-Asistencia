@@ -317,8 +317,11 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   // Sincronizar mobileSelectedDate cuando cambia el mes/año seleccionado (para ver registros de meses pasados)
   // Si la fecha actual está fuera del mes seleccionado, usar el primer día del mes
   useEffect(() => {
-    if (!mobileSelectedDate) return
-    const [y, m] = mobileSelectedDate.split('-').map(Number)
+    if (!mobileSelectedDate || typeof mobileSelectedDate !== 'string') return
+    const parts = mobileSelectedDate.split('-')
+    if (parts.length !== 3) return
+    const [y, m] = parts.map(Number)
+    if (Number.isNaN(y) || Number.isNaN(m) || m < 1 || m > 12) return
     const month0 = m - 1
     if (selectedYear !== y || selectedMonth !== month0) {
       const firstDay = toLocalDateString(new Date(selectedYear, selectedMonth, 1))

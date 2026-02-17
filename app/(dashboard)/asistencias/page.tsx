@@ -44,7 +44,7 @@ export default function AsistenciasPage() {
 
   // Leer parámetros de URL al cargar la página
   useEffect(() => {
-    const aulaIdParam = searchParams.get('aulaId')
+    const aulaIdParam = searchParams.get('aulaId') || searchParams.get('aulald') // aulald = typo común
     const monthParam = searchParams.get('month')
     const yearParam = searchParams.get('year')
     
@@ -212,9 +212,9 @@ export default function AsistenciasPage() {
       {selectedFCP && (
         <AsistenciaCalendarView
           fcpId={selectedFCP}
-          aulaId={selectedAula || searchParams.get('aulaId')}
-          initialMonth={searchParams.get('month') ? parseInt(searchParams.get('month')!) : null}
-          initialYear={searchParams.get('year') ? parseInt(searchParams.get('year')!) : null}
+          aulaId={selectedAula || searchParams.get('aulaId') || searchParams.get('aulald')}
+          initialMonth={searchParams.get('month') !== null && searchParams.get('month') !== undefined ? parseInt(searchParams.get('month')!, 10) : null}
+          initialYear={searchParams.get('year') !== null && searchParams.get('year') !== undefined ? parseInt(searchParams.get('year')!, 10) : null}
         />
       )}
     </div>
