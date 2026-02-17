@@ -586,7 +586,6 @@ export default async function DashboardPage() {
           }
         }
       }
-    }
 
     const mesLabel = getCurrentMonthLabelInAppTimezone('es-PE')
     const mesesCorto = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
@@ -734,16 +733,6 @@ export default async function DashboardPage() {
   }
 
   // Dashboard normal para Director/Secretario (o cualquier otro rol que no sea Facilitador ni Tutor puro)
-  // Si llegamos aquí, significa que el usuario es Director, Secretario, o tiene un rol de mayor jerarquía
-  console.log('🔍 Dashboard - Mostrando vista de Director/Secretario (verificación de condiciones):', {
-    isFacilitador,
-    isDirector,
-    isSecretario,
-    isTutor,
-    highestRole: userRole,
-    'Condición Director/Secretario': isDirector || isSecretario,
-    'Condición Tutor': isTutor && !isDirector && !isSecretario && !isFacilitador
-  })
   return (
     <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-8 lg:px-8">
       <div className="mb-4 sm:mb-8">
