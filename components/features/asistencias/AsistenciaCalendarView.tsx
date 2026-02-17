@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { CheckCircle2, XCircle, Clock, CheckCheck, X, Info, Calendar, Search } from 'lucide-react'
+import { CheckCircle2, XCircle, Clock, CheckCheck, X, Info, Calendar, Search, MoreVertical } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useTutorPuedeRegistrarAula } from '@/hooks/useTutorPuedeRegistrarAula'
 import { toLocalDateString, getTodayInAppTimezone } from '@/lib/utils/dateUtils'
@@ -31,6 +31,12 @@ import { MoverEstudianteMesDialog } from './MoverEstudianteMesDialog'
 import { toast } from '@/lib/toast'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { MobileAsistenciaDatePickerDialog } from './MobileAsistenciaDatePickerDialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 interface Estudiante {
   id: string
@@ -118,7 +124,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const [mobileDatePickerOpen, setMobileDatePickerOpen] = useState(false)
   const tableContainerRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
-  const defaultWidthRef = useRef<number | null>(null) // Ancho por defecto del contenedor
+  const defaultWidthRef = useRef<number | null>(null)
+  const mobileTapRef = useRef<{ key: string; time: number; timeoutId: ReturnType<typeof setTimeout> | null }>({ key: '', time: 0, timeoutId: null }) // Ancho por defecto del contenedor
   
   // Efecto para obtener el ancho por defecto del div contenedor (mb-8 mx-auto max-w-7xl)
   useEffect(() => {
@@ -1007,6 +1014,26 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     }
   }
 
+  const handleMobileStatusTap = (estudianteId: string, fechaStr: string, estado: 'presente' | 'permiso' | 'falto') => {
+    const key = `${estudianteId}_${fechaStr}_${estado}`
+    const now = Date.now()
+    const prev = mobileTapRef.current
+
+    if (prev.key === key && now - prev.time < 400) {
+      if (prev.timeoutId) clearTimeout(prev.timeoutId)
+      mobileTapRef.current = { key: '', time: 0, timeoutId: null }
+      deleteAsistencia(estudianteId, fechaStr)
+      return
+    }
+
+    if (prev.timeoutId) clearTimeout(prev.timeoutId)
+    const timeoutId = setTimeout(() => {
+      saveAsistencia(estudianteId, fechaStr, estado)
+      mobileTapRef.current = { key: '', time: 0, timeoutId: null }
+    }, 400)
+    mobileTapRef.current = { key, time: now, timeoutId }
+  }
+
   const handleCellClick = (
     estudianteId: string,
     fechaStr: string,
@@ -1766,43 +1793,40 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                               <div className="flex items-center gap-0.5 shrink-0">
                                 <button
                                   type="button"
-                                  onClick={() => saveAsistencia(estudiante.id, fechaStr, 'presente')}
-                                  onDoubleClick={(e) => { e.preventDefault(); deleteAsistencia(estudiante.id, fechaStr) }}
+                                  onClick={() => handleMobileStatusTap(estudiante.id, fechaStr, 'presente')}
                                   disabled={isSaving}
-                                  className={`p-2 rounded-md transition-colors ${
+                                  className={`p-2 rounded-md transition-colors touch-manipulation ${
                                     estado === 'presente'
                                       ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400'
                                       : 'text-muted-foreground hover:bg-muted'
                                   }`}
-                                  title="Presente (doble clic para quitar)"
+                                  title="Presente (doble tap para quitar)"
                                 >
                                   <CheckCircle2 className="h-5 w-5" />
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => saveAsistencia(estudiante.id, fechaStr, 'permiso')}
-                                  onDoubleClick={(e) => { e.preventDefault(); deleteAsistencia(estudiante.id, fechaStr) }}
+                                  onClick={() => handleMobileStatusTap(estudiante.id, fechaStr, 'permiso')}
                                   disabled={isSaving}
-                                  className={`p-2 rounded-md transition-colors ${
+                                  className={`p-2 rounded-md transition-colors touch-manipulation ${
                                     estado === 'permiso'
                                       ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400'
                                       : 'text-muted-foreground hover:bg-muted'
                                   }`}
-                                  title="Permiso / Tarde (doble clic para quitar)"
+                                  title="Permiso / Tarde (doble tap para quitar)"
                                 >
                                   <Clock className="h-5 w-5" />
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => saveAsistencia(estudiante.id, fechaStr, 'falto')}
-                                  onDoubleClick={(e) => { e.preventDefault(); deleteAsistencia(estudiante.id, fechaStr) }}
+                                  onClick={() => handleMobileStatusTap(estudiante.id, fechaStr, 'falto')}
                                   disabled={isSaving}
-                                  className={`p-2 rounded-md transition-colors ${
+                                  className={`p-2 rounded-md transition-colors touch-manipulation ${
                                     estado === 'falto'
                                       ? 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400'
                                       : 'text-muted-foreground hover:bg-muted'
                                   }`}
-                                  title="Faltó (doble clic para quitar)"
+                                  title="Faltó (doble tap para quitar)"
                                 >
                                   <XCircle className="h-5 w-5" />
                                 </button>
@@ -1816,6 +1840,33 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                                 {!estado && <span className="text-xs text-muted-foreground">—</span>}
                               </div>
                             )}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="p-2 rounded-md text-muted-foreground hover:bg-muted shrink-0"
+                                  onClick={(e) => e.stopPropagation()}
+                                  title="Más opciones"
+                                >
+                                  <MoreVertical className="h-5 w-5" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => setSelectedEstudianteForModal(estudiante)}>
+                                  <Calendar className="h-4 w-4 mr-2" />
+                                  Ver calendario
+                                </DropdownMenuItem>
+                                {puedeEditarMes && estado && (
+                                  <DropdownMenuItem
+                                    onClick={() => deleteAsistencia(estudiante.id, fechaStr)}
+                                    disabled={isSaving}
+                                  >
+                                    <X className="h-4 w-4 mr-2" />
+                                    Quitar estado
+                                  </DropdownMenuItem>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </Card>
                       )
@@ -1829,6 +1880,20 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                   selectedDate={mobileSelectedDate}
                   onDateChange={setMobileSelectedDate}
                 />
+
+                {selectedEstudianteForModal && (
+                  <AsistenciaCalendarioModal
+                    open={!!selectedEstudianteForModal}
+                    onOpenChange={(open) => !open && setSelectedEstudianteForModal(null)}
+                    estudiante={selectedEstudianteForModal}
+                    daysInMonth={daysInMonth}
+                    monthLabel={formatMonthYear(selectedMonth, selectedYear)}
+                    getEstado={getAsistenciaEstado}
+                    onDayTap={(eid, fechaStr) => handleCellClick(eid, fechaStr, false)}
+                    isSaving={(eid, fechaStr) => saving.has(`${eid}_${fechaStr}`)}
+                    puedeEditar={puedeEditarMes}
+                  />
+                )}
               </div>
             )
           })()
