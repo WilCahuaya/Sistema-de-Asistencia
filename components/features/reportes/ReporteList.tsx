@@ -1618,12 +1618,9 @@ export function ReporteList() {
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
           <BarChart3 className="h-12 w-12 text-muted-foreground mb-4" />
-          <p className="text-muted-foreground mb-4">
+          <p className="text-muted-foreground">
             No tienes un rol seleccionado. Por favor, selecciona un rol para continuar.
           </p>
-          <Button onClick={() => router.push('/seleccionar-rol')}>
-            Seleccionar Rol
-          </Button>
         </CardContent>
       </Card>
     )
