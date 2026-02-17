@@ -3,10 +3,10 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { FileSpreadsheet, FileText } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
+import { getCurrentMonthYearInAppTimezone, getMonthRangeInAppTimezone } from '@/lib/utils/dateUtils'
 
 interface FCPResumen {
   id: string
@@ -20,7 +20,7 @@ interface FCPResumen {
 export function ReportesMensualesResumen() {
   const [loading, setLoading] = useState(true)
   const [resumenes, setResumenes] = useState<FCPResumen[]>([])
-  const [mesActual, setMesActual] = useState({ year: new Date().getFullYear(), month: new Date().getMonth() })
+  const mesActual = getCurrentMonthYearInAppTimezone()
   const { selectedRole } = useSelectedRole()
 
   useEffect(() => {
@@ -64,71 +64,28 @@ export function ReportesMensualesResumen() {
         todasLasFCPs = sole ? [sole] : []
       }
 
-      const resumenesData: FCPResumen[] = []
+      const { start: fechaInicioStr, end: fechaFinStr } = getMonthRangeInAppTimezone(mesActual.year, mesActual.month)
 
-      // Calcular fechas del mes actual
-      const fechaInicio = new Date(mesActual.year, mesActual.month, 1)
-      const fechaFin = new Date(mesActual.year, mesActual.month + 1, 0)
-      fechaFin.setHours(23, 59, 59, 999)
-      const fechaInicioStr = fechaInicio.toISOString().split('T')[0]
-      const fechaFinStr = fechaFin.toISOString().split('T')[0]
+      const procesarFCP = async (fcp: { id: string; nombre: string }) => {
+        const fallback = (): FCPResumen => ({
+          id: fcp.id,
+          nombre: fcp.nombre,
+          porcentaje: 0,
+          totalAsistenPromed: 0,
+          totalOportunidades: 0,
+          sinAsistencias: true,
+        })
 
-      // Para cada FCP, calcular el porcentaje de asistencia del mes
-      for (const fcp of todasLasFCPs || []) {
-        // Obtener todas las aulas de la FCP
-        const { data: aulasData, error: aulasError } = await supabase
-          .from('aulas')
-          .select('id, nombre')
-          .eq('fcp_id', fcp.id)
-          .eq('activa', true)
+        const [aulasRes, estudiantesRes] = await Promise.all([
+          supabase.from('aulas').select('id, nombre').eq('fcp_id', fcp.id).eq('activa', true),
+          supabase.from('estudiantes').select('id, aula_id').eq('fcp_id', fcp.id).eq('activo', true),
+        ])
+        if (aulasRes.error || estudiantesRes.error) return fallback()
 
-        if (aulasError) {
-          // Si hay error, agregar la FCP sin datos
-          resumenesData.push({
-            id: fcp.id,
-            nombre: fcp.nombre,
-            porcentaje: 0,
-            totalAsistenPromed: 0,
-            totalOportunidades: 0,
-            sinAsistencias: true,
-          })
-          continue
-        }
-
-        // Obtener estudiantes activos
-        const { data: estudiantesData, error: estudiantesError } = await supabase
-          .from('estudiantes')
-          .select('id, aula_id')
-          .eq('fcp_id', fcp.id)
-          .eq('activo', true)
-
-        if (estudiantesError) {
-          resumenesData.push({
-            id: fcp.id,
-            nombre: fcp.nombre,
-            porcentaje: 0,
-            totalAsistenPromed: 0,
-            totalOportunidades: 0,
-            sinAsistencias: true,
-          })
-          continue
-        }
-
-        // Obtener todas las asistencias del mes
+        const aulasData = aulasRes.data
+        const estudiantesData = estudiantesRes.data
         const estudianteIds = estudiantesData?.map((e) => e.id) || []
-        
-        // Si no hay estudiantes, agregar la FCP sin datos
-        if (estudianteIds.length === 0) {
-          resumenesData.push({
-            id: fcp.id,
-            nombre: fcp.nombre,
-            porcentaje: 0,
-            totalAsistenPromed: 0,
-            totalOportunidades: 0,
-            sinAsistencias: true,
-          })
-          continue
-        }
+        if (!aulasData?.length || estudianteIds.length === 0) return fallback()
 
         const { data: todasAsistenciasData, error: todasAsistenciasError } = await supabase
           .from('asistencias')
@@ -138,36 +95,12 @@ export function ReportesMensualesResumen() {
           .gte('fecha', fechaInicioStr)
           .lte('fecha', fechaFinStr)
 
-        if (todasAsistenciasError) {
-          resumenesData.push({
-            id: fcp.id,
-            nombre: fcp.nombre,
-            porcentaje: 0,
-            totalAsistenPromed: 0,
-            totalOportunidades: 0,
-            sinAsistencias: true,
-          })
-          continue
-        }
-
-        // Si no hay asistencias, agregar la FCP con el flag sinAsistencias
-        if (!todasAsistenciasData || todasAsistenciasData.length === 0) {
-          resumenesData.push({
-            id: fcp.id,
-            nombre: fcp.nombre,
-            porcentaje: 0,
-            totalAsistenPromed: 0,
-            totalOportunidades: 0,
-            sinAsistencias: true,
-          })
-          continue
-        }
+        if (todasAsistenciasError || !todasAsistenciasData?.length) return fallback()
 
         let totalAsistenPromed = 0
         let totalOportunidadesAsistencia = 0
 
-        // Procesar por aula (igual que ReporteMensual)
-        aulasData?.forEach((aula) => {
+        aulasData.forEach((aula) => {
           const estudiantesAula = estudiantesData?.filter(e => e.aula_id === aula.id) || []
           const registrados = estudiantesAula.length
 
@@ -228,20 +161,21 @@ export function ReportesMensualesResumen() {
           totalOportunidadesAsistencia += oportunidadesAsistencia
         })
 
-        // Calcular porcentaje
         const porcentaje = totalOportunidadesAsistencia > 0
           ? (totalAsistenPromed / totalOportunidadesAsistencia) * 100
           : 0
 
-        resumenesData.push({
+        return {
           id: fcp.id,
           nombre: fcp.nombre,
           porcentaje: Number(porcentaje.toFixed(2)),
           totalAsistenPromed,
           totalOportunidades: totalOportunidadesAsistencia,
           sinAsistencias: totalOportunidadesAsistencia === 0,
-        })
+        }
       }
+
+      const resumenesData = await Promise.all((todasLasFCPs || []).map(procesarFCP))
 
       // Ordenar: primero las que tienen asistencias (por porcentaje descendente), luego las que no tienen
       resumenesData.sort((a, b) => {

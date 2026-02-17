@@ -83,18 +83,32 @@ export function ReporteMensualResumen() {
     try {
       setLoading(true)
       const supabase = createClient()
-      // Usar zona horaria de la app (no la del servidor ni la del navegador)
       const { year, month } = getCurrentMonthYearInAppTimezone()
 
-      // Obtener todas las aulas activas de la FCP
-      const { data: aulas, error: aulasError } = await supabase
-        .from('aulas')
-        .select('id, nombre')
-        .eq('fcp_id', fcpId)
-        .eq('activa', true)
-        .order('nombre', { ascending: true })
+      const primerDia = new Date(year, month, 1)
+      const ultimoDia = new Date(year, month + 1, 0)
+      const diasDelMes = ultimoDia.getDate()
+      const fechasDelMes: string[] = []
+      for (let dia = 1; dia <= diasDelMes; dia++) {
+        fechasDelMes.push(toLocalDateString(new Date(year, month, dia)))
+      }
+      const fechaInicioStr = fechasDelMes[0]
+      const fechaFinStr = fechasDelMes[fechasDelMes.length - 1]
 
-      if (aulasError) throw aulasError
+      // Consultas en paralelo para reducir tiempo de carga
+      const [aulasRes, estudiantesRes, asistenciasRes] = await Promise.all([
+        supabase.from('aulas').select('id, nombre').eq('fcp_id', fcpId).eq('activa', true).order('nombre', { ascending: true }),
+        supabase.from('estudiantes').select('id, aula_id, codigo, nombre_completo').eq('fcp_id', fcpId).eq('activo', true),
+        supabase.from('asistencias').select('id, estudiante_id, fecha, estado').eq('fcp_id', fcpId).gte('fecha', fechaInicioStr).lte('fecha', fechaFinStr),
+      ])
+
+      const aulas = aulasRes.data
+      const estudiantes = estudiantesRes.data
+      const asistencias = asistenciasRes.data
+
+      if (aulasRes.error) throw aulasRes.error
+      if (estudiantesRes.error) throw estudiantesRes.error
+      if (asistenciasRes.error) throw asistenciasRes.error
 
       if (!aulas || aulas.length === 0) {
         setReporteData({
@@ -107,47 +121,11 @@ export function ReporteMensualResumen() {
         return
       }
 
-      // Calcular días del mes (year/month ya están en zona de la app)
-      const primerDia = new Date(year, month, 1)
-      const ultimoDia = new Date(year, month + 1, 0)
-      const diasDelMes = ultimoDia.getDate()
-
-      // Obtener todas las fechas del mes (formato local para consistencia)
-      const fechasDelMes: string[] = []
-      for (let dia = 1; dia <= diasDelMes; dia++) {
-        const fecha = new Date(year, month, dia)
-        fechasDelMes.push(toLocalDateString(fecha))
-      }
-
-      // Obtener estudiantes activos por aula
-      const { data: estudiantes, error: estudiantesError } = await supabase
-        .from('estudiantes')
-        .select('id, aula_id, codigo, nombre_completo')
-        .eq('fcp_id', fcpId)
-        .eq('activo', true)
-
-      if (estudiantesError) throw estudiantesError
-
-      // Agrupar estudiantes por aula
       const estudiantesPorAula: { [aulaId: string]: any[] } = {}
       estudiantes?.forEach(est => {
-        if (!estudiantesPorAula[est.aula_id]) {
-          estudiantesPorAula[est.aula_id] = []
-        }
+        if (!estudiantesPorAula[est.aula_id]) estudiantesPorAula[est.aula_id] = []
         estudiantesPorAula[est.aula_id].push(est)
       })
-
-      // Obtener todas las asistencias del mes usando rango de fechas
-      const fechaInicioStr = fechasDelMes[0]
-      const fechaFinStr = fechasDelMes[fechasDelMes.length - 1]
-      const { data: asistencias, error: asistenciasError } = await supabase
-        .from('asistencias')
-        .select('id, estudiante_id, fecha, estado')
-        .eq('fcp_id', fcpId)
-        .gte('fecha', fechaInicioStr)
-        .lte('fecha', fechaFinStr)
-
-      if (asistenciasError) throw asistenciasError
 
       // Agrupar asistencias por estudiante y fecha
       const asistenciasPorEstudianteFecha: { [key: string]: string } = {}
