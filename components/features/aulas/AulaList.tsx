@@ -635,7 +635,7 @@ export function AulaList() {
                                 <Checkbox
                                   checked={aula.tutorPuedeRegistrarAsistencia ?? false}
                                   onCheckedChange={(v) => handleToggleHabilitarRegistro(aula, v === true)}
-                                  title="Habilitar registro de asistencia para el tutor"
+                                  title="Habilitar registro de asistencia"
                                   className="mt-0.5"
                                 />
                               </div>
