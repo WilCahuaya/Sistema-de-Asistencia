@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getTodayInAppTimezone } from '@/lib/utils/dateUtils'
 
 export type EstadoCorreccionMes = 'cerrado' | 'correccion_habilitada' | 'bloqueado'
 
@@ -42,7 +43,7 @@ export function useCorreccionMes(
 
       if (err) throw err
 
-      const hoy = new Date().toISOString().slice(0, 10)
+      const hoy = getTodayInAppTimezone()
       let estado: EstadoCorreccionMes = 'cerrado'
       let fechaLimite: string | null = null
       let habilitadoPorNombre: string | null = null
@@ -54,7 +55,8 @@ export function useCorreccionMes(
         habilitadoPorNombre = rows.habilitado_por_nombre ?? null
         diasCorreccion = rows.dias_correccion ?? null
         id = rows.id ?? null
-        if (fechaLimite && hoy <= fechaLimite) {
+        const fechaLimiteStr = fechaLimite ? String(fechaLimite).slice(0, 10) : null
+        if (fechaLimiteStr && hoy <= fechaLimiteStr) {
           estado = 'correccion_habilitada'
         } else {
           estado = 'bloqueado'

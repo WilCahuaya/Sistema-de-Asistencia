@@ -2058,8 +2058,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       <HabilitarCorreccionDialog
         open={habilitarCorreccionOpen}
         onOpenChange={setHabilitarCorreccionOpen}
-        onSuccess={() => {
-          refetchCorreccion()
+        onSuccess={async () => {
+          await refetchCorreccion()
           loadAsistenciasMes()
         }}
         fcpId={fcpId}

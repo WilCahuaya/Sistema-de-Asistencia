@@ -19,7 +19,7 @@ import { toast } from '@/lib/toast'
 interface HabilitarCorreccionDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSuccess: () => void
+  onSuccess: () => void | Promise<void>
   fcpId: string
   anio: number
   mes: number
@@ -56,7 +56,7 @@ export function HabilitarCorreccionDialog({
         throw new Error(result.error)
       }
       toast.success('Corrección habilitada', `Mes ${mesLabel} disponible para corrección.`)
-      onSuccess()
+      await onSuccess()
       onOpenChange(false)
     } catch (e: unknown) {
       console.error('Error habilitando corrección:', e)
