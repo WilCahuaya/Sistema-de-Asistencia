@@ -475,32 +475,42 @@ export default async function DashboardPage() {
         const { year: añoActual, month: mesActual } = getCurrentMonthYearInAppTimezone()
         const { start: inicioMesStr, end: finMesStr } = getMonthRangeInAppTimezone(añoActual, mesActual)
         
-        // Contar estudiantes y obtener estadísticas de asistencia por aula
+        // Consultas agrupadas (2 en vez de N*3): estudiantes + asistencias del mes
+        const aulaIds = tutorAulas.filter((a: any) => a?.id).map((a: any) => a.id)
+        const { data: todosEstudiantes } = await supabase
+          .from('estudiantes')
+          .select('id, aula_id')
+          .in('aula_id', aulaIds)
+          .eq('activo', true)
+        const estudianteIds = todosEstudiantes?.map((e: any) => e.id) || []
+        const estudiantesPorAula = new Map<string, any[]>()
+        todosEstudiantes?.forEach((e: any) => {
+          if (!estudiantesPorAula.has(e.aula_id)) estudiantesPorAula.set(e.aula_id, [])
+          estudiantesPorAula.get(e.aula_id)!.push(e)
+        })
+        const asistenciasRes = estudianteIds.length > 0
+          ? await supabase
+              .from('asistencias')
+              .select('estado, fecha, estudiante_id')
+              .in('estudiante_id', estudianteIds)
+              .gte('fecha', inicioMesStr)
+              .lte('fecha', finMesStr)
+          : { data: [] }
+        const asistenciasGlobal = asistenciasRes.data || []
+        const asistenciasPorEstudiante = new Map<string, any[]>()
+        asistenciasGlobal.forEach((a: any) => {
+          if (!asistenciasPorEstudiante.has(a.estudiante_id)) asistenciasPorEstudiante.set(a.estudiante_id, [])
+          asistenciasPorEstudiante.get(a.estudiante_id)!.push(a)
+        })
+
         for (const aula of tutorAulas) {
-          if (aula && aula.id) {
-            const { count } = await supabase
-              .from('estudiantes')
-              .select('id', { count: 'exact' })
-              .eq('aula_id', aula.id)
-              .eq('activo', true)
-            
-            // Obtener estadísticas de asistencia del mes actual para esta aula
-            const { data: estudiantesAula } = await supabase
-              .from('estudiantes')
-              .select('id')
-              .eq('aula_id', aula.id)
-              .eq('activo', true)
-            
-            if (estudiantesAula && estudiantesAula.length > 0) {
-              const estudianteIds = estudiantesAula.map((e: any) => e.id)
-              
-              // Obtener asistencias del mes actual (rango en zona horaria de la app)
-              const { data: asistenciasData } = await supabase
-                .from('asistencias')
-                .select('estado, fecha, estudiante_id')
-                .in('estudiante_id', estudianteIds)
-                .gte('fecha', inicioMesStr)
-                .lte('fecha', finMesStr)
+          if (!aula?.id) continue
+          const estudiantesAula = estudiantesPorAula.get(aula.id) || []
+          const count = estudiantesAula.length
+
+          if (estudiantesAula.length > 0) {
+              const idsAula = estudiantesAula.map((e: any) => e.id)
+              const asistenciasData = idsAula.flatMap((id: string) => asistenciasPorEstudiante.get(id) || [])
               
               // Contar por estado y días atendidos
               let presentes = 0
@@ -508,7 +518,7 @@ export default async function DashboardPage() {
               let permisos = 0
               const fechasConRegistro = new Set<string>()
               const porFecha = new Map<string, { presentes: number; total: number }>()
-              const porEstudiante = new Map<string, { presentes: number; total: number }>()
+              const porEstudiante = new Map<string, { presentes: number; faltos: number; total: number }>()
               
               if (asistenciasData) {
                 asistenciasData.forEach((asist: any) => {

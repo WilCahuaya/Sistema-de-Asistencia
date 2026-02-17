@@ -61,10 +61,14 @@ export function SelectedRoleProvider({ children }: { children: ReactNode }) {
             return
           }
         }
-        // Facilitador por FCP (legacy): validar vía facilitadores + fcps
+        // Facilitador por FCP (legacy): validar vía facilitadores + fcps (paralelo)
         if (savedRole === 'facilitador' && savedFcpId) {
-          const { data: facRow } = await supabase.from('facilitadores').select('usuario_id').eq('usuario_id', user.id).maybeSingle()
-          const { data: fcpRow } = await supabase.from('fcps').select('id, razon_social, numero_identificacion').eq('id', savedFcpId).eq('facilitador_id', user.id).eq('activa', true).maybeSingle()
+          const [facRes, fcpRes] = await Promise.all([
+            supabase.from('facilitadores').select('usuario_id').eq('usuario_id', user.id).maybeSingle(),
+            supabase.from('fcps').select('id, razon_social, numero_identificacion').eq('id', savedFcpId).eq('facilitador_id', user.id).eq('activa', true).maybeSingle()
+          ])
+          const facRow = facRes.data
+          const fcpRow = fcpRes.data
           if (facRow && fcpRow) {
             const roleToSet = {
               roleId: savedRoleId,
@@ -102,9 +106,14 @@ export function SelectedRoleProvider({ children }: { children: ReactNode }) {
 
       // Rol guardado no válido o no hay uno guardado; cargar todos y elegir el de mayor jerarquía
 
-      // Obtener todos los roles: un solo facilitador (facilitador-sistema) + fcp_miembros
+      // Obtener todos los roles: facilitador + fcp_miembros en paralelo
       const allRoles: { id: string; rol: RolType; fcp_id: string | null; fcp?: { id: string; razon_social: string; numero_identificacion?: string } }[] = []
-      const { data: facRow } = await supabase.from('facilitadores').select('usuario_id').eq('usuario_id', user.id).maybeSingle()
+      const [facRes, miembrosRes] = await Promise.all([
+        supabase.from('facilitadores').select('usuario_id').eq('usuario_id', user.id).maybeSingle(),
+        supabase.from('fcp_miembros').select('id, rol, fcp_id, fcp:fcps(id, razon_social, numero_identificacion)').eq('usuario_id', user.id).eq('activo', true).not('fcp_id', 'is', null)
+      ])
+      const facRow = facRes.data
+      const miembrosData = miembrosRes.data
       if (facRow) {
         allRoles.push({
           id: 'facilitador-sistema',
@@ -113,12 +122,6 @@ export function SelectedRoleProvider({ children }: { children: ReactNode }) {
           fcp: { id: '', razon_social: 'Facilitador', numero_identificacion: undefined }
         })
       }
-      const { data: miembrosData } = await supabase
-        .from('fcp_miembros')
-        .select('id, rol, fcp_id, fcp:fcps(id, razon_social, numero_identificacion)')
-        .eq('usuario_id', user.id)
-        .eq('activo', true)
-        .not('fcp_id', 'is', null)
       for (const m of miembrosData || []) {
         allRoles.push({
           id: m.id,
