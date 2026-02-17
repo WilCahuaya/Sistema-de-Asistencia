@@ -897,43 +897,34 @@ export function ReporteList() {
           fechasUnicas: fechasUnicas
         })
 
-        // Obtener estudiantes activos por (aula, fecha) usando estudiante_periodos
-        // Así usamos la lista correcta: quiénes debían estar en el aula en cada fecha
+        // Usar la misma fuente que la página de Asistencias: estudiantes_activos_en_rango con rango del mes
+        // Así evitamos falsos positivos (días marcados incompletos cuando ya están completos)
         const aulaIds = Array.from(aulasMap.keys())
-        const activosPorAulaYFecha = new Map<string, Set<string>>() // `${aulaId}|${fecha}` -> Set<estudiante_id>
+        const activosPorAula = new Map<string, Set<string>>() // aulaId -> Set<estudiante_id> activos en el mes
 
         let hayPeriodos = false
         if (aulaIds.length > 0) {
-          const { data: periodosData } = await supabase
-            .from('estudiante_periodos')
-            .select('aula_id, estudiante_id, fecha_inicio, fecha_fin')
-            .in('aula_id', aulaIds)
-            .lte('fecha_inicio', fechaFin)
-            .or(`fecha_fin.is.null,fecha_fin.gte.${fechaInicio}`)
-
-          // Construir map: para cada (aulaId, fecha) en fechasUnicas, estudiantes activos
-          fechasUnicas.forEach((fecha) => {
-            const [y, m, d] = fecha.split('-').map(Number)
-            const fechaDate = new Date(y, m - 1, d)
-            const [yi, mi, di] = fechaInicio.split('-').map(Number)
-            const [yf, mf, df] = fechaFin.split('-').map(Number)
-            if (fechaDate < new Date(yi, mi - 1, di) || fechaDate > new Date(yf, mf - 1, df)) return
-
-            aulaIds.forEach((aulaId) => {
-              const key = `${aulaId}|${fecha}`
-              const activos = new Set<string>()
-              periodosData?.forEach((p: { aula_id: string; estudiante_id: string; fecha_inicio: string; fecha_fin: string | null }) => {
-                if (p.aula_id !== aulaId) return
-                const fi = p.fecha_inicio
-                const ff = p.fecha_fin
-                if (fi <= fecha && (!ff || ff >= fecha)) {
-                  activos.add(p.estudiante_id)
-                }
-              })
-              activosPorAulaYFecha.set(key, activos)
+          const calls = aulaIds.map(async (aulaId) => {
+            const { data } = await supabase.rpc('estudiantes_activos_en_rango', {
+              p_aula_id: aulaId,
+              p_fecha_inicio: fechaInicio,
+              p_fecha_fin: fechaFin,
             })
+            const ids = (data || []).flatMap((x: unknown) => {
+              if (typeof x === 'string') return [x]
+              if (x && typeof x === 'object') {
+                const v = (x as Record<string, unknown>)['estudiante_id'] ?? Object.values(x as object)[0]
+                return typeof v === 'string' ? [v] : []
+              }
+              return []
+            })
+            return { aulaId, ids }
           })
-          hayPeriodos = (periodosData?.length ?? 0) > 0
+          const results = await Promise.all(calls)
+          results.forEach(({ aulaId, ids }) => {
+            activosPorAula.set(aulaId, new Set(ids))
+            if (ids.length > 0) hayPeriodos = true
+          })
         }
 
 
@@ -1012,18 +1003,17 @@ export function ReporteList() {
             const estudiantesMarcados = asistenciasPorFecha.get(fecha) || new Set<string>()
             console.log(`   📊 Estudiantes marcados en asistenciasPorFecha: ${estudiantesMarcados.size}`)
 
-            // Usar estudiantes_activos en esa fecha (estudiante_periodos)
-            const key = `${aulaId}|${fecha}`
-            let estudiantesActivosEnFecha = activosPorAulaYFecha.get(key) || new Set<string>()
+            // Usar misma lógica que página Asistencias: estudiantes activos en el mes (rango completo)
+            let estudiantesActivosEnMes = activosPorAula.get(aulaId) || new Set<string>()
             // Fallback: si la FCP no usa estudiante_periodos, usar lista del aula
-            if (!hayPeriodos && estudiantesActivosEnFecha.size === 0 && aula.estudiantesIds.length > 0) {
-              estudiantesActivosEnFecha = new Set(aula.estudiantesIds)
+            if (!hayPeriodos && estudiantesActivosEnMes.size === 0 && aula.estudiantesIds.length > 0) {
+              estudiantesActivosEnMes = new Set(aula.estudiantesIds)
             }
-            const totalEstudiantesEnFecha = estudiantesActivosEnFecha.size
+            const totalEstudiantesEnFecha = estudiantesActivosEnMes.size
 
             // Contar cuántos de los que debían estar tienen registro (presente, falto o permiso)
             const marcados = Array.from(estudiantesMarcados).filter(estId =>
-              estudiantesActivosEnFecha.has(estId)
+              estudiantesActivosEnMes.has(estId)
             ).length
             
             // Debug: Log para TODAS las fechas para diagnóstico
