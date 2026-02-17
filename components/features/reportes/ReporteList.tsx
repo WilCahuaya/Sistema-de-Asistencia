@@ -114,7 +114,7 @@ export function ReporteList() {
   const fcpIdParaReporte = selectedRole?.fcpId
   // Determinar el fcpId a usar: el seleccionado o el del facilitador (se actualizará después del useEffect)
   const [fcpIdFinal, setFcpIdFinal] = useState<string | null>(fcpIdParaReporte || null)
-  const { canViewReports, loading: roleLoading, isFacilitador: isFacilitadorFromHook } = useUserRole(fcpIdFinal)
+  const { canViewReports, loading: roleLoading, isFacilitador: isFacilitadorFromHook, role } = useUserRole(fcpIdFinal)
 
   // Scroll horizontal: Shift+scroll o click sostenido (igual que en Asistencias)
   const tableContainerRef = useRef<HTMLDivElement>(null)
@@ -1826,7 +1826,7 @@ export function ReporteList() {
                               className="ml-auto text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-700 dark:hover:text-blue-300 whitespace-nowrap"
                             >
                               <Calendar className="h-4 w-4 mr-1.5" />
-                              Corregir asistencia
+                              {role === 'facilitador' ? 'Ver asistencia' : 'Corregir asistencia'}
                             </Button>
                           </li>
                         )

@@ -80,7 +80,7 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
   const [mobilePage, setMobilePage] = useState(1)
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null)
   const [responsable, setResponsable] = useState<{ nombre: string; email: string; rol: string } | null>(null)
-  const { isFacilitador, loading: roleLoading } = useUserRole(selectedFCP)
+  const { isFacilitador, loading: roleLoading, role } = useUserRole(selectedFCP)
   const { selectedRole } = useSelectedRole()
   const router = useRouter()
 
@@ -1029,7 +1029,7 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
                           className="ml-auto text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-700 dark:hover:text-blue-300 whitespace-nowrap"
                         >
                           <Calendar className="h-4 w-4 mr-1.5" />
-                          Corregir asistencia
+                          {role === 'facilitador' ? 'Ver asistencia' : 'Corregir asistencia'}
                         </Button>
                       </li>
                     )
