@@ -110,7 +110,7 @@ export function ReporteList() {
   const [fcpIdParaFacilitador, setFcpIdParaFacilitador] = useState<string | null>(null)
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string }>>([])
   const router = useRouter()
-  const { selectedRole } = useSelectedRole()
+  const { selectedRole, loading: roleContextLoading } = useSelectedRole()
   const fcpIdParaReporte = selectedRole?.fcpId
   // Determinar el fcpId a usar: el seleccionado o el del facilitador (se actualizará después del useEffect)
   const [fcpIdFinal, setFcpIdFinal] = useState<string | null>(fcpIdParaReporte || null)
@@ -1600,8 +1600,8 @@ export function ReporteList() {
     }
   }
 
-  // Mientras se determina el rol, mostrar cargando
-  if (roleLoading) {
+  // Mientras se verifica el rol (contexto o useUserRole), mostrar cargando
+  if (roleLoading || roleContextLoading) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
@@ -1612,7 +1612,7 @@ export function ReporteList() {
     )
   }
 
-  // Si no hay fcpId y no es facilitador, mostrar mensaje
+  // Si no hay fcpId y no es facilitador (ya se verificó el rol), mostrar mensaje
   if (!fcpIdFinal && !esFacilitador) {
     return (
       <Card>
