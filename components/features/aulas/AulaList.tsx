@@ -26,9 +26,9 @@ import { Input } from '@/components/ui/input'
 import { AulaDialog } from './AulaDialog'
 import { AulaTutorDialog } from './AulaTutorDialog'
 import { AulaEditDialog } from './AulaEditDialog'
-import { HabilitarRegistroTutoresDialog } from './HabilitarRegistroTutoresDialog'
 import { useRouter } from 'next/navigation'
 import { useUserRole } from '@/hooks/useUserRole'
+import { toast } from '@/lib/toast'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 
@@ -50,6 +50,9 @@ interface Aula {
     razon_social: string
   }
   tutor?: TutorInfo
+  /** ID de la fila tutor_aula para actualizar puede_registrar_asistencia */
+  tutorAulaId?: string
+  tutorPuedeRegistrarAsistencia?: boolean
 }
 
 export function AulaList() {
@@ -58,8 +61,6 @@ export function AulaList() {
   const [error, setError] = useState<string | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isTutorDialogOpen, setIsTutorDialogOpen] = useState(false)
-  const [isHabilitarRegistroOpen, setIsHabilitarRegistroOpen] = useState(false)
-  const [selectedAulaForHabilitar, setSelectedAulaForHabilitar] = useState<Aula | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [selectedAulaForTutor, setSelectedAulaForTutor] = useState<Aula | null>(null)
   const [editingAula, setEditingAula] = useState<Aula | null>(null)
@@ -332,7 +333,9 @@ export function AulaList() {
           const { data: tutoresData, error: tutoresError } = await supabase
             .from('tutor_aula')
             .select(`
+              id,
               aula_id,
+              puede_registrar_asistencia,
               fcp_miembro:fcp_miembros!inner(
                 id,
                 nombre_display,
@@ -347,9 +350,8 @@ export function AulaList() {
           if (tutoresError) {
             console.error('Error cargando tutores:', tutoresError)
           } else {
-            // Crear un mapa de aula_id -> tutor para acceso rápido
-            // Usar LEFT JOIN en usuarios: tutores con invitación pendiente (usuario_id null) también aparecen
             const tutoresMap = new Map<string, TutorInfo>()
+            const tutorAulaMap = new Map<string, { id: string; puedeRegistrar: boolean }>()
             if (tutoresData) {
               tutoresData.forEach((tutorData: any) => {
                 if (!tutorData.fcp_miembro || tutoresMap.has(tutorData.aula_id)) return
@@ -363,14 +365,22 @@ export function AulaList() {
                   nombre_completo: usuario?.nombre_completo ?? '',
                   displayName: displayName || '(Pendiente de registro)'
                 })
+                tutorAulaMap.set(tutorData.aula_id, {
+                  id: tutorData.id,
+                  puedeRegistrar: !!tutorData.puede_registrar_asistencia
+                })
               })
             }
             
-            // Agregar información de tutor a cada aula
-            aulasWithTutors = aulasBase.map(aula => ({
-              ...aula,
-              tutor: tutoresMap.get(aula.id)
-            }))
+            aulasWithTutors = aulasBase.map(aula => {
+              const ta = tutorAulaMap.get(aula.id)
+              return {
+                ...aula,
+                tutor: tutoresMap.get(aula.id),
+                tutorAulaId: ta?.id,
+                tutorPuedeRegistrarAsistencia: ta?.puedeRegistrar ?? false
+              }
+            })
           }
         }
       }
@@ -396,12 +406,6 @@ export function AulaList() {
     setSelectedAulaForTutor(null)
   }
 
-  const handleHabilitarRegistroSuccess = () => {
-    loadAulas()
-    setIsHabilitarRegistroOpen(false)
-    setSelectedAulaForHabilitar(null)
-  }
-
   const handleAulaUpdated = () => {
     loadAulas()
     setIsEditDialogOpen(false)
@@ -413,9 +417,31 @@ export function AulaList() {
     setIsTutorDialogOpen(true)
   }
 
-  const handleHabilitarRegistro = (aula: Aula) => {
-    setSelectedAulaForHabilitar(aula)
-    setIsHabilitarRegistroOpen(true)
+  const handleToggleHabilitarRegistro = async (aula: Aula, checked: boolean) => {
+    if (!aula.tutorAulaId) return
+    try {
+      const supabase = createClient()
+      const { error } = await supabase
+        .from('tutor_aula')
+        .update({ puede_registrar_asistencia: checked })
+        .eq('id', aula.tutorAulaId)
+
+      if (error) throw error
+
+      setAulas((prev) =>
+        prev.map((a) =>
+          a.id === aula.id ? { ...a, tutorPuedeRegistrarAsistencia: checked } : a
+        )
+      )
+
+      if (checked) {
+        toast.success('Registro habilitado', `El tutor de ${aula.nombre} ahora puede registrar asistencias.`)
+      } else {
+        toast.info('Registro deshabilitado', `El tutor de ${aula.nombre} ya no puede registrar asistencias.`)
+      }
+    } catch (err: any) {
+      toast.error('Error al actualizar', err?.message || 'Intenta nuevamente.')
+    }
   }
 
   if (loadingFCPs) {
@@ -600,8 +626,29 @@ export function AulaList() {
                               </span>
                             )}
                           </CardTitle>
+                          <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
+                            {aula.tutor && aula.tutorAulaId && (
+                              <div
+                                onClick={(ev) => ev.stopPropagation()}
+                                className="shrink-0"
+                              >
+                                <Checkbox
+                                  checked={aula.tutorPuedeRegistrarAsistencia ?? false}
+                                  onCheckedChange={(v) => handleToggleHabilitarRegistro(aula, v === true)}
+                                  title="Habilitar registro de asistencia para el tutor"
+                                  className="mt-0.5"
+                                />
+                              </div>
+                            )}
+                          </RoleGuard>
                         </div>
                         {aula.descripcion && <CardDescription>{aula.descripcion}</CardDescription>}
+                        {aula.tutorPuedeRegistrarAsistencia && (
+                          <p className="text-xs text-green-600 dark:text-green-400 mt-1 flex items-center gap-1">
+                            <ClipboardCheck className="h-3.5 w-3.5" />
+                            Registro de asistencia habilitado para el tutor
+                          </p>
+                        )}
                       </CardHeader>
                       <CardContent>
                           <div className="space-y-2 text-sm">
@@ -621,32 +668,18 @@ export function AulaList() {
                                   </span>
                                 )}
                               </p>
-                              <div className="flex flex-wrap gap-1">
-                                <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={(e) => { e.stopPropagation(); handleAssignTutor(aula) }}
-                                    className="text-xs"
-                                  >
-                                    <Edit className="mr-1 h-3 w-3" />
-                                    {aula.tutor ? 'Cambiar tutor' : 'Asignar tutor'}
-                                  </Button>
-                                  {aula.tutor && (
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={(e) => { e.stopPropagation(); handleHabilitarRegistro(aula) }}
-                                      className="text-xs"
-                                    >
-                                      <ClipboardCheck className="mr-1 h-3 w-3" />
-                                      Habilitar registro
-                                    </Button>
-                                  )}
-                                </RoleGuard>
-                              </div>
+                              <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={(e) => { e.stopPropagation(); handleAssignTutor(aula) }}
+                                  className="text-xs"
+                                >
+                                  <Edit className="mr-1 h-3 w-3" />
+                                  {aula.tutor ? 'Cambiar tutor' : 'Asignar tutor'}
+                                </Button>
+                              </RoleGuard>
                             </div>
                             <div className="pt-2 flex items-center justify-between">
                               <span
@@ -730,17 +763,6 @@ export function AulaList() {
           aulaNombre={selectedAulaForTutor.nombre}
           fcpId={selectedFCP || ''}
           tutorActual={selectedAulaForTutor.tutor}
-        />
-      )}
-
-      {selectedAulaForHabilitar && (
-        <HabilitarRegistroTutoresDialog
-          open={isHabilitarRegistroOpen}
-          onOpenChange={setIsHabilitarRegistroOpen}
-          onSuccess={handleHabilitarRegistroSuccess}
-          aulaId={selectedAulaForHabilitar.id}
-          aulaNombre={selectedAulaForHabilitar.nombre}
-          fcpId={selectedFCP || ''}
         />
       )}
 
