@@ -35,11 +35,16 @@ export function AsistenciasPageContent() {
     loadUserFCPs()
   }, [selectedRole])
 
+  const fcpIdFromUrl = searchParams.get('fcpId')
   useEffect(() => {
-    if (userFCPs.length > 0 && !selectedFCP) {
+    if (userFCPs.length === 0) return
+    const fcpValidaEnUrl = fcpIdFromUrl && userFCPs.some(f => f.id === fcpIdFromUrl) ? fcpIdFromUrl : null
+    if (fcpValidaEnUrl) {
+      setSelectedFCP(fcpValidaEnUrl)
+    } else if (!selectedFCP) {
       setSelectedFCP(userFCPs[0].id)
     }
-  }, [userFCPs])
+  }, [userFCPs, fcpIdFromUrl])
 
   useEffect(() => {
     const aulaIdParam = searchParams.get('aulaId') || searchParams.get('aulald')

@@ -1811,7 +1811,7 @@ export function ReporteList() {
                         const fechaDate = new Date(year, month - 1, day)
                         const yearForUrl = fechaDate.getFullYear()
                         const monthForUrl = fechaDate.getMonth()
-                        const asistenciasUrl = `/asistencias?aulaId=${dia.aulaId}&month=${monthForUrl}&year=${yearForUrl}`
+                        const asistenciasUrl = `/asistencias?fcpId=${fcpIdFinal || ''}&aulaId=${dia.aulaId}&month=${monthForUrl}&year=${yearForUrl}`
                         
                         return (
                           <li key={`${dia.fecha}-${dia.nivel}-${index}`} className="flex items-center justify-between gap-3 p-2 rounded-md bg-warning/30 border border-warning/60">
