@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { CheckCircle2, XCircle, Clock, CheckCheck, X, Info, Calendar, Search } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useTutorPuedeRegistrarAula } from '@/hooks/useTutorPuedeRegistrarAula'
-import { toLocalDateString } from '@/lib/utils/dateUtils'
+import { toLocalDateString, getTodayInAppTimezone } from '@/lib/utils/dateUtils'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import {
   Select,
@@ -30,6 +30,7 @@ import { QuitarEstudianteMesDialog } from './QuitarEstudianteMesDialog'
 import { MoverEstudianteMesDialog } from './MoverEstudianteMesDialog'
 import { toast } from '@/lib/toast'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { MobileAsistenciaDatePickerDialog } from './MobileAsistenciaDatePickerDialog'
 
 interface Estudiante {
   id: string
@@ -113,6 +114,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const [selectedEstudianteForModal, setSelectedEstudianteForModal] = useState<Estudiante | null>(null)
   const [mobilePage, setMobilePage] = useState(1)
   const [mobileSearch, setMobileSearch] = useState('')
+  const [mobileSelectedDate, setMobileSelectedDate] = useState<string>(() => getTodayInAppTimezone())
+  const [mobileDatePickerOpen, setMobileDatePickerOpen] = useState(false)
   const tableContainerRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const defaultWidthRef = useRef<number | null>(null) // Ancho por defecto del contenedor
@@ -303,6 +306,17 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     setMobilePage(1)
     setMobileSearch('')
   }, [selectedAula, selectedMonth, selectedYear])
+
+  // Sincronizar mes/año cuando cambia la fecha seleccionada en móvil (para cargar asistencias del mes correcto)
+  useEffect(() => {
+    if (!mobileSelectedDate) return
+    const [y, m] = mobileSelectedDate.split('-').map(Number)
+    const month0 = m - 1
+    if (selectedYear !== y || selectedMonth !== month0) {
+      setSelectedYear(y)
+      setSelectedMonth(month0)
+    }
+  }, [mobileSelectedDate])
 
   useEffect(() => {
     if (selectedAula) {
@@ -1607,9 +1621,27 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
             No hay estudiantes en esta aula.
           </div>
         ) : isMobile ? (
-          /* Vista móvil: cards por asistente, sin tablas */
+          /* Vista móvil: tarjeta fecha + resumen + lista de estudiantes con íconos de estado */
           (() => {
-            const mobilePerPage = 8
+            const fechaStr = mobileSelectedDate
+            const total = estudiantes.length
+            const countPresente = estudiantes.filter(
+              (e) => getAsistenciaEstado(e.id, fechaStr) === 'presente'
+            ).length
+            const countPermiso = estudiantes.filter(
+              (e) => getAsistenciaEstado(e.id, fechaStr) === 'permiso'
+            ).length
+            const countFalto = estudiantes.filter(
+              (e) => getAsistenciaEstado(e.id, fechaStr) === 'falto'
+            ).length
+
+            const formatFechaDisplay = (d: string) => {
+              const [y, m, day] = d.split('-')
+              const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+              const monthName = months[parseInt(m, 10) - 1] || m
+              return `${parseInt(day, 10)} - ${monthName} - ${y}`
+            }
+
             const filteredEstudiantes = mobileSearch.trim()
               ? estudiantes.filter(
                   (e) =>
@@ -1617,14 +1649,49 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                     e.codigo.toLowerCase().includes(mobileSearch.toLowerCase())
                 )
               : estudiantes
-            const totalPages = Math.max(1, Math.ceil(filteredEstudiantes.length / mobilePerPage))
-            const displayEstudiantes = filteredEstudiantes.slice(
-              (mobilePage - 1) * mobilePerPage,
-              mobilePage * mobilePerPage
-            )
-            const totalDias = daysInMonth.length
+
+            const getIniciales = (nombre: string) => {
+              const parts = nombre.trim().split(/\s+/)
+              if (parts.length >= 2) {
+                return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+              }
+              return nombre.slice(0, 2).toUpperCase()
+            }
+
             return (
               <div className="space-y-4">
+                {/* Tarjeta fecha y resumen */}
+                <Card>
+                  <CardContent className="p-4 space-y-4">
+                    <button
+                      type="button"
+                      onClick={() => setMobileDatePickerOpen(true)}
+                      className="w-full flex items-center justify-between gap-2 rounded-lg border bg-muted/30 px-3 py-2.5 hover:bg-muted/50 transition-colors text-left"
+                    >
+                      <span className="font-semibold text-base">{formatFechaDisplay(fechaStr)}</span>
+                      <Calendar className="h-5 w-5 text-muted-foreground shrink-0" />
+                    </button>
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <User className="h-4 w-4" />
+                        <span>{total}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-green-600 dark:text-green-400">
+                        <CheckCircle2 className="h-4 w-4" />
+                        <span>{countPresente}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                        <Clock className="h-4 w-4" />
+                        <span>{countPermiso}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-red-600 dark:text-red-400">
+                        <XCircle className="h-4 w-4" />
+                        <span>{countFalto}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
                 <div className="relative">
                   <Input
                     placeholder="Buscar por nombre o código..."
@@ -1637,108 +1704,92 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                   />
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 </div>
+
                 {filteredEstudiantes.length === 0 ? (
                   <p className="text-center py-8 text-muted-foreground text-sm">
                     {mobileSearch ? 'No se encontraron estudiantes' : 'No hay estudiantes'}
                   </p>
                 ) : (
-                <div className="space-y-3">
-                  {displayEstudiantes.map((estudiante) => {
-                    const presentes = daysInMonth.filter(
-                      (d) => getAsistenciaEstado(estudiante.id, d.fechaStr) === 'presente'
-                    ).length
-                    return (
-                      <Card key={estudiante.id} className="overflow-hidden">
-                        <div className="p-4 flex flex-col gap-3">
-                          <div>
-                            <p className="font-mono text-sm text-muted-foreground">{estudiante.codigo}</p>
-                            <p className="font-medium">{estudiante.nombre_completo}</p>
-                          </div>
-                          <p className="text-sm text-muted-foreground">
-                            {formatMonthYear(selectedMonth, selectedYear)}: {presentes} / {totalDias}
-                          </p>
-                          <div className="flex flex-col gap-2">
-                            <Button
-                              className="w-full gap-2"
-                              variant="outline"
-                              onClick={() => setSelectedEstudianteForModal(estudiante)}
-                            >
-                              <Calendar className="h-4 w-4" />
-                              Ver calendario
-                            </Button>
-                            {showQuitarEstudianteMes && (
-                              <>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="w-full"
-                                  onClick={() => {
-                                    setSelectedEstudianteForMover(estudiante)
-                                    setMoverEstudianteMesOpen(true)
-                                  }}
+                  <div className="space-y-3">
+                    {filteredEstudiantes.map((estudiante) => {
+                      const estado = getAsistenciaEstado(estudiante.id, fechaStr)
+                      const key = `${estudiante.id}_${fechaStr}`
+                      const isSaving = saving.has(key)
+
+                      return (
+                        <Card key={estudiante.id} className="overflow-hidden">
+                          <div className="p-4 flex items-center gap-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-muted-foreground">
+                              {getIniciales(estudiante.nombre_completo)}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium truncate">{estudiante.nombre_completo}</p>
+                              <p className="font-mono text-xs text-muted-foreground">{estudiante.codigo}</p>
+                            </div>
+                            {puedeEditarMes && (
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => saveAsistencia(estudiante.id, fechaStr, 'presente')}
+                                  disabled={isSaving}
+                                  className={`p-2 rounded-md transition-colors ${
+                                    estado === 'presente'
+                                      ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400'
+                                      : 'text-muted-foreground hover:bg-muted'
+                                  }`}
+                                  title="Presente"
                                 >
-                                  Mover a otro salón
-                                </Button>
-                                {periodosQuitables.has(estudiante.id) && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
-                                    onClick={() => {
-                                      setSelectedEstudianteForQuitar(estudiante)
-                                      setQuitarEstudianteMesOpen(true)
-                                    }}
-                                  >
-                                    Quitar de este mes
-                                  </Button>
-                                )}
-                              </>
+                                  <CheckCircle2 className="h-5 w-5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => saveAsistencia(estudiante.id, fechaStr, 'permiso')}
+                                  disabled={isSaving}
+                                  className={`p-2 rounded-md transition-colors ${
+                                    estado === 'permiso'
+                                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400'
+                                      : 'text-muted-foreground hover:bg-muted'
+                                  }`}
+                                  title="Permiso / Tarde"
+                                >
+                                  <Clock className="h-5 w-5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => saveAsistencia(estudiante.id, fechaStr, 'falto')}
+                                  disabled={isSaving}
+                                  className={`p-2 rounded-md transition-colors ${
+                                    estado === 'falto'
+                                      ? 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400'
+                                      : 'text-muted-foreground hover:bg-muted'
+                                  }`}
+                                  title="Faltó"
+                                >
+                                  <XCircle className="h-5 w-5" />
+                                </button>
+                              </div>
+                            )}
+                            {!puedeEditarMes && (
+                              <div className="flex items-center shrink-0">
+                                {estado === 'presente' && <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />}
+                                {estado === 'permiso' && <Clock className="h-5 w-5 text-amber-600 dark:text-amber-400" />}
+                                {estado === 'falto' && <XCircle className="h-5 w-5 text-red-600 dark:text-red-400" />}
+                                {!estado && <span className="text-xs text-muted-foreground">—</span>}
+                              </div>
                             )}
                           </div>
-                        </div>
-                      </Card>
-                    )
-                  })}
-                </div>
-                )}
-                {filteredEstudiantes.length > mobilePerPage && (
-                  <div className="flex items-center justify-between pt-4 border-t">
-                    <p className="text-sm text-muted-foreground">
-                      {(mobilePage - 1) * mobilePerPage + 1} - {Math.min(mobilePage * mobilePerPage, filteredEstudiantes.length)} de {filteredEstudiantes.length}
-                    </p>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={mobilePage <= 1}
-                        onClick={() => setMobilePage((p) => Math.max(1, p - 1))}
-                      >
-                        Anterior
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={mobilePage >= totalPages}
-                        onClick={() => setMobilePage((p) => Math.min(totalPages, p + 1))}
-                      >
-                        Siguiente
-                      </Button>
-                    </div>
+                        </Card>
+                      )
+                    })}
                   </div>
                 )}
-                {selectedEstudianteForModal && (
-                  <AsistenciaCalendarioModal
-                    open={!!selectedEstudianteForModal}
-                    onOpenChange={(open) => !open && setSelectedEstudianteForModal(null)}
-                    estudiante={selectedEstudianteForModal}
-                    daysInMonth={daysInMonth}
-                    monthLabel={formatMonthYear(selectedMonth, selectedYear)}
-                    getEstado={getAsistenciaEstado}
-                    onDayTap={(eid, fechaStr) => handleCellClick(eid, fechaStr, false)}
-                    isSaving={(eid, fechaStr) => saving.has(`${eid}_${fechaStr}`)}
-                    puedeEditar={puedeEditarMes}
-                  />
-                )}
+
+                <MobileAsistenciaDatePickerDialog
+                  open={mobileDatePickerOpen}
+                  onOpenChange={setMobileDatePickerOpen}
+                  selectedDate={mobileSelectedDate}
+                  onDateChange={setMobileSelectedDate}
+                />
               </div>
             )
           })()
