@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Building2, Users, GraduationCap, ClipboardList, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react'
+import { Building2, Users, GraduationCap, ClipboardList, CheckCircle2, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react'
 import Link from 'next/link'
 import { ReportesMensualesResumen } from '@/components/features/dashboard/ReportesMensualesResumen'
 import { ReporteMensualResumen } from '@/components/features/dashboard/ReporteMensualResumen'
@@ -612,11 +612,11 @@ export default async function DashboardPage() {
                       {/* Asistencia general */}
                       <div className="flex items-center gap-3 rounded-lg bg-background/80 p-4 border border-border/50 shadow-sm">
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-500/15">
-                          <span className="text-lg font-bold text-green-600 dark:text-green-400">{pct}%</span>
+                          <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
                         </div>
                         <div>
                           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Asistencia general</p>
-                          <p className="text-lg font-bold text-foreground">{pct}%</p>
+                          <p className="text-lg font-bold text-green-600 dark:text-green-400">{pct}%</p>
                         </div>
                       </div>
                       {/* Día mayor asistencia */}
