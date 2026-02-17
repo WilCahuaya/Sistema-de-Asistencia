@@ -897,38 +897,9 @@ export function ReporteList() {
           fechasUnicas: fechasUnicas
         })
 
-        // Usar la misma fuente que la página de Asistencias: estudiantes_activos_en_rango con rango del mes
-        // Así evitamos falsos positivos (días marcados incompletos cuando ya están completos)
-        const aulaIds = Array.from(aulasMap.keys())
-        const activosPorAula = new Map<string, Set<string>>() // aulaId -> Set<estudiante_id> activos en el mes
-
-        let hayPeriodos = false
-        if (aulaIds.length > 0) {
-          const calls = aulaIds.map(async (aulaId) => {
-            const { data } = await supabase.rpc('estudiantes_activos_en_rango', {
-              p_aula_id: aulaId,
-              p_fecha_inicio: fechaInicio,
-              p_fecha_fin: fechaFin,
-            })
-            const ids = (data || []).flatMap((x: unknown) => {
-              if (typeof x === 'string') return [x]
-              if (x && typeof x === 'object') {
-                const v = (x as Record<string, unknown>)['estudiante_id'] ?? Object.values(x as object)[0]
-                return typeof v === 'string' ? [v] : []
-              }
-              return []
-            })
-            return { aulaId, ids }
-          })
-          const results = await Promise.all(calls)
-          results.forEach(({ aulaId, ids }) => {
-            activosPorAula.set(aulaId, new Set(ids))
-            if (ids.length > 0) hayPeriodos = true
-          })
-        }
-
-
         // Detectar días incompletos por aula (reutilizar aulasMap ya creado arriba)
+        // Usar aula.estudiantesIds como total: lista de estudiantes en el aula según el reporte.
+        // Así evitamos falsos positivos cuando periodos/RPC devuelve más de lo que muestra Asistencias.
         aulasMap.forEach((aula, aulaId) => {
           const asistenciasPorFecha = new Map<string, Set<string>>() // fecha -> Set<estudiante_id>
 
@@ -1003,17 +974,13 @@ export function ReporteList() {
             const estudiantesMarcados = asistenciasPorFecha.get(fecha) || new Set<string>()
             console.log(`   📊 Estudiantes marcados en asistenciasPorFecha: ${estudiantesMarcados.size}`)
 
-            // Usar misma lógica que página Asistencias: estudiantes activos en el mes (rango completo)
-            let estudiantesActivosEnMes = activosPorAula.get(aulaId) || new Set<string>()
-            // Fallback: si la FCP no usa estudiante_periodos, usar lista del aula
-            if (!hayPeriodos && estudiantesActivosEnMes.size === 0 && aula.estudiantesIds.length > 0) {
-              estudiantesActivosEnMes = new Set(aula.estudiantesIds)
-            }
-            const totalEstudiantesEnFecha = estudiantesActivosEnMes.size
+            // Total = estudiantes en el aula (según aulasMap del reporte)
+            const estudiantesAulaSet = new Set(aula.estudiantesIds)
+            const totalEstudiantesEnFecha = aula.estudiantesIds.length
 
-            // Contar cuántos de los que debían estar tienen registro (presente, falto o permiso)
+            // Marcados = estudiantes del aula que tienen asistencia en esta fecha
             const marcados = Array.from(estudiantesMarcados).filter(estId =>
-              estudiantesActivosEnMes.has(estId)
+              estudiantesAulaSet.has(estId)
             ).length
             
             // Debug: Log para TODAS las fechas para diagnóstico
@@ -1901,10 +1868,10 @@ export function ReporteList() {
                         </div>
                         <div className="space-y-3">
                           {displayRows.map((row, idx) => {
-                            const presentes = reporteData.fechasUnicas?.filter((f) => row.asistenciasPorFecha[f] === 'presente').length || 0
-                            const faltas = reporteData.fechasUnicas?.filter((f) => row.asistenciasPorFecha[f] === 'falto').length || 0
-                            const permisos = reporteData.fechasUnicas?.filter((f) => row.asistenciasPorFecha[f] === 'permiso').length || 0
-                            const sinRegistro = reporteData.fechasUnicas?.filter((f) => !row.asistenciasPorFecha[f]).length || 0
+                            const fechasConRegistro = reporteData.fechasUnicas?.filter((f) => row.asistenciasPorFecha[f]) || []
+                            const presentes = fechasConRegistro.filter((f) => row.asistenciasPorFecha[f] === 'presente').length
+                            const faltas = fechasConRegistro.filter((f) => row.asistenciasPorFecha[f] === 'falto').length
+                            const permisos = fechasConRegistro.filter((f) => row.asistenciasPorFecha[f] === 'permiso').length
                             const isExpanded = expandedCardId === row.no
                             return (
                               <Card key={row.no}>
@@ -1921,26 +1888,25 @@ export function ReporteList() {
                                         <span className="text-green-600 dark:text-green-400">{presentes} presente{presentes !== 1 ? 's' : ''}</span>
                                         <span className="text-red-600 dark:text-red-400">{faltas} falta{faltas !== 1 ? 's' : ''}</span>
                                         <span className="text-amber-600 dark:text-amber-400">{permisos} permiso{permisos !== 1 ? 's' : ''}</span>
-                                        {sinRegistro > 0 && <span className="text-muted-foreground">{sinRegistro} sin registrar</span>}
                                       </p>
                                     </div>
                                     {isExpanded ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
                                   </div>
-                                  {isExpanded && reporteData.fechasUnicas && (
+                                  {isExpanded && (
+                                    fechasConRegistro.length > 0 ? (
                                     <div className="mt-4 pt-3 border-t grid grid-cols-7 gap-1">
-                                      {reporteData.fechasUnicas.map((fecha) => {
+                                      {fechasConRegistro.map((fecha) => {
                                         const [y, m, d] = fecha.split('-').map(Number)
-                                        const estado = row.asistenciasPorFecha[fecha]
+                                        const estado = row.asistenciasPorFecha[fecha]!
                                         const bgClass = estado === 'presente' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
                                           : estado === 'falto' ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
-                                          : estado === 'permiso' ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
-                                          : 'bg-muted text-muted-foreground'
-                                        const simbolo = estado === 'presente' ? '✓' : estado === 'falto' ? '✗' : estado === 'permiso' ? 'P' : '—'
+                                          : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                                        const simbolo = estado === 'presente' ? '✓' : estado === 'falto' ? '✗' : 'P'
                                         return (
                                           <div
                                             key={fecha}
                                             className={`text-center py-1 rounded text-xs ${bgClass}`}
-                                            title={estado ? `${fecha}: ${estado}` : `${fecha}: sin registrar`}
+                                            title={`${fecha}: ${estado}`}
                                           >
                                             <span className="block font-medium">{d}</span>
                                             <span>{simbolo}</span>
@@ -1948,6 +1914,9 @@ export function ReporteList() {
                                         )
                                       })}
                                     </div>
+                                  ) : (
+                                    <p className="mt-4 pt-3 border-t text-sm text-muted-foreground">Sin días registrados</p>
+                                  )
                                   )}
                                 </div>
                               </Card>
