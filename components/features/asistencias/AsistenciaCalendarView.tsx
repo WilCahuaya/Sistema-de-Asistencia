@@ -125,7 +125,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const tableContainerRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const defaultWidthRef = useRef<number | null>(null)
-  const mobileTapRef = useRef<{ key: string; time: number; timeoutId: ReturnType<typeof setTimeout> | null }>({ key: '', time: 0, timeoutId: null }) // Ancho por defecto del contenedor
+  const mobileTapRef = useRef<{ key: string; time: number; timeoutId: ReturnType<typeof setTimeout> | null }>({ key: '', time: 0, timeoutId: null })
+  const mobileDateSyncRef = useRef(false) // Evitar bucle entre mobileSelectedDate ↔ selectedMonth/Year
   
   // Efecto para obtener el ancho por defecto del div contenedor (mb-8 mx-auto max-w-7xl)
   useEffect(() => {
@@ -314,8 +315,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     setMobileSearch('')
   }, [selectedAula, selectedMonth, selectedYear])
 
-  // Sincronizar mobileSelectedDate cuando cambia el mes/año seleccionado (para ver registros de meses pasados)
-  // Si la fecha actual está fuera del mes seleccionado, usar el primer día del mes
+  // Sincronizar mobileSelectedDate cuando cambia el mes/año (URL o selector) - para ver registros de meses pasados
   useEffect(() => {
     if (!mobileSelectedDate || typeof mobileSelectedDate !== 'string') return
     const parts = mobileSelectedDate.split('-')
@@ -324,15 +324,22 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     if (Number.isNaN(y) || Number.isNaN(m) || m < 1 || m > 12) return
     const month0 = m - 1
     if (selectedYear !== y || selectedMonth !== month0) {
+      mobileDateSyncRef.current = true
       const firstDay = toLocalDateString(new Date(selectedYear, selectedMonth, 1))
       setMobileSelectedDate(firstDay)
     }
   }, [selectedMonth, selectedYear])
 
-  // Sincronizar mes/año cuando cambia la fecha seleccionada en móvil (usuario elige día desde el picker)
+  // Sincronizar mes/año cuando el usuario elige un día en el picker móvil
   useEffect(() => {
-    if (!mobileSelectedDate) return
-    const [y, m] = mobileSelectedDate.split('-').map(Number)
+    if (!mobileSelectedDate || mobileDateSyncRef.current) {
+      mobileDateSyncRef.current = false
+      return
+    }
+    const parts = mobileSelectedDate.split('-')
+    if (parts.length !== 3) return
+    const [y, m] = parts.map(Number)
+    if (Number.isNaN(y) || Number.isNaN(m)) return
     const month0 = m - 1
     if (selectedYear !== y || selectedMonth !== month0) {
       setSelectedYear(y)
