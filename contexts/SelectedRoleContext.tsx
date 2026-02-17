@@ -40,10 +40,32 @@ export function SelectedRoleProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      // Verificar si hay un rol seleccionado en localStorage
-      const savedRoleId = localStorage.getItem('selectedRoleId')
-      const savedRole = localStorage.getItem('selectedRole') as RolType | null
-      const savedFcpId = localStorage.getItem('selectedFcpId')
+      // Verificar si hay un rol seleccionado: primero localStorage, luego cookies (sincronizar con servidor)
+      let savedRoleId = typeof window !== 'undefined' ? localStorage.getItem('selectedRoleId') : null
+      let savedRole = (typeof window !== 'undefined' ? localStorage.getItem('selectedRole') : null) as RolType | null
+      let savedFcpId = typeof window !== 'undefined' ? localStorage.getItem('selectedFcpId') : null
+
+      // Si localStorage está vacío, intentar leer desde cookies (el servidor las establece al seleccionar rol)
+      if ((!savedRoleId || !savedRole) && typeof document !== 'undefined' && document.cookie) {
+        const cookies = document.cookie.split(';').reduce((acc, c) => {
+          const [k, v] = c.trim().split('=')
+          if (k && v) acc[k] = decodeURIComponent(v)
+          return acc
+        }, {} as Record<string, string>)
+        const cookieRoleId = cookies['selectedRoleId']
+        const cookieRole = cookies['selectedRole'] as RolType | undefined
+        const cookieFcpId = cookies['selectedFcpId'] || null
+        if (cookieRoleId && cookieRole) {
+          savedRoleId = cookieRoleId
+          savedRole = cookieRole
+          savedFcpId = cookieFcpId
+          // Sincronizar a localStorage para consistencia
+          localStorage.setItem('selectedRoleId', cookieRoleId)
+          localStorage.setItem('selectedRole', cookieRole)
+          if (cookieFcpId) localStorage.setItem('selectedFcpId', cookieFcpId)
+          else localStorage.removeItem('selectedFcpId')
+        }
+      }
 
       if (savedRoleId && savedRole) {
         // Facilitador unificado (facilitador-sistema, fcpId null): validar solo en facilitadores
