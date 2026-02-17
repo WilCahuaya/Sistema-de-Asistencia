@@ -1781,66 +1781,17 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
 
                       return (
                         <Card key={estudiante.id} className="overflow-hidden">
-                          <div className="p-4 flex items-center gap-3">
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-muted-foreground">
-                              {getIniciales(estudiante.nombre_completo)}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium break-words">{estudiante.nombre_completo}</p>
-                              <p className="font-mono text-xs text-muted-foreground">{estudiante.codigo}</p>
-                            </div>
-                            {puedeEditarMes && (
-                              <div className="flex items-center gap-0.5 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => handleMobileStatusTap(estudiante.id, fechaStr, 'presente')}
-                                  disabled={isSaving}
-                                  className={`p-2 rounded-md transition-colors touch-manipulation ${
-                                    estado === 'presente'
-                                      ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400'
-                                      : 'text-muted-foreground hover:bg-muted'
-                                  }`}
-                                  title="Presente (doble tap para quitar)"
-                                >
-                                  <CheckCircle2 className="h-5 w-5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleMobileStatusTap(estudiante.id, fechaStr, 'permiso')}
-                                  disabled={isSaving}
-                                  className={`p-2 rounded-md transition-colors touch-manipulation ${
-                                    estado === 'permiso'
-                                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400'
-                                      : 'text-muted-foreground hover:bg-muted'
-                                  }`}
-                                  title="Permiso / Tarde (doble tap para quitar)"
-                                >
-                                  <Clock className="h-5 w-5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleMobileStatusTap(estudiante.id, fechaStr, 'falto')}
-                                  disabled={isSaving}
-                                  className={`p-2 rounded-md transition-colors touch-manipulation ${
-                                    estado === 'falto'
-                                      ? 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400'
-                                      : 'text-muted-foreground hover:bg-muted'
-                                  }`}
-                                  title="Faltó (doble tap para quitar)"
-                                >
-                                  <XCircle className="h-5 w-5" />
-                                </button>
+                          <div className="p-4 space-y-3">
+                            {/* Fila 1: Avatar + datos del estudiante + menú */}
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-muted-foreground">
+                                {getIniciales(estudiante.nombre_completo)}
                               </div>
-                            )}
-                            {!puedeEditarMes && (
-                              <div className="flex items-center shrink-0">
-                                {estado === 'presente' && <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />}
-                                {estado === 'permiso' && <Clock className="h-5 w-5 text-amber-600 dark:text-amber-400" />}
-                                {estado === 'falto' && <XCircle className="h-5 w-5 text-red-600 dark:text-red-400" />}
-                                {!estado && <span className="text-xs text-muted-foreground">—</span>}
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium break-words">{estudiante.nombre_completo}</p>
+                                <p className="font-mono text-xs text-muted-foreground">{estudiante.codigo}</p>
                               </div>
-                            )}
-                            <DropdownMenu>
+                              <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <button
                                   type="button"
@@ -1867,6 +1818,78 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                                 )}
                               </DropdownMenuContent>
                             </DropdownMenu>
+                            </div>
+                            {/* Fila 2: Botones de estado */}
+                            <div className="flex items-center gap-2 border-t pt-3">
+                              {puedeEditarMes ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMobileStatusTap(estudiante.id, fechaStr, 'presente')}
+                                    disabled={isSaving}
+                                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md transition-colors touch-manipulation ${
+                                      estado === 'presente'
+                                        ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400'
+                                        : 'text-muted-foreground hover:bg-muted'
+                                    }`}
+                                    title="Presente (doble tap para quitar)"
+                                  >
+                                    <CheckCircle2 className="h-5 w-5" />
+                                    <span className="text-xs">Presente</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMobileStatusTap(estudiante.id, fechaStr, 'permiso')}
+                                    disabled={isSaving}
+                                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md transition-colors touch-manipulation ${
+                                      estado === 'permiso'
+                                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400'
+                                        : 'text-muted-foreground hover:bg-muted'
+                                    }`}
+                                    title="Permiso / Tarde (doble tap para quitar)"
+                                  >
+                                    <Clock className="h-5 w-5" />
+                                    <span className="text-xs">Permiso</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMobileStatusTap(estudiante.id, fechaStr, 'falto')}
+                                    disabled={isSaving}
+                                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md transition-colors touch-manipulation ${
+                                      estado === 'falto'
+                                        ? 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400'
+                                        : 'text-muted-foreground hover:bg-muted'
+                                    }`}
+                                    title="Faltó (doble tap para quitar)"
+                                  >
+                                    <XCircle className="h-5 w-5" />
+                                    <span className="text-xs">Faltó</span>
+                                  </button>
+                                </>
+                              ) : (
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  {estado === 'presente' && (
+                                    <span className="flex items-center gap-1">
+                                      <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                                      Presente
+                                    </span>
+                                  )}
+                                  {estado === 'permiso' && (
+                                    <span className="flex items-center gap-1">
+                                      <Clock className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                                      Permiso
+                                    </span>
+                                  )}
+                                  {estado === 'falto' && (
+                                    <span className="flex items-center gap-1">
+                                      <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                                      Faltó
+                                    </span>
+                                  )}
+                                  {!estado && <span>Sin registrar</span>}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </Card>
                       )
