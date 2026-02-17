@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/pagination'
 import { Plus, GraduationCap, Users, Edit, Building2, Eye, EyeOff, Search, ClipboardCheck } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { AulaDialog } from './AulaDialog'
 import { AulaTutorDialog } from './AulaTutorDialog'
@@ -630,14 +631,20 @@ export function AulaList() {
                             {aula.tutor && aula.tutorAulaId && (
                               <div
                                 onClick={(ev) => ev.stopPropagation()}
-                                className="shrink-0"
+                                className="shrink-0 flex items-center gap-2"
                               >
                                 <Checkbox
+                                  id={`habilitar-${aula.id}`}
                                   checked={aula.tutorPuedeRegistrarAsistencia ?? false}
                                   onCheckedChange={(v) => handleToggleHabilitarRegistro(aula, v === true)}
-                                  title="Habilitar registro de asistencia"
                                   className="mt-0.5"
                                 />
+                                <Label
+                                  htmlFor={`habilitar-${aula.id}`}
+                                  className="text-xs text-muted-foreground cursor-pointer font-normal whitespace-nowrap"
+                                >
+                                  Habilitar registro de asistencia
+                                </Label>
                               </div>
                             )}
                           </RoleGuard>
