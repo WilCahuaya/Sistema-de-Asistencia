@@ -16,6 +16,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Textarea } from '@/components/ui/textarea'
 import { Calendar, CheckCircle2 } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
+import { useTutorPuedeRegistrarAula } from '@/hooks/useTutorPuedeRegistrarAula'
 import { useCorreccionMes } from '@/hooks/useCorreccionMes'
 import { toast } from '@/lib/toast'
 
@@ -53,6 +54,7 @@ export function AsistenciaRegistroDialog({
   const [asistencias, setAsistencias] = useState<Map<string, AsistenciaFormData>>(new Map())
   const [savedCount, setSavedCount] = useState(0)
   const { canEdit, role } = useUserRole(fcpId)
+  const { puedeRegistrar: tutorPuedeRegistrar } = useTutorPuedeRegistrarAula(fcpId, aulaId)
   const [y, m] = (() => {
     const d = new Date(fecha + 'T12:00:00')
     return [d.getFullYear(), d.getMonth() + 1]
@@ -67,8 +69,12 @@ export function AsistenciaRegistroDialog({
     const actual = ay * 12 + am0
     const prev = actual - 1
     if (vista > actual) return canEdit && (role === 'director' || role === 'secretario')
-    if (vista === actual) return canEdit && (role === 'director' || role === 'secretario')
-    if (vista === prev && correccionHabilitada && role === 'secretario') return true
+    if (vista === actual) {
+      if (canEdit && (role === 'director' || role === 'secretario')) return true
+      if (role === 'tutor' && tutorPuedeRegistrar) return true
+      return false
+    }
+    if (vista === prev && correccionHabilitada && (role === 'secretario' || role === 'director')) return true
     return false
   })()
 

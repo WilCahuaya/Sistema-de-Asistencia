@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { CheckCircle2, XCircle, Clock, CheckCheck, X, Info, Calendar, Search } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
+import { useTutorPuedeRegistrarAula } from '@/hooks/useTutorPuedeRegistrarAula'
 import { toLocalDateString } from '@/lib/utils/dateUtils'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import {
@@ -219,6 +220,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const longPressTimerRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
   const prevAulaRef = useRef<string | null>(null) // Para detectar cambios de aula
   const { canEdit, role } = useUserRole(fcpId)
+  const { puedeRegistrar: tutorPuedeRegistrar } = useTutorPuedeRegistrarAula(fcpId, selectedAula)
   const mesNum = selectedMonth + 1
   const { data: correccionMes, loading: correccionLoading, refetch: refetchCorreccion } = useCorreccionMes(fcpId, selectedYear, mesNum)
   const esMesPasadoVista = esMesPasado(selectedYear, mesNum)
@@ -230,8 +232,13 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       const m = now.getMonth()
       const vista = selectedYear * 12 + selectedMonth
       const actual = y * 12 + m
+      // Mes futuro o actual: director, secretario, o tutor habilitado (solo mes actual)
       if (vista > actual) return canEdit && (role === 'director' || role === 'secretario')
-      if (vista === actual) return canEdit && (role === 'director' || role === 'secretario')
+      if (vista === actual) {
+        if (canEdit && (role === 'director' || role === 'secretario')) return true
+        if (role === 'tutor' && tutorPuedeRegistrar) return true
+        return false
+      }
       // Cualquier mes pasado: secretario o director, solo si el facilitador habilitó la corrección
       if (vista < actual && correccionHabilitada && (role === 'secretario' || role === 'director')) return true
       return false

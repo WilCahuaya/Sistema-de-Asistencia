@@ -20,12 +20,13 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '@/components/ui/pagination'
-import { Plus, GraduationCap, Users, Edit, Building2, Eye, EyeOff, Search } from 'lucide-react'
+import { Plus, GraduationCap, Users, Edit, Building2, Eye, EyeOff, Search, ClipboardCheck } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { AulaDialog } from './AulaDialog'
 import { AulaTutorDialog } from './AulaTutorDialog'
 import { AulaEditDialog } from './AulaEditDialog'
+import { HabilitarRegistroTutoresDialog } from './HabilitarRegistroTutoresDialog'
 import { useRouter } from 'next/navigation'
 import { useUserRole } from '@/hooks/useUserRole'
 import { RoleGuard } from '@/components/auth/RoleGuard'
@@ -57,6 +58,8 @@ export function AulaList() {
   const [error, setError] = useState<string | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isTutorDialogOpen, setIsTutorDialogOpen] = useState(false)
+  const [isHabilitarRegistroOpen, setIsHabilitarRegistroOpen] = useState(false)
+  const [selectedAulaForHabilitar, setSelectedAulaForHabilitar] = useState<Aula | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [selectedAulaForTutor, setSelectedAulaForTutor] = useState<Aula | null>(null)
   const [editingAula, setEditingAula] = useState<Aula | null>(null)
@@ -393,6 +396,12 @@ export function AulaList() {
     setSelectedAulaForTutor(null)
   }
 
+  const handleHabilitarRegistroSuccess = () => {
+    loadAulas()
+    setIsHabilitarRegistroOpen(false)
+    setSelectedAulaForHabilitar(null)
+  }
+
   const handleAulaUpdated = () => {
     loadAulas()
     setIsEditDialogOpen(false)
@@ -402,6 +411,11 @@ export function AulaList() {
   const handleAssignTutor = (aula: Aula) => {
     setSelectedAulaForTutor(aula)
     setIsTutorDialogOpen(true)
+  }
+
+  const handleHabilitarRegistro = (aula: Aula) => {
+    setSelectedAulaForHabilitar(aula)
+    setIsHabilitarRegistroOpen(true)
   }
 
   if (loadingFCPs) {
@@ -607,18 +621,32 @@ export function AulaList() {
                                   </span>
                                 )}
                               </p>
-                              <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={(e) => { e.stopPropagation(); handleAssignTutor(aula) }}
-                                  className="text-xs"
-                                >
-                                  <Edit className="mr-1 h-3 w-3" />
-                                  {aula.tutor ? 'Cambiar tutor' : 'Asignar tutor'}
-                                </Button>
-                              </RoleGuard>
+                              <div className="flex flex-wrap gap-1">
+                                <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={(e) => { e.stopPropagation(); handleAssignTutor(aula) }}
+                                    className="text-xs"
+                                  >
+                                    <Edit className="mr-1 h-3 w-3" />
+                                    {aula.tutor ? 'Cambiar tutor' : 'Asignar tutor'}
+                                  </Button>
+                                  {aula.tutor && (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={(e) => { e.stopPropagation(); handleHabilitarRegistro(aula) }}
+                                      className="text-xs"
+                                    >
+                                      <ClipboardCheck className="mr-1 h-3 w-3" />
+                                      Habilitar registro
+                                    </Button>
+                                  )}
+                                </RoleGuard>
+                              </div>
                             </div>
                             <div className="pt-2 flex items-center justify-between">
                               <span
@@ -702,6 +730,17 @@ export function AulaList() {
           aulaNombre={selectedAulaForTutor.nombre}
           fcpId={selectedFCP || ''}
           tutorActual={selectedAulaForTutor.tutor}
+        />
+      )}
+
+      {selectedAulaForHabilitar && (
+        <HabilitarRegistroTutoresDialog
+          open={isHabilitarRegistroOpen}
+          onOpenChange={setIsHabilitarRegistroOpen}
+          onSuccess={handleHabilitarRegistroSuccess}
+          aulaId={selectedAulaForHabilitar.id}
+          aulaNombre={selectedAulaForHabilitar.nombre}
+          fcpId={selectedFCP || ''}
         />
       )}
 

@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input'
 import { Calendar, Edit, Search, ClipboardList, ChevronDown, ChevronUp } from 'lucide-react'
 import { AsistenciaRegistroDialog } from './AsistenciaRegistroDialog'
 import { AsistenciaEditDialog } from './AsistenciaEditDialog'
+import { EditAsistenciaButton } from './EditAsistenciaButton'
+import { RegistrarAsistenciasButton } from './RegistrarAsistenciasButton'
 import { useRouter } from 'next/navigation'
 import {
   Table,
@@ -18,7 +20,6 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
-import { useUserRole } from '@/hooks/useUserRole'
 import { getTodayInAppTimezone } from '@/lib/utils/dateUtils'
 import {
   Pagination,
@@ -29,7 +30,6 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '@/components/ui/pagination'
-import { RoleGuard } from '@/components/auth/RoleGuard'
 import {
   Select,
   SelectContent,
@@ -48,6 +48,7 @@ interface Asistencia {
   estudiante?: {
     codigo: string
     nombre_completo: string
+    aula_id?: string
     aula?: {
       nombre: string
     }
@@ -72,7 +73,6 @@ export function AsistenciaList() {
   const [isMobile, setIsMobile] = useState(false)
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null)
   const router = useRouter()
-  const { canEdit } = useUserRole(selectedFCP)
 
   useEffect(() => {
     loadUserFCPs()
@@ -209,6 +209,7 @@ export function AsistenciaList() {
           estudiante:estudiantes(
             codigo,
             nombre_completo,
+            aula_id,
             aula:aulas(nombre)
           )
         `)
@@ -382,18 +383,13 @@ export function AsistenciaList() {
           />
         </div>
 
-        <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
-          <div className="flex items-end">
-            <Button
-              onClick={() => setIsRegistroDialogOpen(true)}
-              disabled={!selectedFCP || !selectedAula}
-              className="w-full"
-            >
-              <Calendar className="mr-2 h-4 w-4" />
-              Registrar Asistencias
-            </Button>
-          </div>
-        </RoleGuard>
+        <div className="flex items-end">
+          <RegistrarAsistenciasButton
+            fcpId={selectedFCP}
+            aulaId={selectedAula}
+            onRegistrar={() => setIsRegistroDialogOpen(true)}
+          />
+        </div>
       </div>
 
       <div className="mb-4">
@@ -420,17 +416,13 @@ export function AsistenciaList() {
                 ? 'No hay asistencias registradas para esta fecha'
                 : 'No se encontraron asistencias que coincidan con la búsqueda'}
             </p>
-            <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
-              {asistencias.length === 0 && (
-                <Button
-                  onClick={() => setIsRegistroDialogOpen(true)}
-                  disabled={!selectedFCP || !selectedAula}
-                >
-                  <Calendar className="mr-2 h-4 w-4" />
-                  Registrar Asistencias
-                </Button>
-              )}
-            </RoleGuard>
+            {asistencias.length === 0 && (
+              <RegistrarAsistenciasButton
+                fcpId={selectedFCP}
+                aulaId={selectedAula}
+                onRegistrar={() => setIsRegistroDialogOpen(true)}
+              />
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -461,12 +453,14 @@ export function AsistenciaList() {
                             <p className="text-sm text-muted-foreground">
                               <span className="font-medium text-foreground">Observaciones:</span> {asistencia.observaciones || '-'}
                             </p>
-                            <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']} fallback={null}>
-                              <Button variant="outline" size="sm" onClick={() => handleEditAsistencia(asistencia)}>
-                                <Edit className="h-4 w-4 mr-1" />
-                                Editar
-                              </Button>
-                            </RoleGuard>
+                            <EditAsistenciaButton
+                              asistencia={asistencia}
+                              onEdit={() => handleEditAsistencia(asistencia)}
+                              variant="outline"
+                              fallback={null}
+                            >
+                              Editar
+                            </EditAsistenciaButton>
                           </div>
                         )}
                       </div>
@@ -498,11 +492,11 @@ export function AsistenciaList() {
                           <TableCell>{getEstadoBadge(asistencia.estado)}</TableCell>
                           <TableCell className="max-w-xs truncate">{asistencia.observaciones || '-'}</TableCell>
                           <TableCell>
-                            <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']} fallback={<span className="text-sm text-muted-foreground">Solo lectura</span>}>
-                              <Button variant="ghost" size="sm" onClick={() => handleEditAsistencia(asistencia)}>
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                            </RoleGuard>
+                            <EditAsistenciaButton
+                              asistencia={asistencia}
+                              onEdit={() => handleEditAsistencia(asistencia)}
+                              fallback={<span className="text-sm text-muted-foreground">Solo lectura</span>}
+                            />
                           </TableCell>
                         </TableRow>
                       ))}

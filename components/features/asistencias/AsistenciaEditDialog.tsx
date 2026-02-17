@@ -16,6 +16,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Textarea } from '@/components/ui/textarea'
 import { Edit } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
+import { useTutorPuedeRegistrarAula } from '@/hooks/useTutorPuedeRegistrarAula'
 import { toast } from '@/lib/toast'
 
 interface Asistencia {
@@ -27,6 +28,7 @@ interface Asistencia {
   estudiante?: {
     codigo: string
     nombre_completo: string
+    aula_id?: string
     aula?: {
       nombre: string
     }
@@ -51,6 +53,8 @@ export function AsistenciaEditDialog({
   const [estado, setEstado] = useState<'presente' | 'falto' | 'permiso'>(asistencia.estado)
   const [observaciones, setObservaciones] = useState(asistencia.observaciones || '')
   const { canEdit, role } = useUserRole(asistencia.fcp_id)
+  const aulaId = asistencia.estudiante?.aula_id ?? null
+  const { puedeRegistrar: tutorPuedeRegistrar } = useTutorPuedeRegistrarAula(asistencia.fcp_id, aulaId)
 
   useEffect(() => {
     if (open) {
@@ -59,9 +63,12 @@ export function AsistenciaEditDialog({
     }
   }, [open, asistencia])
 
+  const tutorPuedeEditar = role === 'tutor' && tutorPuedeRegistrar
+  const directorSecretarioPuedeEditar = canEdit && (role === 'director' || role === 'secretario')
+
   const onSubmit = async () => {
-    if (!canEdit || (role !== 'director' && role !== 'secretario')) {
-      toast.warning('Sin permisos', 'Solo directores y secretarios pueden editar asistencias.')
+    if (!directorSecretarioPuedeEditar && !tutorPuedeEditar) {
+      toast.warning('Sin permisos', 'Solo directores, secretarios o tutores habilitados pueden editar asistencias.')
       return
     }
 
