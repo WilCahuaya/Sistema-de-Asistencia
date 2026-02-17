@@ -314,7 +314,19 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     setMobileSearch('')
   }, [selectedAula, selectedMonth, selectedYear])
 
-  // Sincronizar mes/año cuando cambia la fecha seleccionada en móvil (para cargar asistencias del mes correcto)
+  // Sincronizar mobileSelectedDate cuando cambia el mes/año seleccionado (para ver registros de meses pasados)
+  // Si la fecha actual está fuera del mes seleccionado, usar el primer día del mes
+  useEffect(() => {
+    if (!mobileSelectedDate) return
+    const [y, m] = mobileSelectedDate.split('-').map(Number)
+    const month0 = m - 1
+    if (selectedYear !== y || selectedMonth !== month0) {
+      const firstDay = toLocalDateString(new Date(selectedYear, selectedMonth, 1))
+      setMobileSelectedDate(firstDay)
+    }
+  }, [selectedMonth, selectedYear])
+
+  // Sincronizar mes/año cuando cambia la fecha seleccionada en móvil (usuario elige día desde el picker)
   useEffect(() => {
     if (!mobileSelectedDate) return
     const [y, m] = mobileSelectedDate.split('-').map(Number)
