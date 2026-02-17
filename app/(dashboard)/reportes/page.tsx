@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { ReporteList } from '@/components/features/reportes/ReporteList'
 import { ReporteAsistenciaPorNivel } from '@/components/features/reportes/ReporteAsistenciaPorNivel'
 import { ReporteMensual } from '@/components/features/reportes/ReporteMensual'
@@ -12,7 +12,7 @@ import { useSearchParams } from 'next/navigation'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import { BarChart3 } from 'lucide-react'
 
-export default function ReportesPage() {
+function ReportesPageContent() {
   const searchParams = useSearchParams()
   const viewParam = searchParams.get('view')
   const { selectedRole } = useSelectedRole()
@@ -97,6 +97,21 @@ export default function ReportesPage() {
         <ReporteParticipantesPorMes fcpId={fcpIdParaReporte || null} />
       )}
     </div>
+  )
+}
+
+export default function ReportesPage() {
+  return (
+    <Suspense fallback={
+      <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-8 lg:px-8">
+        <div className="mb-4 sm:mb-8">
+          <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Reportes</h1>
+        </div>
+        <div className="text-center py-8">Cargando reportes...</div>
+      </div>
+    }>
+      <ReportesPageContent />
+    </Suspense>
   )
 }
 
