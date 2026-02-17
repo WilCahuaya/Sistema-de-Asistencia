@@ -1634,6 +1634,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
             const countFalto = estudiantes.filter(
               (e) => getAsistenciaEstado(e.id, fechaStr) === 'falto'
             ).length
+            const countRegistrados = countPresente + countPermiso + countFalto
+            const faltanPorRegistrar = total > 0 && countRegistrados < total
 
             const formatFechaDisplay = (d: string) => {
               const [y, m, day] = d.split('-')
@@ -1689,6 +1691,40 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                         <span>{countFalto}</span>
                       </div>
                     </div>
+                    <div className="flex flex-col gap-2 pt-2 border-t">
+                      <p className="text-sm font-medium">
+                        {countRegistrados} de {total} registrados
+                      </p>
+                      {faltanPorRegistrar && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400">
+                          Debes registrar a todos los estudiantes de este día.
+                        </p>
+                      )}
+                      {puedeEditarMes && (
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 gap-1"
+                            onClick={() => handleMarkAllPresente(fechaStr)}
+                            disabled={savingDates.has(fechaStr) || estudiantes.length === 0}
+                          >
+                            <CheckCheck className="h-4 w-4" />
+                            Marcar todos presente
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 gap-1"
+                            onClick={() => handleEliminarTodasAsistencias(fechaStr)}
+                            disabled={savingDates.has(fechaStr) || countRegistrados === 0}
+                          >
+                            <X className="h-4 w-4" />
+                            Desmarcar todos
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </CardContent>
                 </Card>
 
@@ -1723,7 +1759,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                               {getIniciales(estudiante.nombre_completo)}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="font-medium truncate">{estudiante.nombre_completo}</p>
+                              <p className="font-medium break-words">{estudiante.nombre_completo}</p>
                               <p className="font-mono text-xs text-muted-foreground">{estudiante.codigo}</p>
                             </div>
                             {puedeEditarMes && (
@@ -1731,39 +1767,42 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                                 <button
                                   type="button"
                                   onClick={() => saveAsistencia(estudiante.id, fechaStr, 'presente')}
+                                  onDoubleClick={(e) => { e.preventDefault(); deleteAsistencia(estudiante.id, fechaStr) }}
                                   disabled={isSaving}
                                   className={`p-2 rounded-md transition-colors ${
                                     estado === 'presente'
                                       ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400'
                                       : 'text-muted-foreground hover:bg-muted'
                                   }`}
-                                  title="Presente"
+                                  title="Presente (doble clic para quitar)"
                                 >
                                   <CheckCircle2 className="h-5 w-5" />
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => saveAsistencia(estudiante.id, fechaStr, 'permiso')}
+                                  onDoubleClick={(e) => { e.preventDefault(); deleteAsistencia(estudiante.id, fechaStr) }}
                                   disabled={isSaving}
                                   className={`p-2 rounded-md transition-colors ${
                                     estado === 'permiso'
                                       ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400'
                                       : 'text-muted-foreground hover:bg-muted'
                                   }`}
-                                  title="Permiso / Tarde"
+                                  title="Permiso / Tarde (doble clic para quitar)"
                                 >
                                   <Clock className="h-5 w-5" />
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => saveAsistencia(estudiante.id, fechaStr, 'falto')}
+                                  onDoubleClick={(e) => { e.preventDefault(); deleteAsistencia(estudiante.id, fechaStr) }}
                                   disabled={isSaving}
                                   className={`p-2 rounded-md transition-colors ${
                                     estado === 'falto'
                                       ? 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400'
                                       : 'text-muted-foreground hover:bg-muted'
                                   }`}
-                                  title="Faltó"
+                                  title="Faltó (doble clic para quitar)"
                                 >
                                   <XCircle className="h-5 w-5" />
                                 </button>
