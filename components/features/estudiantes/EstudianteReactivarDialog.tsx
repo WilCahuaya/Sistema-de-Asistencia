@@ -38,7 +38,7 @@ interface EstudianteReactivarDialogProps {
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
   estudiante: Estudiante | null
-  aulas: Array<{ id: string; nombre: string }>
+  aulas: Array<{ id: string; nombre: string; tutor_display?: string | null }>
 }
 
 export function EstudianteReactivarDialog({
@@ -131,12 +131,19 @@ export function EstudianteReactivarDialog({
             <Label htmlFor="aula_reactivar">Salón: *</Label>
             <Select value={selectedAulaId} onValueChange={setSelectedAulaId}>
               <SelectTrigger id="aula_reactivar" className="w-full">
-                <SelectValue placeholder="Selecciona salón" />
+                <SelectValue placeholder="Selecciona salón">
+                  {selectedAulaId ? (() => {
+                    const aula = aulas.find(a => a.id === selectedAulaId)
+                    if (!aula) return 'Selecciona salón'
+                    return aula.tutor_display ? `${aula.nombre} — ${aula.tutor_display}` : aula.nombre
+                  })() : 'Selecciona salón'}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {aulas.map((aula) => (
                   <SelectItem key={aula.id} value={aula.id}>
                     {aula.nombre}
+                    {aula.tutor_display ? ` — ${aula.tutor_display}` : ''}
                   </SelectItem>
                 ))}
               </SelectContent>

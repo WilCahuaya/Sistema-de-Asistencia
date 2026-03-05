@@ -36,7 +36,7 @@ interface MoverEstudianteMesDialogProps {
   fcpId: string
   aulaOrigenId: string
   aulaOrigenNombre: string
-  aulas: Array<{ id: string; nombre: string }>
+  aulas: Array<{ id: string; nombre: string; tutor_display?: string | null }>
   firstDay: string
   lastDay: string
   mesLabel: string
@@ -164,8 +164,12 @@ export function MoverEstudianteMesDialog({
         if (errInsert) throw errInsert
       }
 
-      const nombreDestino = aulas.find((a) => a.id === aulaDestinoId)?.nombre || 'salón'
-      toast.success('Estudiante movido', `${estudiante.nombre_completo} fue movido a ${nombreDestino} para ${mesLabel}.`)
+      const aulaDestino = aulas.find((a) => a.id === aulaDestinoId)
+      const nombreDestino = aulaDestino?.nombre || 'salón'
+      const tutorDestino = aulaDestino?.tutor_display
+      const destinoLabel = tutorDestino ? `${nombreDestino} — ${tutorDestino}` : nombreDestino
+
+      toast.success('Estudiante movido', `${estudiante.nombre_completo} fue movido a ${destinoLabel} para ${mesLabel}.`)
       onSuccess()
       onOpenChange(false)
     } catch (e: unknown) {
@@ -201,6 +205,7 @@ export function MoverEstudianteMesDialog({
                 {aulasDestino.map((a) => (
                   <SelectItem key={a.id} value={a.id}>
                     {a.nombre}
+                    {a.tutor_display ? ` — ${a.tutor_display}` : ''}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -1521,18 +1521,30 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
               <SelectTrigger className="w-full sm:w-auto">
                 <SelectValue placeholder="Selecciona un aula">
                   {selectedAula ? (
-                    aulas.find(aula => aula.id === selectedAula)?.nombre || 'Selecciona un aula'
+                    (() => {
+                      const aula = aulas.find(a => a.id === selectedAula)
+                      if (!aula) return 'Selecciona un aula'
+                      // Soporta opcionalmente tutor_display si viene en los datos de aulas
+                      // para mostrar: "Nombre — Tutor"
+                      // Sin romper si no existe.
+                      // @ts-ignore - propiedad opcional en distintas pantallas
+                      const tutor = aula.tutor_display as string | undefined
+                      return tutor ? `${aula.nombre} — ${tutor}` : aula.nombre
+                    })()
                   ) : (
                     'Selecciona un aula'
                   )}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-              {aulas.map((aula) => (
+                {aulas.map((aula) => (
                   <SelectItem key={aula.id} value={aula.id}>
-                  {aula.nombre}
+                    {aula.nombre}
+                    {/* Soporta opcional tutor_display sin requerirlo en todos los usos */}
+                    {/* @ts-ignore */}
+                    {aula.tutor_display ? ` — ${aula.tutor_display}` : ''}
                   </SelectItem>
-              ))}
+                ))}
               </SelectContent>
             </Select>
           )}
@@ -1595,18 +1607,26 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
               <SelectTrigger className="w-full sm:w-auto">
                 <SelectValue placeholder="Seleccionar aula">
                   {selectedAula ? (
-                    aulas.find(aula => aula.id === selectedAula)?.nombre || 'Seleccionar aula'
+                    (() => {
+                      const aula = aulas.find(a => a.id === selectedAula)
+                      if (!aula) return 'Seleccionar aula'
+                      // @ts-ignore
+                      const tutor = aula.tutor_display as string | undefined
+                      return tutor ? `${aula.nombre} — ${tutor}` : aula.nombre
+                    })()
                   ) : (
                     'Seleccionar aula'
                   )}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-              {aulas.map((aula) => (
+                {aulas.map((aula) => (
                   <SelectItem key={aula.id} value={aula.id}>
-                  {aula.nombre}
+                    {aula.nombre}
+                    {/* @ts-ignore */}
+                    {aula.tutor_display ? ` — ${aula.tutor_display}` : ''}
                   </SelectItem>
-              ))}
+                ))}
               </SelectContent>
             </Select>
 
