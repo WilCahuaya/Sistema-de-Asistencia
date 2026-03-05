@@ -20,13 +20,14 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '@/components/ui/pagination'
-import { Plus, GraduationCap, Users, Edit, Building2, Eye, EyeOff, Search, ClipboardCheck } from 'lucide-react'
+import { Plus, GraduationCap, Users, Edit, Building2, Eye, EyeOff, Search, ClipboardCheck, Trash2 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { AulaDialog } from './AulaDialog'
 import { AulaTutorDialog } from './AulaTutorDialog'
 import { AulaEditDialog } from './AulaEditDialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useRouter } from 'next/navigation'
 import { useUserRole } from '@/hooks/useUserRole'
 import { toast } from '@/lib/toast'
@@ -65,6 +66,8 @@ export function AulaList() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [selectedAulaForTutor, setSelectedAulaForTutor] = useState<Aula | null>(null)
   const [editingAula, setEditingAula] = useState<Aula | null>(null)
+  const [vaciarSalonAula, setVaciarSalonAula] = useState<Aula | null>(null)
+  const [vaciarLoading, setVaciarLoading] = useState(false)
   const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
   const [loadingFCPs, setLoadingFCPs] = useState(true)
@@ -699,20 +702,36 @@ export function AulaList() {
                                 {aula.activa ? 'Activa' : 'Inactiva'}
                               </span>
                               <RoleGuard fcpId={aula.fcp_id || selectedFCP} allowedRoles={['director', 'secretario']}>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setEditingAula(aula)
-                                    setIsEditDialogOpen(true)
-                                  }}
-                                  className="text-xs"
-                                >
-                                  <Edit className="mr-1 h-3 w-3" />
-                                  Editar
-                                </Button>
+                                <div className="flex items-center gap-1">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setEditingAula(aula)
+                                      setIsEditDialogOpen(true)
+                                    }}
+                                    className="text-xs"
+                                  >
+                                    <Edit className="mr-1 h-3 w-3" />
+                                    Editar
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setVaciarSalonAula(aula)
+                                    }}
+                                    className="text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                                    title="Vaciar salón: eliminar todos los estudiantes y su historial"
+                                  >
+                                    <Trash2 className="mr-1 h-3 w-3" />
+                                    Vaciar salón
+                                  </Button>
+                                </div>
                               </RoleGuard>
                             </div>
                           </div>
@@ -789,6 +808,46 @@ export function AulaList() {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={!!vaciarSalonAula}
+        onOpenChange={(open) => {
+          if (!open) setVaciarSalonAula(null)
+        }}
+        title="Vaciar salón"
+        message={
+          vaciarSalonAula
+            ? `Se eliminarán de la base de datos todos los estudiantes del salón "${vaciarSalonAula.nombre}", junto con su historial de asistencias y períodos. Esta acción no se puede deshacer. ¿Continuar?`
+            : ''
+        }
+        confirmLabel="Eliminar todos"
+        cancelLabel="Cancelar"
+        variant="destructive"
+        loading={vaciarLoading}
+        onConfirm={async () => {
+          if (!vaciarSalonAula) return
+          setVaciarLoading(true)
+          try {
+            const res = await fetch('/api/aulas/vaciar-salon', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ aulaId: vaciarSalonAula.id }),
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) {
+              toast.error('Error al vaciar salón', data.error || res.statusText)
+              return
+            }
+            toast.success('Salón vaciado', data.message || `Se eliminaron ${data.deleted ?? 0} estudiante(s).`)
+            loadAulas()
+            setVaciarSalonAula(null)
+          } catch (e) {
+            toast.error('Error', e instanceof Error ? e.message : 'No se pudo vaciar el salón.')
+          } finally {
+            setVaciarLoading(false)
+          }
+        }}
+      />
     </div>
   )
 }
