@@ -88,14 +88,21 @@ export function EstudianteMovimientoDialog({
       const { year, month } = getCurrentMonthYearInAppTimezone()
       const { start: firstCur, end: lastCur } = getMonthRangeInAppTimezone(year, month)
 
-      const { data: periodoActual } = await supabase
+      const { data: periodos, error: periodosError } = await supabase
         .from('estudiante_periodos')
-        .select('id')
+        .select('id, fecha_inicio, fecha_fin, aula_id')
         .eq('estudiante_id', estudiante.id)
-        .lte('fecha_inicio', lastCur)
-        .or(`fecha_fin.gte.${firstCur},fecha_fin.is.null`)
-        .limit(1)
-        .single()
+
+      if (periodosError) {
+        throw periodosError
+      }
+
+      const periodoActual = (periodos || []).find((p: any) => {
+        return (
+          p.fecha_inicio <= lastCur &&
+          (p.fecha_fin === null || p.fecha_fin >= firstCur)
+        )
+      })
 
       if (!periodoActual) {
         toast.error('Sin período', 'No se encontró un período para el mes actual.')
