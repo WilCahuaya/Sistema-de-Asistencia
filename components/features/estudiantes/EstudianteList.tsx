@@ -79,7 +79,7 @@ export function EstudianteList() {
   const [selectedAula, setSelectedAula] = useState<string | null>(null)
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
   const [loadingFCPs, setLoadingFCPs] = useState(true)
-  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
+  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string; tutor_display?: string | null }>>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [includeInactivos, setIncludeInactivos] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
@@ -412,7 +412,7 @@ export function EstudianteList() {
             query = query.eq('fcp_id', tutorFcpId)
           }
 
-          const { data: tutorAulasData, error: tutorAulasError } = await query
+        const { data: tutorAulasData, error: tutorAulasError } = await query
 
           if (tutorAulasError) {
             console.error('Error obteniendo aulas del tutor:', tutorAulasError)
@@ -421,11 +421,28 @@ export function EstudianteList() {
 
           console.log('Aulas del tutor encontradas:', tutorAulasData)
 
-          // Extraer las aulas y filtrar solo las activas
+          // Extraer las aulas, filtrar solo las activas y agregar nombre del tutor
           data = (tutorAulasData || [])
-            .map((ta: any) => ta.aula)
-            .filter((aula: any) => aula && aula.activa)
-            .sort((a: any, b: any) => a.nombre.localeCompare(b.nombre))
+            .map((ta: any) => {
+              const aula = ta.aula
+              if (!aula || !aula.activa) return null
+
+              const fm = ta.fcp_miembro
+              const usuario = fm?.usuario
+              const displayName =
+                (fm?.nombre_display?.trim() ||
+                  usuario?.nombre_completo?.trim() ||
+                  usuario?.email ||
+                  fm?.email_pendiente) ??
+                null
+
+              return {
+                ...aula,
+                tutor_display: displayName,
+              }
+            })
+            .filter((aula: any) => aula)
+            .sort((a: any, b: any) => aulaNombre(a).localeCompare(aulaNombre(b)))
 
           console.log('Aulas procesadas para el tutor:', data)
         } else {
@@ -470,7 +487,56 @@ export function EstudianteList() {
         throw error
       }
       
-      setAulas(data || [])
+      // Si hay aulas, cargar los tutores para enriquecer el listado
+      if (data && data.length > 0 && !isTutorState) {
+        const aulaIds = data.map((a: any) => a.id)
+
+        const { data: tutoresData, error: tutoresError } = await supabase
+          .from('tutor_aula')
+          .select(`
+            aula_id,
+            fcp_miembro:fcp_miembros!inner(
+              nombre_display,
+              email_pendiente,
+              usuario:usuarios(
+                nombre_completo,
+                email
+              )
+            )
+          `)
+          .in('aula_id', aulaIds)
+          .eq('activo', true)
+          .eq('fcp_id', fcpIdToUse)
+
+        if (tutoresError) {
+          console.error('Error obteniendo tutores de aulas:', tutoresError)
+          setAulas(data || [])
+          return
+        }
+
+        const tutoresMap = new Map<string, string | null>()
+        ;(tutoresData || []).forEach((t: any) => {
+          if (!t.fcp_miembro || tutoresMap.has(t.aula_id)) return
+          const fm = t.fcp_miembro
+          const usuario = fm.usuario
+          const displayName =
+            (fm.nombre_display?.trim() ||
+              usuario?.nombre_completo?.trim() ||
+              usuario?.email ||
+              fm.email_pendiente) ??
+            null
+          tutoresMap.set(t.aula_id, displayName)
+        })
+
+        setAulas(
+          (data || []).map((aula: any) => ({
+            ...aula,
+            tutor_display: tutoresMap.get(aula.id) ?? null,
+          })),
+        )
+      } else {
+        setAulas(data || [])
+      }
     } catch (error) {
       console.error('Error loading aulas:', error)
     }
