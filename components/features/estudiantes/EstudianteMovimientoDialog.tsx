@@ -93,7 +93,7 @@ export function EstudianteMovimientoDialog({
         .select('id')
         .eq('estudiante_id', estudiante.id)
         .lte('fecha_inicio', lastCur)
-        .gte('fecha_fin', firstCur)
+        .or(`fecha_fin.gte.${firstCur},fecha_fin.is.null`)
         .limit(1)
         .single()
 
