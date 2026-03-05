@@ -937,18 +937,19 @@ export function EstudianteList() {
             >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Todas las aulas">
-                  {selectedAula ? (
-                    aulas.find(aula => aula.id === selectedAula)?.nombre || 'Todas las aulas'
-                  ) : (
-                    'Todas las aulas'
-                  )}
+                  {selectedAula && selectedAula !== '__all__' ? (() => {
+                    const aula = aulas.find(a => a.id === selectedAula)
+                    if (!aula) return 'Todas las aulas'
+                    return aula.tutor_display ? `${aula.nombre} — ${aula.tutor_display}` : aula.nombre
+                  })() : 'Todas las aulas'}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all__">Todas las aulas</SelectItem>
               {aulas.map((aula) => (
                   <SelectItem key={aula.id} value={aula.id}>
-                  {aula.nombre}
+                    {aula.nombre}
+                    {aula.tutor_display ? ` — ${aula.tutor_display}` : ''}
                   </SelectItem>
               ))}
               </SelectContent>

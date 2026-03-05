@@ -67,7 +67,7 @@ export function AsistenciaList() {
   const [selectedDate, setSelectedDate] = useState<string>(() => getTodayInAppTimezone())
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string }>>([])
   const [loadingFCPs, setLoadingFCPs] = useState(true)
-  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
+  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string; tutor_display?: string | null }>>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [isMobile, setIsMobile] = useState(false)
@@ -174,7 +174,46 @@ export function AsistenciaList() {
         .order('nombre', { ascending: true })
 
       if (error) throw error
-      setAulas(data || [])
+      const baseAulas = data || []
+
+      if (baseAulas.length === 0) {
+        setAulas([])
+        return
+      }
+
+      const aulaIds = baseAulas.map((a: { id: string }) => a.id)
+      const { data: tutoresData, error: tutoresError } = await supabase
+        .from('tutor_aula')
+        .select(`
+          aula_id,
+          fcp_miembro:fcp_miembros!inner(
+            nombre_display,
+            email_pendiente,
+            usuario:usuarios(nombre_completo, email)
+          )
+        `)
+        .in('aula_id', aulaIds)
+        .eq('activo', true)
+        .eq('fcp_id', selectedFCP)
+
+      const tutoresMap = new Map<string, string | null>()
+      if (!tutoresError && tutoresData) {
+        tutoresData.forEach((t: any) => {
+          if (!t.fcp_miembro || tutoresMap.has(t.aula_id)) return
+          const fm = t.fcp_miembro
+          const usuario = fm.usuario
+          const displayName =
+            (fm.nombre_display?.trim() || usuario?.nombre_completo?.trim() || usuario?.email || fm.email_pendiente) ?? null
+          tutoresMap.set(t.aula_id, displayName)
+        })
+      }
+
+      setAulas(
+        baseAulas.map((aula: { id: string; nombre: string }) => ({
+          ...aula,
+          tutor_display: tutoresMap.get(aula.id) ?? null,
+        })),
+      )
     } catch (error) {
       console.error('Error loading aulas:', error)
     }
@@ -355,18 +394,19 @@ export function AsistenciaList() {
           >
             <SelectTrigger className="w-full">
               <SelectValue placeholder="Todas las aulas">
-                {selectedAula ? (
-                  aulas.find(aula => aula.id === selectedAula)?.nombre || 'Todas las aulas'
-                ) : (
-                  'Todas las aulas'
-                )}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">Todas las aulas</SelectItem>
+                  {selectedAula && selectedAula !== '__all__' ? (() => {
+                    const aula = aulas.find(a => a.id === selectedAula)
+                    if (!aula) return 'Todas las aulas'
+                    return aula.tutor_display ? `${aula.nombre} — ${aula.tutor_display}` : aula.nombre
+                  })() : 'Todas las aulas'}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Todas las aulas</SelectItem>
             {aulas.map((aula) => (
                 <SelectItem key={aula.id} value={aula.id}>
-                {aula.nombre}
+                  {aula.nombre}
+                  {aula.tutor_display ? ` — ${aula.tutor_display}` : ''}
                 </SelectItem>
             ))}
             </SelectContent>

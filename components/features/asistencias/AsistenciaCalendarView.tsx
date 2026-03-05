@@ -95,7 +95,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const [selectedMonth, setSelectedMonth] = useState(initialMonth !== null && initialMonth !== undefined ? initialMonth : new Date().getMonth())
   const [selectedYear, setSelectedYear] = useState(initialYear !== null && initialYear !== undefined ? initialYear : new Date().getFullYear())
   const [selectedAula, setSelectedAula] = useState<string | null>(aulaId || null)
-  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
+  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string; tutor_display?: string | null }>>([])
   const [tutorNombre, setTutorNombre] = useState<string | null>(null)
   const [saving, setSaving] = useState<Set<string>>(new Set())
   const [savingDates, setSavingDates] = useState<Set<string>>(new Set()) // Para rastrear qué fechas están guardándose
@@ -440,7 +440,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         return
       }
 
-      let aulasData: Array<{ id: string; nombre: string }> = []
+      let aulasData: Array<{ id: string; nombre: string; tutor_display?: string | null }> = []
 
       // Si es tutor, cargar solo las aulas asignadas a él
       if (role === 'tutor') {
@@ -458,17 +458,28 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
           const tutorMiembroIds = tutorMiembrosData.map((tm: any) => tm.id)
           const { data: tutorAulasData, error: tutorAulasError } = await supabase
             .from('tutor_aula')
-            .select('aula_id, aula:aulas(id, nombre, activa)')
+            .select(`
+              aula_id,
+              aula:aulas(id, nombre, activa),
+              fcp_miembro:fcp_miembros(nombre_display, email_pendiente, usuario:usuarios(nombre_completo, email))
+            `)
             .in('fcp_miembro_id', tutorMiembroIds)
             .eq('activo', true)
 
           if (tutorAulasError) throw tutorAulasError
 
           aulasData = (tutorAulasData || [])
-            .map((ta: any) => ta.aula)
-            .filter((aula: any) => aula && aula.activa)
-            .map((a: any) => ({ id: a.id, nombre: a.nombre }))
-            .sort((a, b) => a.nombre.localeCompare(b.nombre))
+            .map((ta: any) => {
+              const aula = ta.aula
+              if (!aula || !aula.activa) return null
+              const fm = ta.fcp_miembro
+              const usuario = fm?.usuario
+              const displayName =
+                (fm?.nombre_display?.trim() || usuario?.nombre_completo?.trim() || usuario?.email || fm?.email_pendiente) ?? null
+              return { id: aula.id, nombre: aula.nombre, tutor_display: displayName }
+            })
+            .filter(Boolean)
+            .sort((a: any, b: any) => a.nombre.localeCompare(b.nombre))
         }
       } else {
         const { data, error } = await supabase
@@ -479,7 +490,40 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
           .order('nombre', { ascending: true })
 
         if (error) throw error
-        aulasData = data || []
+        aulasData = (data || []).map((a: { id: string; nombre: string }) => ({ ...a, tutor_display: null as string | null }))
+      }
+
+      if (aulasData.length > 0 && role !== 'tutor') {
+        const aulaIds = aulasData.map((a) => a.id)
+        const { data: tutoresData, error: tutoresError } = await supabase
+          .from('tutor_aula')
+          .select(`
+            aula_id,
+            fcp_miembro:fcp_miembros!inner(
+              nombre_display,
+              email_pendiente,
+              usuario:usuarios(nombre_completo, email)
+            )
+          `)
+          .in('aula_id', aulaIds)
+          .eq('activo', true)
+          .eq('fcp_id', fcpId)
+
+        if (!tutoresError && tutoresData) {
+          const tutoresMap = new Map<string, string | null>()
+          tutoresData.forEach((t: any) => {
+            if (!t.fcp_miembro || tutoresMap.has(t.aula_id)) return
+            const fm = t.fcp_miembro
+            const usuario = fm.usuario
+            const displayName =
+              (fm.nombre_display?.trim() || usuario?.nombre_completo?.trim() || usuario?.email || fm.email_pendiente) ?? null
+            tutoresMap.set(t.aula_id, displayName)
+          })
+          aulasData = aulasData.map((a) => ({
+            ...a,
+            tutor_display: tutoresMap.get(a.id) ?? null,
+          }))
+        }
       }
 
       setAulas(aulasData)
@@ -1524,11 +1568,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                     (() => {
                       const aula = aulas.find(a => a.id === selectedAula)
                       if (!aula) return 'Selecciona un aula'
-                      // Soporta opcionalmente tutor_display si viene en los datos de aulas
-                      // para mostrar: "Nombre — Tutor"
-                      // Sin romper si no existe.
-                      // @ts-ignore - propiedad opcional en distintas pantallas
-                      const tutor = aula.tutor_display as string | undefined
+                      const tutor = aula.tutor_display
                       return tutor ? `${aula.nombre} — ${tutor}` : aula.nombre
                     })()
                   ) : (
@@ -1540,8 +1580,6 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                 {aulas.map((aula) => (
                   <SelectItem key={aula.id} value={aula.id}>
                     {aula.nombre}
-                    {/* Soporta opcional tutor_display sin requerirlo en todos los usos */}
-                    {/* @ts-ignore */}
                     {aula.tutor_display ? ` — ${aula.tutor_display}` : ''}
                   </SelectItem>
                 ))}
@@ -1610,8 +1648,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                     (() => {
                       const aula = aulas.find(a => a.id === selectedAula)
                       if (!aula) return 'Seleccionar aula'
-                      // @ts-ignore
-                      const tutor = aula.tutor_display as string | undefined
+                      const tutor = aula.tutor_display
                       return tutor ? `${aula.nombre} — ${tutor}` : aula.nombre
                     })()
                   ) : (
@@ -1623,7 +1660,6 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                 {aulas.map((aula) => (
                   <SelectItem key={aula.id} value={aula.id}>
                     {aula.nombre}
-                    {/* @ts-ignore */}
                     {aula.tutor_display ? ` — ${aula.tutor_display}` : ''}
                   </SelectItem>
                 ))}
