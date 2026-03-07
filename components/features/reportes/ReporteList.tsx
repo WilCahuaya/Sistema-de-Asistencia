@@ -709,15 +709,19 @@ export function ReporteList() {
         }))
       })
 
-      // Para meses anteriores: cargar períodos para el total correcto por (aula, fecha)
+      // Para meses anteriores: usar RPC (SECURITY DEFINER) para evitar problemas de RLS con facilitadores
       const aulaIdsReporte = Array.from(aulasMap.keys())
-      let periodosReporteList: Array<{ estudiante_id: string; aula_id: string; fecha_inicio: string; fecha_fin: string }> = []
+      const totalPorAulaFechaReporte = new Map<string, number>() // key: `${aulaId}|${fechaStr}`
       if (esMesAnterior && aulaIdsReporte.length > 0) {
-        const { data: pd } = await supabase
-          .from('estudiante_periodos')
-          .select('estudiante_id, aula_id, fecha_inicio, fecha_fin')
-          .in('aula_id', aulaIdsReporte)
-        periodosReporteList = pd || []
+        const { data: rpcData } = await supabase.rpc('contar_estudiantes_por_aula_fecha', {
+          p_aula_ids: aulaIdsReporte,
+          p_fecha_inicio: fechaInicioStr,
+          p_fecha_fin: fechaFinStr,
+        })
+        ;(rpcData || []).forEach((row: { aula_id: string; fecha: string; total: number }) => {
+          const fechaStr = typeof row.fecha === 'string' ? row.fecha.split('T')[0] : row.fecha
+          totalPorAulaFechaReporte.set(`${row.aula_id}|${fechaStr}`, Number(row.total) || 0)
+        })
       }
 
       // Identificar días completos (días donde todos los estudiantes del aula están marcados)
@@ -760,9 +764,9 @@ export function ReporteList() {
           const fechaFinDate = new Date(yearFin, monthFin - 1, dayFin)
           const esDelRango = fechaDate >= fechaInicioDate && fechaDate <= fechaFinDate
           
-          // Para meses anteriores: usar estudiante_periodos para el total correcto por fecha
-          const totalEstudiantesEnFecha = esMesAnterior && periodosReporteList.length > 0
-            ? periodosReporteList.filter((p: any) => p.aula_id === aulaId && p.fecha_inicio <= fecha && p.fecha_fin >= fecha).length
+          // Para meses anteriores: usar RPC para el total correcto por fecha (evita RLS)
+          const totalEstudiantesEnFecha = esMesAnterior && totalPorAulaFechaReporte.size > 0
+            ? (totalPorAulaFechaReporte.get(`${aulaId}|${fecha}`) ?? aula.estudiantesIds.length)
             : aula.estudiantesIds.length
           
           // Contar estudiantes marcados que pertenecen a esta aula
@@ -988,10 +992,10 @@ export function ReporteList() {
             const estudiantesMarcados = asistenciasPorFecha.get(fecha) || new Set<string>()
             console.log(`   📊 Estudiantes marcados en asistenciasPorFecha: ${estudiantesMarcados.size}`)
 
-            // Total = para meses anteriores usar estudiante_periodos; si no, estudiantes en el aula
+            // Total = para meses anteriores usar RPC; si no, estudiantes en el aula
             const estudiantesAulaSet = new Set(aula.estudiantesIds)
-            const totalEstudiantesEnFecha = esMesAnterior && periodosReporteList.length > 0
-              ? periodosReporteList.filter((p: any) => p.aula_id === aulaId && p.fecha_inicio <= fecha && p.fecha_fin >= fecha).length
+            const totalEstudiantesEnFecha = esMesAnterior && totalPorAulaFechaReporte.size > 0
+              ? (totalPorAulaFechaReporte.get(`${aulaId}|${fecha}`) ?? aula.estudiantesIds.length)
               : aula.estudiantesIds.length
 
             // Marcados = estudiantes del aula que tienen asistencia en esta fecha

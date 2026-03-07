@@ -642,15 +642,19 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         aulasParaProcesar = aulas
       }
 
-      // Para meses anteriores: cargar períodos para calcular el total correcto por (aula, fecha)
+      // Para meses anteriores: usar RPC (SECURITY DEFINER) para evitar problemas de RLS con facilitadores
       const aulaIdsParaPeriodos = aulasParaProcesar.map((a: any) => a.id)
-      let periodosData: Array<{ estudiante_id: string; aula_id: string; fecha_inicio: string; fecha_fin: string }> = []
+      const totalPorAulaFechaNivel = new Map<string, number>() // key: `${aulaId}|${fechaStr}`
       if (esMesAnterior && aulaIdsParaPeriodos.length > 0) {
-        const { data: pd } = await supabase
-          .from('estudiante_periodos')
-          .select('estudiante_id, aula_id, fecha_inicio, fecha_fin')
-          .in('aula_id', aulaIdsParaPeriodos)
-        periodosData = pd || []
+        const { data: rpcData } = await supabase.rpc('contar_estudiantes_por_aula_fecha', {
+          p_aula_ids: aulaIdsParaPeriodos,
+          p_fecha_inicio: fechaInicio,
+          p_fecha_fin: fechaFin,
+        })
+        ;(rpcData || []).forEach((row: { aula_id: string; fecha: string; total: number }) => {
+          const fechaStr = typeof row.fecha === 'string' ? row.fecha.split('T')[0] : row.fecha
+          totalPorAulaFechaNivel.set(`${row.aula_id}|${fechaStr}`, Number(row.total) || 0)
+        })
       }
 
       aulasParaProcesar.forEach(aula => {
@@ -722,10 +726,9 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
 
         // 3. Procesar todas las fechas del mes (no solo las que tienen asistencias)
         todasLasFechasDelMes.forEach(fecha => {
-          // Para meses anteriores: usar estudiante_periodos para el total correcto por fecha
-          // (solo estudiantes que debían estar en el aula ESA fecha)
-          const totalEstudiantesEnFecha = esMesAnterior && periodosData.length > 0
-            ? periodosData.filter((p: any) => p.aula_id === aula.id && p.fecha_inicio <= fecha && p.fecha_fin >= fecha).length
+          // Para meses anteriores: usar RPC para el total correcto por fecha (evita RLS)
+          const totalEstudiantesEnFecha = esMesAnterior && totalPorAulaFechaNivel.size > 0
+            ? (totalPorAulaFechaNivel.get(`${aula.id}|${fecha}`) ?? estudiantesDeAula.length)
             : estudiantesDeAula.length
           
           // Contar estudiantes que tienen asistencia registrada en esta fecha

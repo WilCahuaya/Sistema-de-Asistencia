@@ -484,24 +484,18 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       // Obtener asistencias "presente" para el cálculo del reporte
       const asistenciasPresente = todasAsistenciasData?.filter(a => a.estado === 'presente') || []
 
-      // Para meses anteriores: obtener períodos por aula para calcular el total correcto por fecha
-      // (estudiantes que debían estar en el aula en cada fecha específica, según estudiante_periodos)
+      // Para meses anteriores: usar RPC (SECURITY DEFINER) para evitar problemas de RLS con facilitadores
       const totalPorAulaYFecha = new Map<string, number>() // key: `${aulaId}|${fechaStr}` -> total
       if (esMesAnterior && aulaIds.length > 0) {
-        const { data: periodosData } = await supabase
-          .from('estudiante_periodos')
-          .select('estudiante_id, aula_id, fecha_inicio, fecha_fin')
-          .in('aula_id', aulaIds)
-        const diasDelMesCount = new Date(selectedYear, selectedMonth + 1, 0).getDate()
-        for (let dia = 1; dia <= diasDelMesCount; dia++) {
-          const fechaStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
-          aulaIds.forEach(aulaId => {
-            const totalEnFecha = periodosData?.filter(
-              (p: any) => p.aula_id === aulaId && p.fecha_inicio <= fechaStr && p.fecha_fin >= fechaStr
-            ).length ?? 0
-            totalPorAulaYFecha.set(`${aulaId}|${fechaStr}`, totalEnFecha)
-          })
-        }
+        const { data: rpcData } = await supabase.rpc('contar_estudiantes_por_aula_fecha', {
+          p_aula_ids: aulaIds,
+          p_fecha_inicio: fechaInicioStr,
+          p_fecha_fin: fechaFinStr,
+        })
+        ;(rpcData || []).forEach((row: { aula_id: string; fecha: string; total: number }) => {
+          const fechaStr = typeof row.fecha === 'string' ? row.fecha.split('T')[0] : row.fecha
+          totalPorAulaYFecha.set(`${row.aula_id}|${fechaStr}`, Number(row.total) || 0)
+        })
       }
 
       // Calcular datos por nivel y detectar días incompletos

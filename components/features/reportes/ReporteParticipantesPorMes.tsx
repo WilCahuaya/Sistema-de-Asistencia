@@ -341,15 +341,19 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
             aulasParaMes = aulasData || []
           }
 
-          // Para meses anteriores: cargar períodos para el total correcto por (aula, fecha)
-          let periodosFCP: Array<{ estudiante_id: string; aula_id: string; fecha_inicio: string; fecha_fin: string }> = []
+          // Para meses anteriores: usar RPC (SECURITY DEFINER) para evitar problemas de RLS
+          const totalPorAulaFechaFCP = new Map<string, number>()
           if (esMesAnterior && aulasParaMes.length > 0) {
             const aulaIdsMes = aulasParaMes.map((a: any) => a.id)
-            const { data: pd } = await supabase
-              .from('estudiante_periodos')
-              .select('estudiante_id, aula_id, fecha_inicio, fecha_fin')
-              .in('aula_id', aulaIdsMes)
-            periodosFCP = pd || []
+            const { data: rpcData } = await supabase.rpc('contar_estudiantes_por_aula_fecha', {
+              p_aula_ids: aulaIdsMes,
+              p_fecha_inicio: mesInicioStr,
+              p_fecha_fin: mesFinStr,
+            })
+            ;(rpcData || []).forEach((row: { aula_id: string; fecha: string; total: number }) => {
+              const fechaStr = typeof row.fecha === 'string' ? row.fecha.split('T')[0] : row.fecha
+              totalPorAulaFechaFCP.set(`${row.aula_id}|${fechaStr}`, Number(row.total) || 0)
+            })
           }
 
           // Obtener estudiantes según el mes consultado
@@ -435,9 +439,9 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
               const estudiantesConAsistencia = asistenciasPorFecha.get(fechaStr) || new Set()
               const marcados = estudiantesConAsistencia.size // Estudiantes con estado (presente/faltó/permiso)
 
-              // Para meses anteriores: usar períodos para el total correcto por fecha
-              const registradosEnFecha = esMesAnterior && periodosFCP.length > 0
-                ? periodosFCP.filter((p: any) => p.aula_id === aula.id && p.fecha_inicio <= fechaStr && p.fecha_fin >= fechaStr).length
+              // Para meses anteriores: usar RPC para el total correcto por fecha (evita RLS)
+              const registradosEnFecha = esMesAnterior && totalPorAulaFechaFCP.size > 0
+                ? (totalPorAulaFechaFCP.get(`${aula.id}|${fechaStr}`) ?? registrados)
                 : registrados
 
               // Solo día completo: todos tienen registro; si falta alguno, no cuenta
@@ -472,8 +476,8 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
             }) || []
             const asistenPromed = asistenciasAula.length
 
-            // Calcular oportunidades: con períodos usamos la suma por día; si no, diasDeClases * registrados
-            const oportunidadesAsistencia = esMesAnterior && periodosFCP.length > 0
+            // Calcular oportunidades: con RPC usamos la suma por día; si no, diasDeClases * registrados
+            const oportunidadesAsistencia = esMesAnterior && totalPorAulaFechaFCP.size > 0
               ? oportunidadesAula
               : diasDeClases * registrados
             
