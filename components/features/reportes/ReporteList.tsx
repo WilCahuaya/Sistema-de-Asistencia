@@ -911,144 +911,29 @@ export function ReporteList() {
           fechasUnicas: fechasUnicas
         })
 
-        // Detectar días incompletos por aula (reutilizar aulasMap ya creado arriba)
-        // IMPORTANTE: Usar la MISMA lógica que días completos - filtrar por aula.estudiantesIds.includes(estudiante_id)
-        // NO por aula_id de la asistencia. Así evitamos asignar asistencias al salón equivocado cuando
-        // aula_id es null o cuando el estudiante cambió de aula (estudiante.aula_id sería el aula actual).
-        aulasMap.forEach((aula, aulaId) => {
-          const asistenciasPorFecha = new Map<string, Set<string>>() // fecha -> Set<estudiante_id>
-          const fechasConAsistencias = new Set<string>()
-
-          // Agrupar asistencias por fecha - MISMA LÓGICA que días completos y vista Asistencias:
-          // Contar por (estudiante_id, fecha) donde el estudiante pertenece a este aula
-          asistenciasData?.forEach((asist: any) => {
-            if (!aula.estudiantesIds.includes(asist.estudiante_id)) return
-            const fecha = asist.fecha
-            const [year, month, day] = fecha.split('-').map(Number)
+        // Detectar días incompletos: usar RPC en BD (única fuente de verdad)
+        // Evita desincronización entre reporte y vista Asistencias
+        if (aulaIdsReporte.length > 0 && fcpIdAUsar) {
+          const { data: rpcDiasIncompletos } = await supabase.rpc('dias_incompletos_por_aula', {
+            p_aula_ids: aulaIdsReporte,
+            p_fecha_inicio: fechaInicioStr,
+            p_fecha_fin: fechaFinStr,
+            p_fcp_id: fcpIdAUsar,
+          })
+          ;(rpcDiasIncompletos || []).forEach((row: { aula_id: string; aula_nombre: string; fecha: string; marcados: number; total: number }) => {
+            const fechaStr = typeof row.fecha === 'string' ? row.fecha.split('T')[0] : row.fecha
+            const [year, month, day] = fechaStr.split('-').map(Number)
             const fechaDate = new Date(year, month - 1, day)
-            const [yearInicio, monthInicio, dayInicio] = fechaInicio.split('-').map(Number)
-            const fechaInicioDate = new Date(yearInicio, monthInicio - 1, dayInicio)
-            const [yearFin, monthFin, dayFin] = fechaFin.split('-').map(Number)
-            const fechaFinDate = new Date(yearFin, monthFin - 1, dayFin)
-            const esDelRango = fechaDate >= fechaInicioDate && fechaDate <= fechaFinDate
-
-            if (esDelRango) {
-              if (!asistenciasPorFecha.has(fecha)) {
-                asistenciasPorFecha.set(fecha, new Set())
-              }
-              asistenciasPorFecha.get(fecha)!.add(asist.estudiante_id)
-              fechasConAsistencias.add(fecha)
-            }
-          })
-          
-          console.log('')
-          console.log('🔍 [ReporteList] Detección de días incompletos para aula:', {
-            aula: aula.aulaNombre,
-            fechasConAsistencias: Array.from(fechasConAsistencias).sort(),
-            totalFechas: fechasConAsistencias.size,
-            asistenciasPorFechaSize: asistenciasPorFecha.size
-          })
-          
-          // Mostrar el contenido de asistenciasPorFecha para diagnóstico
-          console.log('📋 [ReporteList] Contenido de asistenciasPorFecha:', {
-            totalFechas: asistenciasPorFecha.size,
-            fechas: Array.from(asistenciasPorFecha.keys()).sort(),
-            detallePorFecha: Array.from(asistenciasPorFecha.entries()).map(([fecha, estudiantes]) => ({
-              fecha,
-              totalMarcados: estudiantes.size,
-              estudiantesIds: Array.from(estudiantes).slice(0, 5).map(id => id.substring(0, 8))
-            }))
-          })
-
-          // Detectar días incompletos solo en fechas donde hay asistencias registradas
-          console.log('🔄 [ReporteList] Iniciando detección de días incompletos para aula:', aula.aulaNombre, {
-            totalFechasConAsistencias: fechasConAsistencias.size,
-            fechas: Array.from(fechasConAsistencias).sort()
-          })
-          
-          fechasConAsistencias.forEach(fecha => {
-            console.log(`\n📅 [ReporteList] Procesando fecha: ${fecha} para aula: ${aula.aulaNombre}`)
-            const estudiantesMarcados = asistenciasPorFecha.get(fecha) || new Set<string>()
-            console.log(`   📊 Estudiantes marcados en asistenciasPorFecha: ${estudiantesMarcados.size}`)
-
-            // Total = para meses anteriores usar RPC; si no, estudiantes en el aula
-            const estudiantesAulaSet = new Set(aula.estudiantesIds)
-            const totalEstudiantesEnFecha = esMesAnterior && totalPorAulaFechaReporte.size > 0
-              ? (totalPorAulaFechaReporte.get(`${aulaId}|${fecha}`) ?? aula.estudiantesIds.length)
-              : aula.estudiantesIds.length
-
-            // Marcados = estudiantes del aula que tienen asistencia en esta fecha
-            const marcados = Array.from(estudiantesMarcados).filter(estId =>
-              estudiantesAulaSet.has(estId)
-            ).length
-            
-            // Debug: Log para TODAS las fechas para diagnóstico
-            const esIncompleto = totalEstudiantesEnFecha > 0 && marcados > 0 && marcados < totalEstudiantesEnFecha
-            console.log('🔍 [ReporteList] Verificando fecha:', {
-              fecha,
-              aula: aula.aulaNombre,
-              marcados,
-              totalEstudiantesEnFecha,
-              faltantes: totalEstudiantesEnFecha - marcados,
-              estudiantesMarcadosSize: estudiantesMarcados.size,
-              estudiantesAulaTotal: aula.estudiantesIds.length,
-              estudiantesMarcadosIds: Array.from(estudiantesMarcados).slice(0, 5).map(id => id.substring(0, 8)),
-              condicion1: totalEstudiantesEnFecha > 0,
-              condicion2: marcados > 0,
-              condicion3: marcados < totalEstudiantesEnFecha,
-              condicionFinal: esIncompleto,
-              esIncompleto: esIncompleto
+            diasIncompletosGlobales.push({
+              fecha: fechaStr,
+              fechaFormateada: fechaDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' }),
+              nivel: row.aula_nombre || 'Sin aula',
+              aulaId: row.aula_id,
+              marcados: Number(row.marcados) || 0,
+              total: Number(row.total) || 0,
             })
-            
-            // Si hay al menos uno marcado pero no todos los que deberían tener asistencia, es un día incompleto
-            // Esta es la misma lógica que usa la página de asistencias: faltantes > 0 && total > 0 && marcados > 0
-            if (totalEstudiantesEnFecha > 0 && marcados > 0 && marcados < totalEstudiantesEnFecha) {
-              const faltantes = totalEstudiantesEnFecha - marcados
-              const porcentajeCompleto = ((marcados / totalEstudiantesEnFecha) * 100).toFixed(1)
-              
-              console.log('')
-              console.log('⚠️⚠️⚠️ DÍA INCOMPLETO DETECTADO ⚠️⚠️⚠️')
-              console.log(`📅 Fecha: ${fecha}`)
-              console.log(`🏫 Aula: ${aula.aulaNombre}`)
-              console.log(`👥 Marcados: ${marcados} / ${totalEstudiantesEnFecha} estudiantes`)
-              console.log(`❌ Faltantes: ${faltantes} estudiantes`)
-              console.log(`📊 Porcentaje completo: ${porcentajeCompleto}%`)
-              console.log('')
-              
-              console.log('📋 Detalle del día incompleto:', {
-                fecha,
-                aula: aula.aulaNombre,
-                marcados,
-                totalEstudiantesEnFecha,
-                faltantes,
-                porcentajeCompleto: porcentajeCompleto + '%',
-                estudiantesAulaTotal: aula.estudiantesIds.length,
-                estudiantesMarcadosSize: estudiantesMarcados.size
-              })
-              
-              // Parsear fecha como fecha local para evitar problemas de zona horaria
-              const [year, month, day] = fecha.split('-').map(Number)
-              const fechaDate = new Date(year, month - 1, day)
-              
-              // Verificar que la fecha esté en el rango seleccionado
-              const [yearInicio, monthInicio, dayInicio] = fechaInicio.split('-').map(Number)
-              const fechaInicioDate = new Date(yearInicio, monthInicio - 1, dayInicio)
-              const [yearFin, monthFin, dayFin] = fechaFin.split('-').map(Number)
-              const fechaFinDate = new Date(yearFin, monthFin - 1, dayFin)
-              
-              if (fechaDate >= fechaInicioDate && fechaDate <= fechaFinDate) {
-                diasIncompletosGlobales.push({
-                  fecha,
-                  fechaFormateada: fechaDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' }),
-                  nivel: aula.aulaNombre,
-                  aulaId: aula.aulaId,
-                  marcados,
-                  total: totalEstudiantesEnFecha, // Usar el total de estudiantes activos en esa fecha
-                })
-              }
-            }
           })
-        })
+        }
 
         // Obtener tutores asignados a cada aula usando aulas de las asistencias
         const aulasIds = Array.from(new Set(
