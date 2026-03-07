@@ -2192,9 +2192,9 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                       <span className="hidden sm:inline">{estudiante.codigo}</span>
                       <span className="sm:hidden">{showAbbreviatedSticky ? (estudiante.codigo.length >= 3 ? estudiante.codigo.slice(-3) : estudiante.codigo) : estudiante.codigo}</span>
                     </td>
-                    <td className={`border border-border p-1.5 bg-muted sticky z-10 text-xs shadow-[2px_0_4px_rgba(0,0,0,0.1)] ${showAbbreviatedSticky ? 'left-[52px] min-w-[72px]' : 'left-[120px] min-w-[180px]'} sm:left-[120px] sm:min-w-[180px]`} title={estudiante.nombre_completo}>
+                    <td className={`border border-border p-1.5 bg-muted sticky z-10 text-xs shadow-[2px_0_4px_rgba(0,0,0,0.1)] ${showAbbreviatedSticky ? 'left-[52px] min-w-[72px]' : 'left-[120px] min-w-[180px]'} sm:left-[120px] sm:min-w-[200px]`} title={estudiante.nombre_completo}>
                       <div className="flex items-center gap-1.5 min-h-0">
-                        <span className={`flex-1 min-w-0 truncate ${showAbbreviatedSticky ? 'max-w-[80px]' : ''} sm:max-w-[140px]`}>{estudiante.nombre_completo}</span>
+                        <span className="flex-1 min-w-0 whitespace-normal break-words">{estudiante.nombre_completo}</span>
                         {showQuitarEstudianteMes && (
                           <div className="flex items-center gap-0.5 shrink-0">
                             <Button
