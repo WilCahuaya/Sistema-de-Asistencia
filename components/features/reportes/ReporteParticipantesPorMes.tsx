@@ -381,50 +381,45 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
             estudiantesParaMes = estudiantesActualesData || []
           }
 
-          // Procesar por aula usando aula_id de la asistencia
-          aulasParaMes.forEach((aula) => {
-            // IMPORTANTE: Agrupar estudiantes por aula según el mes consultado
-            // Para meses anteriores: usar aula_id de las asistencias (histórica)
-            // Para meses actuales/futuros: usar aula_id actual del estudiante
+          // Procesar por aula - MISMA lógica que vista Asistencias
+          for (const aula of aulasParaMes) {
             let estudiantesAula: any[] = []
 
             if (esMesAnterior) {
-              // Para meses anteriores, filtrar asistencias que pertenecen a esta aula según aula_id de la asistencia
-              const asistenciasDeAula = todasAsistenciasData?.filter((a: any) => {
-                const fechaStr = a.fecha
-                return (a.aula_id || a.estudiante?.aula_id) === aula.id && fechaStr >= mesInicioStr && fechaStr <= mesFinStr
-              }) || []
-
-              const estudiantesIdsEnAula = new Set(asistenciasDeAula.map((a: any) => a.estudiante_id))
-              estudiantesAula = estudiantesParaMes?.filter(e => estudiantesIdsEnAula.has(e.id)) || []
+              const { data: idsRango } = await supabase.rpc('estudiantes_activos_en_rango', {
+                p_aula_id: aula.id,
+                p_fecha_inicio: mesInicioStr,
+                p_fecha_fin: mesFinStr,
+              })
+              const ids = (idsRango || []).flatMap((x: unknown) => {
+                if (typeof x === 'string') return [x]
+                if (x && typeof x === 'object') {
+                  const v = (x as Record<string, unknown>)['estudiante_id'] ?? Object.values(x as object)[0]
+                  return typeof v === 'string' ? [v] : []
+                }
+                return []
+              })
+              const estudiantesParaMesMap = new Map((estudiantesParaMes || []).map((e: any) => [e.id, e]))
+              estudiantesAula = ids.map(id => estudiantesParaMesMap.get(id) || { id, aula_id: aula.id })
             } else {
-              // Para meses actuales/futuros, filtrar estudiantes por su aula_id actual
               estudiantesAula = estudiantesParaMes?.filter(e => e.aula_id === aula.id) || []
             }
 
             const registrados = estudiantesAula.length
 
-            if (registrados === 0) return
+            if (registrados === 0) continue
 
-            // IMPORTANTE: Filtrar asistencias de esta aula para este mes específico
-            const asistenciasDeAula = todasAsistenciasData?.filter((a: any) => {
-              const fechaStr = a.fecha
-              return (a.aula_id || a.estudiante?.aula_id) === aula.id && fechaStr >= mesInicioStr && fechaStr <= mesFinStr
-            }) || []
-
-            // Detectar días completos para esta aula usando aula_id de la asistencia
-            // IMPORTANTE: Usar la MISMA lógica que ReporteMensual - iterar sobre cada día del mes
+            // MISMA LÓGICA que vista Asistencias: contar por (estudiante_id, fecha) sin filtrar por aula_id
             const estudiantesAulaIds = new Set(estudiantesAula.map(e => e.id))
-            const asistenciasPorFecha = new Map<string, Set<string>>() // fecha -> Set<estudiante_id>
-
-            asistenciasDeAula.forEach((asistencia: any) => {
-              if (estudiantesAulaIds.has(asistencia.estudiante_id)) {
-                const fecha = asistencia.fecha
-                if (!asistenciasPorFecha.has(fecha)) {
-                  asistenciasPorFecha.set(fecha, new Set())
-                }
-                asistenciasPorFecha.get(fecha)!.add(asistencia.estudiante_id)
-              }
+            const asistenciasDelMesAula = todasAsistenciasData?.filter((a: any) => {
+              const fechaStr = a.fecha
+              return fechaStr >= mesInicioStr && fechaStr <= mesFinStr && estudiantesAulaIds.has(a.estudiante_id)
+            }) || []
+            const asistenciasPorFecha = new Map<string, Set<string>>()
+            asistenciasDelMesAula.forEach((asistencia: any) => {
+              const fecha = asistencia.fecha
+              if (!asistenciasPorFecha.has(fecha)) asistenciasPorFecha.set(fecha, new Set())
+              asistenciasPorFecha.get(fecha)!.add(asistencia.estudiante_id)
             })
 
             // Días completos: solo cuenta un día cuando TODOS los estudiantes tienen registro
@@ -463,15 +458,11 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
             }
 
             // Contar asistencias "presente" para estudiantes de esta aula SOLO de días completos
-            // Usar aula_id de la asistencia para filtrar correctamente
             const asistenciasAula = asistenciasPresente?.filter((a: any) => {
-              // Solo incluir asistencias que pertenecen a esta aula según aula_id de la asistencia
-              if ((a.aula_id || a.estudiante?.aula_id) !== aula.id) return false
               if (!estudiantesAulaIds.has(a.estudiante_id)) return false
               const [year, monthNum, day] = a.fecha.split('-').map(Number)
               const fechaDate = new Date(year, monthNum - 1, day)
               const esDelMes = fechaDate.getFullYear() === selectedYear && fechaDate.getMonth() === mes
-              // Solo contar asistencias de días completos
               return esDelMes && fechasDiasCompletos.has(a.fecha)
             }) || []
             const asistenPromed = asistenciasAula.length
@@ -484,7 +475,7 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
             // Acumular totales
             totalAsistenPromed += asistenPromed
             totalOportunidadesAsistencia += oportunidadesAsistencia
-          })
+          }
 
           // Calcular porcentaje total de la FCP para este mes (igual que ReporteMensual)
           const porcentaje =

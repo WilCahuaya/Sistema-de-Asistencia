@@ -653,30 +653,34 @@ export function ReporteList() {
       const aulasMap = new Map<string, { aulaId: string; aulaNombre: string; estudiantesIds: string[] }>()
       
       // IMPORTANTE: Agrupar estudiantes por aula según el mes consultado
-      // Para meses anteriores: usar aula_id de las asistencias (histórica)
-      // Para meses actuales/futuros: usar aula_id actual del estudiante
+      // Para meses anteriores: usar estudiantes_activos_en_rango (MISMA fuente que vista Asistencias)
+      // para que el reporte coincida con lo que muestra "Ver asistencia" (41/41)
       if (esMesAnterior) {
-        // Para meses anteriores, agrupar estudiantes por aula_id de sus asistencias
-        // IMPORTANTE: Usar aula_id de la asistencia, con fallback al aula_id del estudiante si falta
+        // Primero obtener aulas únicas de las asistencias
+        const aulasDeAsistencias = new Map<string, string>()
         asistenciasData?.forEach((asist: any) => {
           const aulaId = asist.aula_id || asist.estudiante?.aula_id
-          if (aulaId) {
-            const aulaNombre = asist.aula?.nombre || 'Sin aula'
-            
-            if (!aulasMap.has(aulaId)) {
-              aulasMap.set(aulaId, {
-                aulaId,
-                aulaNombre,
-                estudiantesIds: [],
-              })
-            }
-            
-            // Agregar estudiante solo si no está ya en la lista
-            if (!aulasMap.get(aulaId)!.estudiantesIds.includes(asist.estudiante_id)) {
-              aulasMap.get(aulaId)!.estudiantesIds.push(asist.estudiante_id)
-            }
+          if (aulaId && !aulasDeAsistencias.has(aulaId)) {
+            aulasDeAsistencias.set(aulaId, asist.aula?.nombre || 'Sin aula')
           }
         })
+        // Para cada aula, obtener estudiantes desde RPC (igual que la vista de Asistencias)
+        for (const [aulaId, aulaNombre] of aulasDeAsistencias) {
+          const { data: idsRango } = await supabase.rpc('estudiantes_activos_en_rango', {
+            p_aula_id: aulaId,
+            p_fecha_inicio: fechaInicioStr,
+            p_fecha_fin: fechaFinStr,
+          })
+          const ids = (idsRango || []).flatMap((x: unknown) => {
+            if (typeof x === 'string') return [x]
+            if (x && typeof x === 'object') {
+              const v = (x as Record<string, unknown>)['estudiante_id'] ?? Object.values(x as object)[0]
+              return typeof v === 'string' ? [v] : []
+            }
+            return []
+          })
+          aulasMap.set(aulaId, { aulaId, aulaNombre, estudiantesIds: ids })
+        }
       } else {
         // Para meses actuales/futuros, agrupar estudiantes por su aula_id actual
         estudiantesData?.forEach((est: any) => {
@@ -729,20 +733,14 @@ export function ReporteList() {
         const totalEstudiantes = aula.estudiantesIds.length
         const asistenciasPorFecha = new Map<string, Set<string>>() // fecha -> Set<estudiante_id>
 
-        // Agrupar TODAS las asistencias por fecha para esta aula
-        // IMPORTANTE: Usar aula_id de la asistencia (con fallback al del estudiante) para agrupar correctamente
+        // Agrupar asistencias por fecha - MISMA LÓGICA que la vista de Asistencias:
+        // Contar por (estudiante_id, fecha) sin exigir aula_id en la asistencia, para que coincida
+        // con lo que muestra "Ver asistencia" (41/41 cuando todos tienen registro)
         asistenciasData?.forEach((asist: any) => {
-          const asistAulaId = asist.aula_id || asist.estudiante?.aula_id
-          // Solo incluir asistencias que pertenecen a esta aula (según aula_id de la asistencia)
-          if (asistAulaId === aulaId && aula.estudiantesIds.includes(asist.estudiante_id)) {
-            const fecha = asist.fecha
-            
-            // Contar TODAS las asistencias registradas
-            if (!asistenciasPorFecha.has(fecha)) {
-              asistenciasPorFecha.set(fecha, new Set())
-            }
-            asistenciasPorFecha.get(fecha)!.add(asist.estudiante_id)
-          }
+          if (!aula.estudiantesIds.includes(asist.estudiante_id)) return
+          const fecha = asist.fecha
+          if (!asistenciasPorFecha.has(fecha)) asistenciasPorFecha.set(fecha, new Set())
+          asistenciasPorFecha.get(fecha)!.add(asist.estudiante_id)
         })
         
         if (aulaId === Array.from(aulasMap.keys())[0]) {

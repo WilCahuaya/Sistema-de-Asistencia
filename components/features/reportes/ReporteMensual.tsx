@@ -505,40 +505,42 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       let totalOportunidadesAsistencia = 0
       const diasIncompletosGlobales: DiaIncompleto[] = []
 
-      aulasData?.forEach((aula) => {
-        // IMPORTANTE: Agrupar estudiantes por aula según el mes consultado
-        // Para meses anteriores: usar aula_id de las asistencias (histórica)
+      for (const aula of aulasData || []) {
+        // Para meses anteriores: usar estudiantes_activos_en_rango (MISMA lógica que vista Asistencias)
         // Para meses actuales/futuros: usar aula_id actual del estudiante
         let estudiantesAula: any[] = []
+        let estudiantesAulaIds = new Set<string>()
         
         if (esMesAnterior) {
-          // Para meses anteriores, filtrar asistencias que pertenecen a esta aula según aula_id de la asistencia
-          const asistenciasDeAula = todasAsistenciasData?.filter((a: any) => (a.aula_id || a.estudiante?.aula_id) === aula.id) || []
-          const estudiantesIdsEnAula = new Set(asistenciasDeAula.map((a: any) => a.estudiante_id))
-          estudiantesAula = estudiantesData?.filter(e => estudiantesIdsEnAula.has(e.id)) || []
+          const { data: idsRango } = await supabase.rpc('estudiantes_activos_en_rango', {
+            p_aula_id: aula.id,
+            p_fecha_inicio: fechaInicioStr,
+            p_fecha_fin: fechaFinStr,
+          })
+          const ids = (idsRango || []).flatMap((x: unknown) => {
+            if (typeof x === 'string') return [x]
+            if (x && typeof x === 'object') {
+              const v = (x as Record<string, unknown>)['estudiante_id'] ?? Object.values(x as object)[0]
+              return typeof v === 'string' ? [v] : []
+            }
+            return []
+          })
+          estudiantesAulaIds = new Set(ids)
+          estudiantesAula = ids.map(id => ({ id }))
         } else {
-          // Para meses actuales/futuros, filtrar estudiantes por su aula_id actual
           estudiantesAula = estudiantesData?.filter(e => e.aula_id === aula.id) || []
+          estudiantesAulaIds = new Set(estudiantesAula.map(e => e.id))
         }
         
         const registrados = estudiantesAula.length
         
-        // IMPORTANTE: Usar aula_id de la asistencia (con fallback al del estudiante) para filtrar correctamente
-        const asistenciasDeAula = todasAsistenciasData?.filter((a: any) => (a.aula_id || a.estudiante?.aula_id) === aula.id) || []
-
-        // Detectar días incompletos para esta aula usando aula_id de la asistencia
-        const estudiantesAulaIds = new Set(estudiantesAula.map(e => e.id))
-        const asistenciasPorFecha = new Map<string, Set<string>>() // fecha -> Set<estudiante_id>
-
-        asistenciasDeAula.forEach((asistencia: any) => {
-          if (estudiantesAulaIds.has(asistencia.estudiante_id)) {
-            const fecha = asistencia.fecha
-            if (!asistenciasPorFecha.has(fecha)) {
-              asistenciasPorFecha.set(fecha, new Set())
-            }
-            // Agregar el estudiante si tiene asistencia registrada (cualquier estado: presente, faltó, permiso)
-            asistenciasPorFecha.get(fecha)!.add(asistencia.estudiante_id)
-          }
+        // MISMA LÓGICA que vista Asistencias: contar por (estudiante_id, fecha) sin filtrar por aula_id
+        const asistenciasPorFecha = new Map<string, Set<string>>()
+        todasAsistenciasData?.forEach((asistencia: any) => {
+          if (!estudiantesAulaIds.has(asistencia.estudiante_id)) return
+          const fecha = asistencia.fecha
+          if (!asistenciasPorFecha.has(fecha)) asistenciasPorFecha.set(fecha, new Set())
+          asistenciasPorFecha.get(fecha)!.add(asistencia.estudiante_id)
         })
         
         // Log detallado para depuración (solo para el primer día del mes para no saturar)
@@ -561,7 +563,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         let totalAsistenciasPresente = 0
         let oportunidadesAulaSum = 0 // Suma de registradosEnFecha por cada día completo (cuando usamos períodos)
         const todasAsistenciasPorEstudianteFecha: { [key: string]: string } = {}
-        asistenciasDeAula.forEach((asistencia: any) => {
+        todasAsistenciasData?.forEach((asistencia: any) => {
           if (estudiantesAulaIds.has(asistencia.estudiante_id)) {
             const key = `${asistencia.estudiante_id}-${asistencia.fecha}`
             todasAsistenciasPorEstudianteFecha[key] = asistencia.estado
@@ -663,7 +665,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         totalAsistenPromed += totalAsistenciasPresente
         totalRegistrados += registrados
         totalOportunidadesAsistencia += oportunidadesAsistencia
-      })
+      }
 
       // Calcular promedio total: total de asistió / días de atención
       // Ejemplo: 2 = 20 / 10

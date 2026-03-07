@@ -657,17 +657,30 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         })
       }
 
-      aulasParaProcesar.forEach(aula => {
+      for (const aula of aulasParaProcesar) {
         // IMPORTANTE: Agrupar estudiantes por aula según el mes consultado
         // Para meses anteriores: usar aula_id de las asistencias (histórica)
         // Para meses actuales/futuros: usar aula_id actual del estudiante
         let estudiantesDeAula: any[] = []
         
         if (esMesAnterior) {
-          // Para meses anteriores, filtrar asistencias que pertenecen a esta aula según aula_id de la asistencia
-          const asistenciasDeAula = asistenciasData?.filter((a: any) => (a.aula_id || a.estudiante?.aula_id) === aula.id) || []
-          const estudiantesIdsEnAula = new Set(asistenciasDeAula.map((a: any) => a.estudiante_id))
-          estudiantesDeAula = estudiantesData?.filter(e => estudiantesIdsEnAula.has(e.id)) || []
+          // Para meses anteriores: usar estudiantes_activos_en_rango (MISMA lógica que vista Asistencias)
+          const { data: idsRango } = await supabase.rpc('estudiantes_activos_en_rango', {
+            p_aula_id: aula.id,
+            p_fecha_inicio: fechaInicio,
+            p_fecha_fin: fechaFin,
+          })
+          const ids = (idsRango || []).flatMap((x: unknown) => {
+            if (typeof x === 'string') return [x]
+            if (x && typeof x === 'object') {
+              const v = (x as Record<string, unknown>)['estudiante_id'] ?? Object.values(x as object)[0]
+              return typeof v === 'string' ? [v] : []
+            }
+            return []
+          })
+          // Combinar con estudiantesData si existe; si no, crear objetos mínimos (el RPC es la fuente de verdad)
+          const estudiantesDataMap = new Map((estudiantesData || []).map(e => [e.id, e]))
+          estudiantesDeAula = ids.map(id => estudiantesDataMap.get(id) || { id, codigo: '', nombre_completo: '', aula_id: aula.id })
         } else {
           // Para meses actuales/futuros, filtrar estudiantes por su aula_id actual
           estudiantesDeAula = estudiantesData?.filter(e => e.aula_id === aula.id) || []
@@ -675,8 +688,9 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         
         const totalEstudiantes = estudiantesDeAula.length
         
-        // IMPORTANTE: Usar aula_id de la asistencia (con fallback al del estudiante) para filtrar correctamente
-        const asistenciasDeAula = asistenciasData?.filter((a: any) => (a.aula_id || a.estudiante?.aula_id) === aula.id) || []
+        // MISMA LÓGICA que vista Asistencias: contar por (estudiante_id, fecha) sin filtrar por aula_id
+        const estudiantesDeAulaIds = new Set(estudiantesDeAula.map(e => e.id))
+        const asistenciasDeAula = asistenciasData?.filter((a: any) => estudiantesDeAulaIds.has(a.estudiante_id)) || []
         const asistenciasPorFecha: AsistenciaPorFecha = {}
         const diasIncompletosAula: Array<{ fecha: string; aulaId: string; tutorNombre: string; marcados: number; total: number }> = []
         const tutorNombre = aula.tutor?.nombre_completo || aula.tutor?.email || 'Sin tutor asignado'
@@ -894,7 +908,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         nivelGroup.totalFalto += totalFalto
         nivelGroup.totalRegistros += totalEstudiantes // Sumar estudiantes, no registros
         nivelGroup.totalDiasAtencion += diasDeAtencion
-      })
+      }
 
       // Filtrar y ordenar fechas: solo las del mes seleccionado, ordenadas por fecha
       const fechasUnicas = Array.from(fechasSet)
