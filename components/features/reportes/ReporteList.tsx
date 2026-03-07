@@ -912,51 +912,32 @@ export function ReporteList() {
         })
 
         // Detectar días incompletos por aula (reutilizar aulasMap ya creado arriba)
-        // Usar aula.estudiantesIds como total: lista de estudiantes en el aula según el reporte.
-        // Así evitamos falsos positivos cuando periodos/RPC devuelve más de lo que muestra Asistencias.
+        // IMPORTANTE: Usar la MISMA lógica que días completos - filtrar por aula.estudiantesIds.includes(estudiante_id)
+        // NO por aula_id de la asistencia. Así evitamos asignar asistencias al salón equivocado cuando
+        // aula_id es null o cuando el estudiante cambió de aula (estudiante.aula_id sería el aula actual).
         aulasMap.forEach((aula, aulaId) => {
           const asistenciasPorFecha = new Map<string, Set<string>>() // fecha -> Set<estudiante_id>
-
-          // Agrupar asistencias por fecha para esta aula (cualquier estado: presente, falto, permiso)
-          asistenciasData?.forEach((asist: any) => {
-            const asistAulaId = asist.aula_id || asist.estudiante?.aula_id
-            if (asistAulaId === aulaId) {
-              const fecha = asist.fecha
-              // Verificar que la fecha esté en el rango
-              const [year, month, day] = fecha.split('-').map(Number)
-              const fechaDate = new Date(year, month - 1, day)
-              const [yearInicio, monthInicio, dayInicio] = fechaInicio.split('-').map(Number)
-              const fechaInicioDate = new Date(yearInicio, monthInicio - 1, dayInicio)
-              const [yearFin, monthFin, dayFin] = fechaFin.split('-').map(Number)
-              const fechaFinDate = new Date(yearFin, monthFin - 1, dayFin)
-              const esDelRango = fechaDate >= fechaInicioDate && fechaDate <= fechaFinDate
-              
-              if (esDelRango) {
-                if (!asistenciasPorFecha.has(fecha)) {
-                  asistenciasPorFecha.set(fecha, new Set())
-                }
-                asistenciasPorFecha.get(fecha)!.add(asist.estudiante_id)
-              }
-            }
-          })
-
-          // Obtener todas las fechas únicas con asistencias registradas para esta aula
           const fechasConAsistencias = new Set<string>()
+
+          // Agrupar asistencias por fecha - MISMA LÓGICA que días completos y vista Asistencias:
+          // Contar por (estudiante_id, fecha) donde el estudiante pertenece a este aula
           asistenciasData?.forEach((asist: any) => {
-            const asistAulaId = asist.aula_id || asist.estudiante?.aula_id
-            if (asistAulaId === aulaId) {
-              const fecha = asist.fecha
-              // Verificar que la fecha esté en el rango seleccionado
-              const [year, month, day] = fecha.split('-').map(Number)
-              const fechaDate = new Date(year, month - 1, day)
-              const [yearInicio, monthInicio, dayInicio] = fechaInicio.split('-').map(Number)
-              const fechaInicioDate = new Date(yearInicio, monthInicio - 1, dayInicio)
-              const [yearFin, monthFin, dayFin] = fechaFin.split('-').map(Number)
-              const fechaFinDate = new Date(yearFin, monthFin - 1, dayFin)
-              
-              if (fechaDate >= fechaInicioDate && fechaDate <= fechaFinDate) {
-                fechasConAsistencias.add(fecha)
+            if (!aula.estudiantesIds.includes(asist.estudiante_id)) return
+            const fecha = asist.fecha
+            const [year, month, day] = fecha.split('-').map(Number)
+            const fechaDate = new Date(year, month - 1, day)
+            const [yearInicio, monthInicio, dayInicio] = fechaInicio.split('-').map(Number)
+            const fechaInicioDate = new Date(yearInicio, monthInicio - 1, dayInicio)
+            const [yearFin, monthFin, dayFin] = fechaFin.split('-').map(Number)
+            const fechaFinDate = new Date(yearFin, monthFin - 1, dayFin)
+            const esDelRango = fechaDate >= fechaInicioDate && fechaDate <= fechaFinDate
+
+            if (esDelRango) {
+              if (!asistenciasPorFecha.has(fecha)) {
+                asistenciasPorFecha.set(fecha, new Set())
               }
+              asistenciasPorFecha.get(fecha)!.add(asist.estudiante_id)
+              fechasConAsistencias.add(fecha)
             }
           })
           
