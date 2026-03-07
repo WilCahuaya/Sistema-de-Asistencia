@@ -442,6 +442,7 @@ export function ReporteList() {
         .eq('fcp_id', fcpIdAUsar)
         .gte('fecha', fechaInicioStr)
         .lte('fecha', fechaFinStr)
+        .limit(5000)
 
       if (asistenciasError) {
         console.error('❌ [ReporteList] Error obteniendo asistencias:', asistenciasError)
