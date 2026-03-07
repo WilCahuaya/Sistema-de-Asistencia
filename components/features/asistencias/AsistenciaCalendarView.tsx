@@ -24,7 +24,7 @@ import { useCorreccionMes, esMesPasado } from '@/hooks/useCorreccionMes'
 import { CorreccionMesBanner } from './CorreccionMesBanner'
 import { HabilitarCorreccionDialog } from './HabilitarCorreccionDialog'
 import { Badge } from '@/components/ui/badge'
-import { Unlock, UserPlus, User } from 'lucide-react'
+import { Unlock, UserPlus, User, ArrowRightLeft, UserMinus } from 'lucide-react'
 import { AgregarEstudianteMesDialog } from './AgregarEstudianteMesDialog'
 import { QuitarEstudianteMesDialog } from './QuitarEstudianteMesDialog'
 import { MoverEstudianteMesDialog } from './MoverEstudianteMesDialog'
@@ -1708,6 +1708,10 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
               Salón: <span className="font-semibold">{aulas.find(a => a.id === selectedAula)?.nombre || 'Aula'}</span>
             </span>
             <span className="text-muted-foreground">·</span>
+            <span className="text-sm text-muted-foreground">
+              <span className="font-medium text-foreground">{estudiantes.length}</span> estudiante{estudiantes.length !== 1 ? 's' : ''}
+            </span>
+            <span className="text-muted-foreground">·</span>
             <span className="flex items-center gap-2 text-sm text-muted-foreground">
               <User className="h-4 w-4" />
               <span>Tutor: <span className="font-medium text-foreground">{tutorNombre || 'Sin tutor asignado'}</span></span>
@@ -2188,35 +2192,37 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                       <span className="hidden sm:inline">{estudiante.codigo}</span>
                       <span className="sm:hidden">{showAbbreviatedSticky ? (estudiante.codigo.length >= 3 ? estudiante.codigo.slice(-3) : estudiante.codigo) : estudiante.codigo}</span>
                     </td>
-                    <td className={`border border-border p-2 bg-muted sticky z-10 text-xs shadow-[2px_0_4px_rgba(0,0,0,0.1)] ${showAbbreviatedSticky ? 'left-[52px] min-w-[72px]' : 'left-[120px] min-w-[180px]'} sm:left-[120px] sm:min-w-[180px]`} title={estudiante.nombre_completo}>
-                      <div className="flex flex-col gap-0.5">
-                        <span className={`block ${showAbbreviatedSticky ? 'truncate max-w-[80px]' : 'whitespace-normal break-words'} sm:truncate sm:max-w-[172px]`}>{estudiante.nombre_completo}</span>
+                    <td className={`border border-border p-1.5 bg-muted sticky z-10 text-xs shadow-[2px_0_4px_rgba(0,0,0,0.1)] ${showAbbreviatedSticky ? 'left-[52px] min-w-[72px]' : 'left-[120px] min-w-[180px]'} sm:left-[120px] sm:min-w-[180px]`} title={estudiante.nombre_completo}>
+                      <div className="flex items-center gap-1.5 min-h-0">
+                        <span className={`flex-1 min-w-0 truncate ${showAbbreviatedSticky ? 'max-w-[80px]' : ''} sm:max-w-[140px]`}>{estudiante.nombre_completo}</span>
                         {showQuitarEstudianteMes && (
-                          <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-0.5 shrink-0">
                             <Button
-                              variant="link"
-                              size="sm"
-                              className="h-auto p-0 text-[10px] sm:text-xs"
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                              title="Mover a otro salón"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 setSelectedEstudianteForMover(estudiante)
                                 setMoverEstudianteMesOpen(true)
                               }}
                             >
-                              Mover a otro salón
+                              <ArrowRightLeft className="h-3.5 w-3.5" />
                             </Button>
                             {periodosQuitables.has(estudiante.id) && (
                               <Button
-                                variant="link"
-                                size="sm"
-                                className="h-auto p-0 text-destructive hover:text-destructive/80 text-[10px] sm:text-xs"
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                title="Quitar de este mes"
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   setSelectedEstudianteForQuitar(estudiante)
                                   setQuitarEstudianteMesOpen(true)
                                 }}
                               >
-                                Quitar de este mes
+                                <UserMinus className="h-3.5 w-3.5" />
                               </Button>
                             )}
                           </div>
