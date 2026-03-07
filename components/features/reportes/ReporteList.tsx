@@ -426,27 +426,36 @@ export function ReporteList() {
         esMesAnterior
       })
 
-      // Obtener asistencias en el rango de fechas usando el fcpId
-      // IMPORTANTE: Incluir aula_id de la asistencia para preservar el aula histórica
-      // IMPORTANTE: Usar fechaInicioStr y fechaFinStr que se calcularon del mes seleccionado
-      const { data: asistenciasData, error: asistenciasError } = await supabase
-        .from('asistencias')
-        .select(`
-          estudiante_id, 
-          estado, 
-          fecha,
-          aula_id,
-          aula:aulas(id, nombre),
-          estudiante:estudiantes(id, codigo, nombre_completo, aula_id, created_at)
-        `)
-        .eq('fcp_id', fcpIdAUsar)
-        .gte('fecha', fechaInicioStr)
-        .lte('fecha', fechaFinStr)
-        .limit(5000)
+      // Obtener TODAS las asistencias en el rango (paginación para no perder ninguna fecha)
+      const selectAsistencias = `
+        estudiante_id, 
+        estado, 
+        fecha,
+        aula_id,
+        aula:aulas(id, nombre),
+        estudiante:estudiantes(id, codigo, nombre_completo, aula_id, created_at)
+      `
+      let asistenciasData: any[] = []
+      let offset = 0
+      const pageSize = 1000
+      let hasMore = true
+      while (hasMore) {
+        const { data: page, error: asistenciasError } = await supabase
+          .from('asistencias')
+          .select(selectAsistencias)
+          .eq('fcp_id', fcpIdAUsar)
+          .gte('fecha', fechaInicioStr)
+          .lte('fecha', fechaFinStr)
+          .order('fecha', { ascending: true })
+          .range(offset, offset + pageSize - 1)
 
-      if (asistenciasError) {
-        console.error('❌ [ReporteList] Error obteniendo asistencias:', asistenciasError)
-        throw asistenciasError
+        if (asistenciasError) {
+          console.error('❌ [ReporteList] Error obteniendo asistencias:', asistenciasError)
+          throw asistenciasError
+        }
+        asistenciasData = asistenciasData.concat(page || [])
+        hasMore = (page?.length || 0) === pageSize
+        offset += pageSize
       }
 
       // Obtener estudiantes activos de la FCP
@@ -875,7 +884,7 @@ export function ReporteList() {
       let fechasUnicas: string[] | undefined = undefined
       const diasIncompletosGlobales: DiaIncompleto[] = []
 
-      // Incluir TODAS las fechas con asistencias registradas en el rango
+      // Solo fechas con asistencias registradas (para no ocupar mucho espacio)
         const fechasSet = new Set<string>()
         asistenciasData?.forEach((asist) => {
           const fecha = asist.fecha
