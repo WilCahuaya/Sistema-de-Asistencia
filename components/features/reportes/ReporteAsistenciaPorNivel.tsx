@@ -657,6 +657,37 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         })
       }
 
+      // Días incompletos: usar RPC en BD (única fuente de verdad, evita falsos positivos)
+      const aulaTutorMapNivel = new Map<string, string>()
+      aulasParaProcesar.forEach((a: any) => {
+        const tn = a.tutor?.nombre_completo || a.tutor?.email || 'Sin tutor asignado'
+        aulaTutorMapNivel.set(a.id, tn)
+      })
+      if (aulaIdsParaPeriodos.length > 0 && fcpIdParaReporte) {
+        const { data: rpcDiasIncompletos } = await supabase.rpc('dias_incompletos_por_aula', {
+          p_aula_ids: aulaIdsParaPeriodos,
+          p_fecha_inicio: fechaInicio,
+          p_fecha_fin: fechaFin,
+          p_fcp_id: fcpIdParaReporte,
+        })
+        ;(rpcDiasIncompletos || []).forEach((row: { aula_id: string; aula_nombre: string; fecha: string; marcados: number; total: number }) => {
+          const fechaStr = typeof row.fecha === 'string' ? row.fecha.split('T')[0] : row.fecha
+          const [y, m, d] = fechaStr.split('-').map(Number)
+          const fechaDate = new Date(y, m - 1, d)
+          if (fechaDate.getFullYear() === selectedYear && fechaDate.getMonth() === selectedMonth) {
+            diasIncompletosGlobales.push({
+              fecha: fechaStr,
+              fechaFormateada: fechaDate.toLocaleDateString('es-PE', { day: 'numeric', month: 'long', timeZone: 'America/Lima' }),
+              nivel: row.aula_nombre || 'Sin aula',
+              tutorNombre: aulaTutorMapNivel.get(row.aula_id) || 'Sin tutor asignado',
+              marcados: Number(row.marcados) || 0,
+              total: Number(row.total) || 0,
+              aulaId: row.aula_id,
+            })
+          }
+        })
+      }
+
       for (const aula of aulasParaProcesar) {
         // IMPORTANTE: Agrupar estudiantes por aula según el mes consultado
         // Para meses anteriores: usar aula_id de las asistencias (histórica)
@@ -692,7 +723,6 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         const estudiantesDeAulaIds = new Set(estudiantesDeAula.map(e => e.id))
         const asistenciasDeAula = asistenciasData?.filter((a: any) => estudiantesDeAulaIds.has(a.estudiante_id)) || []
         const asistenciasPorFecha: AsistenciaPorFecha = {}
-        const diasIncompletosAula: Array<{ fecha: string; aulaId: string; tutorNombre: string; marcados: number; total: number }> = []
         const tutorNombre = aula.tutor?.nombre_completo || aula.tutor?.email || 'Sin tutor asignado'
         const tutorId = aula.tutor?.id || null
         
@@ -765,29 +795,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
               tutorNombre
             })
             
-            diasIncompletosAula.push({
-              fecha,
-              aulaId: aula.id,
-              tutorNombre,
-              marcados: marcadosEnFecha,
-              total: totalEstudiantesEnFecha, // Usar el total de estudiantes activos en esa fecha
-            })
-            
-            // También agregar a la lista global
-            // Parsear fecha como fecha local para evitar problemas de zona horaria
-            const [year, month, day] = fecha.split('-').map(Number)
-            const fechaDate = new Date(year, month - 1, day)
-            if (fechaDate.getFullYear() === selectedYear && fechaDate.getMonth() === selectedMonth) {
-              diasIncompletosGlobales.push({
-                fecha,
-                fechaFormateada: fechaDate.toLocaleDateString('es-PE', { day: 'numeric', month: 'long', timeZone: 'America/Lima' }),
-                nivel: aula.nombre,
-                tutorNombre,
-                marcados: marcadosEnFecha,
-                total: totalEstudiantesEnFecha, // Usar el total de estudiantes activos en esa fecha
-                aulaId: aula.id,
-              })
-            }
+            // Días incompletos: se obtienen del RPC dias_incompletos_por_aula (no agregar aquí)
             
             // NO marcar para eliminar - mostrar todas las fechas con asistencias
             // fechasParaEliminar.push(fecha)

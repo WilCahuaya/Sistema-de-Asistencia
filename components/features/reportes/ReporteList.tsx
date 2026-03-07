@@ -874,41 +874,25 @@ export function ReporteList() {
       let fechasUnicas: string[] | undefined = undefined
       const diasIncompletosGlobales: DiaIncompleto[] = []
 
-      // Obtener TODAS las fechas únicas donde hay asistencias registradas (no solo días completos)
+      // Incluir TODAS las fechas con asistencias registradas en el rango
         const fechasSet = new Set<string>()
-        
-        // Incluir TODAS las fechas con asistencias registradas dentro del rango
         asistenciasData?.forEach((asist) => {
           const fecha = asist.fecha
-          // Verificar que la fecha esté en el rango seleccionado
           const [year, month, day] = fecha.split('-').map(Number)
           const fechaDate = new Date(year, month - 1, day)
-          const [yearInicio, monthInicio, dayInicio] = fechaInicio.split('-').map(Number)
+          const [yearInicio, monthInicio, dayInicio] = fechaInicioStr.split('-').map(Number)
           const fechaInicioDate = new Date(yearInicio, monthInicio - 1, dayInicio)
-          const [yearFin, monthFin, dayFin] = fechaFin.split('-').map(Number)
+          const [yearFin, monthFin, dayFin] = fechaFinStr.split('-').map(Number)
           const fechaFinDate = new Date(yearFin, monthFin - 1, dayFin)
-          
           if (fechaDate >= fechaInicioDate && fechaDate <= fechaFinDate) {
             fechasSet.add(fecha)
           }
         })
+        fechasUnicas = Array.from(fechasSet).sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
         
-        console.log('📅 [ReporteList] Todas las fechas con asistencias:', {
-          totalFechas: fechasSet.size,
-          fechasEnSet: Array.from(fechasSet).sort()
-        })
-        
-        // Ordenar fechas cronológicamente
-        fechasUnicas = Array.from(fechasSet)
-          .sort((a, b) => {
-            const dateA = new Date(a)
-            const dateB = new Date(b)
-            return dateA.getTime() - dateB.getTime()
-          })
-        
-        console.log('📅 [ReporteList] Fechas únicas finales (todas las fechas con asistencias):', {
+        console.log('📅 [ReporteList] Fechas con asistencias:', {
           totalFechas: fechasUnicas.length,
-          fechasUnicas: fechasUnicas
+          fechasUnicas
         })
 
         // Detectar días incompletos: usar RPC en BD (única fuente de verdad)

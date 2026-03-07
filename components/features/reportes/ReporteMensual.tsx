@@ -498,12 +498,35 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         })
       }
 
-      // Calcular datos por nivel y detectar días incompletos
+      // Días incompletos: usar RPC en BD (única fuente de verdad, evita falsos positivos)
+      const diasIncompletosGlobales: DiaIncompleto[] = []
+      if (aulaIds.length > 0 && fcpIdParaReporte) {
+        const { data: rpcDiasIncompletos } = await supabase.rpc('dias_incompletos_por_aula', {
+          p_aula_ids: aulaIds,
+          p_fecha_inicio: fechaInicioStr,
+          p_fecha_fin: fechaFinStr,
+          p_fcp_id: fcpIdParaReporte,
+        })
+        ;(rpcDiasIncompletos || []).forEach((row: { aula_id: string; aula_nombre: string; fecha: string; marcados: number; total: number }) => {
+          const fechaStr = typeof row.fecha === 'string' ? row.fecha.split('T')[0] : row.fecha
+          const [y, m, d] = fechaStr.split('-').map(Number)
+          const fechaDate = new Date(y, m - 1, d)
+          diasIncompletosGlobales.push({
+            fecha: fechaStr,
+            fechaFormateada: fechaDate.toLocaleDateString('es-PE', { day: 'numeric', month: 'long', timeZone: 'America/Lima' }),
+            nivel: row.aula_nombre || 'Sin aula',
+            aulaId: row.aula_id,
+            marcados: Number(row.marcados) || 0,
+            total: Number(row.total) || 0,
+          })
+        })
+      }
+
+      // Calcular datos por nivel
       const niveles: NivelData[] = []
       let totalAsistenPromed = 0
       let totalRegistrados = 0
       let totalOportunidadesAsistencia = 0
-      const diasIncompletosGlobales: DiaIncompleto[] = []
 
       for (const aula of aulasData || []) {
         // Para meses anteriores: usar estudiantes_activos_en_rango (MISMA lógica que vista Asistencias)
@@ -612,27 +635,8 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
               }
             })
           } else if (marcados > 0 && marcados < registradosEnFecha) {
-            // Día incompleto: hay algunos estudiantes marcados pero no todos los que deberían tener asistencia
-            console.log('⚠️ [ReporteMensual] Día incompleto detectado:', {
-              fecha: fechaStr,
-              aula: aula.nombre,
-              marcados,
-              registrados,
-              registradosEnFecha,
-              estudiantesSinAsistencia: estudiantesSinAsistencia.length,
-              estudiantesSinAsistenciaIds: estudiantesSinAsistencia.slice(0, 10), // Primeros 10 para depuración
-              estudiantesConAsistenciaIds: Array.from(estudiantesConAsistencia).slice(0, 10),
-              estudiantesAulaTotal: estudiantesAula.length
-            })
-            
-            diasIncompletosGlobales.push({
-              fecha: fechaStr,
-              fechaFormateada: fechaDate.toLocaleDateString('es-PE', { day: 'numeric', month: 'long', timeZone: 'America/Lima' }),
-              nivel: aula.nombre,
-              aulaId: aula.id,
-              marcados,
-              total: registradosEnFecha, // Usar el total de estudiantes del aula
-            })
+            // Día incompleto: detectado en loop (se reemplaza por RPC al final para consistencia)
+            // No agregar aquí - se obtiene de dias_incompletos_por_aula RPC
           }
           // Si marcados === 0 y registradosEnFecha === 0, es un día sin estudiantes (no se marca como incompleto ni completo)
           // Si marcados === 0 pero registradosEnFecha > 0, es un día sin clases (no se marca como incompleto, pero tampoco como completo)
