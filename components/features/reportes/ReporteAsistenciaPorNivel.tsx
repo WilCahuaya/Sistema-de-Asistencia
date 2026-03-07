@@ -623,14 +623,16 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
       
       if (esMesAnterior) {
         // Para meses anteriores, obtener aulas únicas de las asistencias
+        // Usar aula_id de la asistencia con fallback al del estudiante
         const aulasMap = new Map<string, any>()
         asistenciasData?.forEach((a: any) => {
-          if (a.aula_id && a.aula && !aulasMap.has(a.aula_id)) {
-            // Buscar el tutor de esta aula en la lista de aulas cargadas
-            const aulaOriginal = aulas.find(au => au.id === a.aula_id)
-            aulasMap.set(a.aula_id, {
-              id: a.aula_id,
-              nombre: a.aula.nombre || 'Sin aula',
+          const aulaId = a.aula_id || a.estudiante?.aula_id
+          if (aulaId && !aulasMap.has(aulaId)) {
+            const aulaNombre = a.aula?.nombre || 'Sin aula'
+            const aulaOriginal = aulas.find(au => au.id === aulaId)
+            aulasMap.set(aulaId, {
+              id: aulaId,
+              nombre: aulaNombre,
               tutor: aulaOriginal?.tutor || null
             })
           }
@@ -648,7 +650,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         
         if (esMesAnterior) {
           // Para meses anteriores, filtrar asistencias que pertenecen a esta aula según aula_id de la asistencia
-          const asistenciasDeAula = asistenciasData?.filter((a: any) => a.aula_id === aula.id) || []
+          const asistenciasDeAula = asistenciasData?.filter((a: any) => (a.aula_id || a.estudiante?.aula_id) === aula.id) || []
           const estudiantesIdsEnAula = new Set(asistenciasDeAula.map((a: any) => a.estudiante_id))
           estudiantesDeAula = estudiantesData?.filter(e => estudiantesIdsEnAula.has(e.id)) || []
         } else {
@@ -658,8 +660,8 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         
         const totalEstudiantes = estudiantesDeAula.length
         
-        // IMPORTANTE: Usar aula_id de la asistencia para filtrar asistencias correctamente
-        const asistenciasDeAula = asistenciasData?.filter((a: any) => a.aula_id === aula.id) || []
+        // IMPORTANTE: Usar aula_id de la asistencia (con fallback al del estudiante) para filtrar correctamente
+        const asistenciasDeAula = asistenciasData?.filter((a: any) => (a.aula_id || a.estudiante?.aula_id) === aula.id) || []
         const asistenciasPorFecha: AsistenciaPorFecha = {}
         const diasIncompletosAula: Array<{ fecha: string; aulaId: string; tutorNombre: string; marcados: number; total: number }> = []
         const tutorNombre = aula.tutor?.nombre_completo || aula.tutor?.email || 'Sin tutor asignado'

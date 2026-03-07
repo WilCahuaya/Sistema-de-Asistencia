@@ -657,9 +657,10 @@ export function ReporteList() {
       // Para meses actuales/futuros: usar aula_id actual del estudiante
       if (esMesAnterior) {
         // Para meses anteriores, agrupar estudiantes por aula_id de sus asistencias
+        // IMPORTANTE: Usar aula_id de la asistencia, con fallback al aula_id del estudiante si falta
         asistenciasData?.forEach((asist: any) => {
-          if (asist.aula_id) {
-            const aulaId = asist.aula_id
+          const aulaId = asist.aula_id || asist.estudiante?.aula_id
+          if (aulaId) {
             const aulaNombre = asist.aula?.nombre || 'Sin aula'
             
             if (!aulasMap.has(aulaId)) {
@@ -714,10 +715,11 @@ export function ReporteList() {
         const asistenciasPorFecha = new Map<string, Set<string>>() // fecha -> Set<estudiante_id>
 
         // Agrupar TODAS las asistencias por fecha para esta aula
-        // IMPORTANTE: Usar aula_id de la asistencia para agrupar correctamente
+        // IMPORTANTE: Usar aula_id de la asistencia (con fallback al del estudiante) para agrupar correctamente
         asistenciasData?.forEach((asist: any) => {
+          const asistAulaId = asist.aula_id || asist.estudiante?.aula_id
           // Solo incluir asistencias que pertenecen a esta aula (según aula_id de la asistencia)
-          if (asist.aula_id === aulaId && aula.estudiantesIds.includes(asist.estudiante_id)) {
+          if (asistAulaId === aulaId && aula.estudiantesIds.includes(asist.estudiante_id)) {
             const fecha = asist.fecha
             
             // Contar TODAS las asistencias registradas
@@ -781,8 +783,8 @@ export function ReporteList() {
         const estudiante = estudiantesData?.find(e => e.id === asist.estudiante_id)
         if (!estudiante) return
 
-        // Usar aula_id de la asistencia para preservar el aula histórica
-        const aulaId = asist.aula_id || estudiante.aula_id // Fallback al aula actual si no hay aula_id en asistencia
+        // Usar aula_id de la asistencia (con fallback al del estudiante) para preservar el aula histórica
+        const aulaId = asist.aula_id || estudiante.aula_id
         const fecha = asist.fecha
         
         // Verificar que la fecha esté en el rango seleccionado
@@ -905,7 +907,8 @@ export function ReporteList() {
 
           // Agrupar asistencias por fecha para esta aula (cualquier estado: presente, falto, permiso)
           asistenciasData?.forEach((asist: any) => {
-            if (asist.aula_id === aulaId) {
+            const asistAulaId = asist.aula_id || asist.estudiante?.aula_id
+            if (asistAulaId === aulaId) {
               const fecha = asist.fecha
               // Verificar que la fecha esté en el rango
               const [year, month, day] = fecha.split('-').map(Number)
@@ -928,7 +931,8 @@ export function ReporteList() {
           // Obtener todas las fechas únicas con asistencias registradas para esta aula
           const fechasConAsistencias = new Set<string>()
           asistenciasData?.forEach((asist: any) => {
-            if (asist.aula_id === aulaId) {
+            const asistAulaId = asist.aula_id || asist.estudiante?.aula_id
+            if (asistAulaId === aulaId) {
               const fecha = asist.fecha
               // Verificar que la fecha esté en el rango seleccionado
               const [year, month, day] = fecha.split('-').map(Number)

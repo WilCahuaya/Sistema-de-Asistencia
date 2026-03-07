@@ -413,12 +413,14 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
 
       if (esMesAnterior) {
         // Para meses anteriores, obtener aulas únicas de las asistencias
+        // Usar aula_id de la asistencia con fallback al del estudiante
         const aulasMap = new Map<string, any>()
         todasAsistenciasData?.forEach((asist: any) => {
-          if (asist.aula_id && asist.aula && !aulasMap.has(asist.aula_id)) {
-            aulasMap.set(asist.aula_id, {
-              id: asist.aula_id,
-              nombre: asist.aula.nombre || 'Sin aula'
+          const aulaId = asist.aula_id || asist.estudiante?.aula_id
+          if (aulaId && !aulasMap.has(aulaId)) {
+            aulasMap.set(aulaId, {
+              id: aulaId,
+              nombre: asist.aula?.nombre || 'Sin aula'
             })
           }
         })
@@ -497,7 +499,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         
         if (esMesAnterior) {
           // Para meses anteriores, filtrar asistencias que pertenecen a esta aula según aula_id de la asistencia
-          const asistenciasDeAula = todasAsistenciasData?.filter((a: any) => a.aula_id === aula.id) || []
+          const asistenciasDeAula = todasAsistenciasData?.filter((a: any) => (a.aula_id || a.estudiante?.aula_id) === aula.id) || []
           const estudiantesIdsEnAula = new Set(asistenciasDeAula.map((a: any) => a.estudiante_id))
           estudiantesAula = estudiantesData?.filter(e => estudiantesIdsEnAula.has(e.id)) || []
         } else {
@@ -507,8 +509,8 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         
         const registrados = estudiantesAula.length
         
-        // IMPORTANTE: Usar aula_id de la asistencia para filtrar asistencias correctamente
-        const asistenciasDeAula = todasAsistenciasData?.filter((a: any) => a.aula_id === aula.id) || []
+        // IMPORTANTE: Usar aula_id de la asistencia (con fallback al del estudiante) para filtrar correctamente
+        const asistenciasDeAula = todasAsistenciasData?.filter((a: any) => (a.aula_id || a.estudiante?.aula_id) === aula.id) || []
 
         // Detectar días incompletos para esta aula usando aula_id de la asistencia
         const estudiantesAulaIds = new Set(estudiantesAula.map(e => e.id))
