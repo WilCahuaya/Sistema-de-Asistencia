@@ -484,6 +484,26 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       // Obtener asistencias "presente" para el cálculo del reporte
       const asistenciasPresente = todasAsistenciasData?.filter(a => a.estado === 'presente') || []
 
+      // Para meses anteriores: obtener períodos por aula para calcular el total correcto por fecha
+      // (estudiantes que debían estar en el aula en cada fecha específica, según estudiante_periodos)
+      const totalPorAulaYFecha = new Map<string, number>() // key: `${aulaId}|${fechaStr}` -> total
+      if (esMesAnterior && aulaIds.length > 0) {
+        const { data: periodosData } = await supabase
+          .from('estudiante_periodos')
+          .select('estudiante_id, aula_id, fecha_inicio, fecha_fin')
+          .in('aula_id', aulaIds)
+        const diasDelMesCount = new Date(selectedYear, selectedMonth + 1, 0).getDate()
+        for (let dia = 1; dia <= diasDelMesCount; dia++) {
+          const fechaStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
+          aulaIds.forEach(aulaId => {
+            const totalEnFecha = periodosData?.filter(
+              (p: any) => p.aula_id === aulaId && p.fecha_inicio <= fechaStr && p.fecha_fin >= fechaStr
+            ).length ?? 0
+            totalPorAulaYFecha.set(`${aulaId}|${fechaStr}`, totalEnFecha)
+          })
+        }
+      }
+
       // Calcular datos por nivel y detectar días incompletos
       const niveles: NivelData[] = []
       let totalAsistenPromed = 0
@@ -545,6 +565,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         // (presente, faltó o permiso). Si algún estudiante no tiene estado ese día, no cuenta.
         let diasDeClases = 0
         let totalAsistenciasPresente = 0
+        let oportunidadesAulaSum = 0 // Suma de registradosEnFecha por cada día completo (cuando usamos períodos)
         const todasAsistenciasPorEstudianteFecha: { [key: string]: string } = {}
         asistenciasDeAula.forEach((asistencia: any) => {
           if (estudiantesAulaIds.has(asistencia.estudiante_id)) {
@@ -565,10 +586,11 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
           const estudiantesConAsistencia = asistenciasPorFecha.get(fechaStr) || new Set()
           const marcados = estudiantesConAsistencia.size
           
-          // Para detectar días incompletos, usar TODOS los estudiantes del aula (como en la página de asistencias)
-          // NO filtrar por created_at porque los estudiantes pueden haber sido agregados después
-          // pero aún así deberían tener asistencia registrada para fechas anteriores
-          const registradosEnFecha = estudiantesAula.length
+          // Para meses anteriores: usar estudiante_periodos para el total correcto por fecha
+          // (solo estudiantes que debían estar en el aula ESA fecha). Si no hay períodos, fallback a estudiantesAula.length
+          const registradosEnFecha = esMesAnterior && totalPorAulaYFecha.size > 0
+            ? (totalPorAulaYFecha.get(`${aula.id}|${fechaStr}`) ?? estudiantesAula.length)
+            : estudiantesAula.length
           
           // Verificar qué estudiantes NO tienen asistencia registrada en esta fecha
           const estudiantesSinAsistencia: string[] = []
@@ -583,6 +605,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
           if (marcados === registradosEnFecha && registradosEnFecha > 0) {
             // Día completo: todos los estudiantes están marcados, contar como día de clases
             diasDeClases++
+            oportunidadesAulaSum += registradosEnFecha
             
             // Contar asistencias "presente" solo de este día completo
             estudiantesAula.forEach(estudiante => {
@@ -626,8 +649,10 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
           ? totalAsistenciasPresente / diasDeClases
           : 0
 
-        // Calcular porcentaje: (total de asistencias) / (días de clases × número de estudiantes) × 100
-        const oportunidadesAsistencia = diasDeClases * registrados
+        // Calcular porcentaje: con períodos usamos suma por día; si no, diasDeClases × registrados
+        const oportunidadesAsistencia = esMesAnterior && totalPorAulaYFecha.size > 0
+          ? oportunidadesAulaSum
+          : diasDeClases * registrados
         const porcentaje = oportunidadesAsistencia > 0 ? (totalAsistenciasPresente / oportunidadesAsistencia) * 100 : 0
 
         niveles.push({

@@ -642,6 +642,17 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         aulasParaProcesar = aulas
       }
 
+      // Para meses anteriores: cargar períodos para calcular el total correcto por (aula, fecha)
+      const aulaIdsParaPeriodos = aulasParaProcesar.map((a: any) => a.id)
+      let periodosData: Array<{ estudiante_id: string; aula_id: string; fecha_inicio: string; fecha_fin: string }> = []
+      if (esMesAnterior && aulaIdsParaPeriodos.length > 0) {
+        const { data: pd } = await supabase
+          .from('estudiante_periodos')
+          .select('estudiante_id, aula_id, fecha_inicio, fecha_fin')
+          .in('aula_id', aulaIdsParaPeriodos)
+        periodosData = pd || []
+      }
+
       aulasParaProcesar.forEach(aula => {
         // IMPORTANTE: Agrupar estudiantes por aula según el mes consultado
         // Para meses anteriores: usar aula_id de las asistencias (histórica)
@@ -711,10 +722,11 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
 
         // 3. Procesar todas las fechas del mes (no solo las que tienen asistencias)
         todasLasFechasDelMes.forEach(fecha => {
-          // Para detectar días incompletos, usar TODOS los estudiantes del aula (como en la página de asistencias)
-          // NO filtrar por created_at porque los estudiantes pueden haber sido agregados después
-          // pero aún así deberían tener asistencia registrada para fechas anteriores
-          const totalEstudiantesEnFecha = estudiantesDeAula.length
+          // Para meses anteriores: usar estudiante_periodos para el total correcto por fecha
+          // (solo estudiantes que debían estar en el aula ESA fecha)
+          const totalEstudiantesEnFecha = esMesAnterior && periodosData.length > 0
+            ? periodosData.filter((p: any) => p.aula_id === aula.id && p.fecha_inicio <= fecha && p.fecha_fin >= fecha).length
+            : estudiantesDeAula.length
           
           // Contar estudiantes que tienen asistencia registrada en esta fecha
           const marcadosEnFecha = estudiantesDeAula.filter(e => {

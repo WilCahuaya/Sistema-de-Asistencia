@@ -709,6 +709,17 @@ export function ReporteList() {
         }))
       })
 
+      // Para meses anteriores: cargar períodos para el total correcto por (aula, fecha)
+      const aulaIdsReporte = Array.from(aulasMap.keys())
+      let periodosReporteList: Array<{ estudiante_id: string; aula_id: string; fecha_inicio: string; fecha_fin: string }> = []
+      if (esMesAnterior && aulaIdsReporte.length > 0) {
+        const { data: pd } = await supabase
+          .from('estudiante_periodos')
+          .select('estudiante_id, aula_id, fecha_inicio, fecha_fin')
+          .in('aula_id', aulaIdsReporte)
+        periodosReporteList = pd || []
+      }
+
       // Identificar días completos (días donde todos los estudiantes del aula están marcados)
       aulasMap.forEach((aula, aulaId) => {
         const totalEstudiantes = aula.estudiantesIds.length
@@ -749,11 +760,10 @@ export function ReporteList() {
           const fechaFinDate = new Date(yearFin, monthFin - 1, dayFin)
           const esDelRango = fechaDate >= fechaInicioDate && fechaDate <= fechaFinDate
           
-          // IMPORTANTE: Para detectar días completos, usar TODOS los estudiantes del aula
-          // NO filtrar por created_at porque los estudiantes pueden haber sido agregados después
-          // pero aún así deberían tener asistencia registrada para fechas anteriores
-          // Esto es consistente con la lógica de detección de días incompletos
-          const totalEstudiantesEnFecha = aula.estudiantesIds.length
+          // Para meses anteriores: usar estudiante_periodos para el total correcto por fecha
+          const totalEstudiantesEnFecha = esMesAnterior && periodosReporteList.length > 0
+            ? periodosReporteList.filter((p: any) => p.aula_id === aulaId && p.fecha_inicio <= fecha && p.fecha_fin >= fecha).length
+            : aula.estudiantesIds.length
           
           // Contar estudiantes marcados que pertenecen a esta aula
           const estudiantesAulaSet = new Set(aula.estudiantesIds)
@@ -978,9 +988,11 @@ export function ReporteList() {
             const estudiantesMarcados = asistenciasPorFecha.get(fecha) || new Set<string>()
             console.log(`   📊 Estudiantes marcados en asistenciasPorFecha: ${estudiantesMarcados.size}`)
 
-            // Total = estudiantes en el aula (según aulasMap del reporte)
+            // Total = para meses anteriores usar estudiante_periodos; si no, estudiantes en el aula
             const estudiantesAulaSet = new Set(aula.estudiantesIds)
-            const totalEstudiantesEnFecha = aula.estudiantesIds.length
+            const totalEstudiantesEnFecha = esMesAnterior && periodosReporteList.length > 0
+              ? periodosReporteList.filter((p: any) => p.aula_id === aulaId && p.fecha_inicio <= fecha && p.fecha_fin >= fecha).length
+              : aula.estudiantesIds.length
 
             // Marcados = estudiantes del aula que tienen asistencia en esta fecha
             const marcados = Array.from(estudiantesMarcados).filter(estId =>

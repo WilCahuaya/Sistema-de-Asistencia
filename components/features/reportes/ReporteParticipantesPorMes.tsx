@@ -341,6 +341,17 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
             aulasParaMes = aulasData || []
           }
 
+          // Para meses anteriores: cargar períodos para el total correcto por (aula, fecha)
+          let periodosFCP: Array<{ estudiante_id: string; aula_id: string; fecha_inicio: string; fecha_fin: string }> = []
+          if (esMesAnterior && aulasParaMes.length > 0) {
+            const aulaIdsMes = aulasParaMes.map((a: any) => a.id)
+            const { data: pd } = await supabase
+              .from('estudiante_periodos')
+              .select('estudiante_id, aula_id, fecha_inicio, fecha_fin')
+              .in('aula_id', aulaIdsMes)
+            periodosFCP = pd || []
+          }
+
           // Obtener estudiantes según el mes consultado
           let estudiantesParaMes: any[] = []
 
@@ -415,6 +426,7 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
             // Días completos: solo cuenta un día cuando TODOS los estudiantes tienen registro
             // (presente, faltó o permiso). Si algún estudiante no tiene estado ese día, no cuenta.
             let diasDeClases = 0
+            let oportunidadesAula = 0 // Suma de registradosEnFecha por cada día completo
             const fechasDiasCompletos = new Set<string>()
             const diasDelMes = new Date(selectedYear, mes + 1, 0).getDate()
 
@@ -423,11 +435,17 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
               const estudiantesConAsistencia = asistenciasPorFecha.get(fechaStr) || new Set()
               const marcados = estudiantesConAsistencia.size // Estudiantes con estado (presente/faltó/permiso)
 
+              // Para meses anteriores: usar períodos para el total correcto por fecha
+              const registradosEnFecha = esMesAnterior && periodosFCP.length > 0
+                ? periodosFCP.filter((p: any) => p.aula_id === aula.id && p.fecha_inicio <= fechaStr && p.fecha_fin >= fechaStr).length
+                : registrados
+
               // Solo día completo: todos tienen registro; si falta alguno, no cuenta
-              if (marcados === registrados && registrados > 0) {
+              if (marcados === registradosEnFecha && registradosEnFecha > 0) {
                 diasDeClases++
+                oportunidadesAula += registradosEnFecha
                 fechasDiasCompletos.add(fechaStr)
-              } else if (marcados > 0 && marcados < registrados && registrados > 0) {
+              } else if (marcados > 0 && marcados < registradosEnFecha && registradosEnFecha > 0) {
                 const fechaDate = new Date(selectedYear, mes, dia)
                 diasIncompletosGlobales.push({
                   fecha: fechaStr,
@@ -435,7 +453,7 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
                   nivel: aula.nombre,
                   aulaId: aula.id,
                   marcados,
-                  total: registrados,
+                  total: registradosEnFecha,
                 })
               }
             }
@@ -454,8 +472,10 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
             }) || []
             const asistenPromed = asistenciasAula.length
 
-            // Calcular oportunidades de asistencia para esta aula (igual que ReporteMensual)
-            const oportunidadesAsistencia = diasDeClases * registrados
+            // Calcular oportunidades: con períodos usamos la suma por día; si no, diasDeClases * registrados
+            const oportunidadesAsistencia = esMesAnterior && periodosFCP.length > 0
+              ? oportunidadesAula
+              : diasDeClases * registrados
             
             // Acumular totales
             totalAsistenPromed += asistenPromed
