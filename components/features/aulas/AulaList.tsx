@@ -45,6 +45,7 @@ interface TutorInfo {
 interface Aula {
   id: string
   nombre: string
+  codigo_aula?: string
   descripcion?: string
   activa: boolean
   fcp_id: string
@@ -624,6 +625,11 @@ export function AulaList() {
                         <div className="flex items-start justify-between gap-2">
                           <CardTitle className={`flex-1 ${!aula.activa ? 'text-muted-foreground' : ''}`}>
                             {aula.nombre}
+                            {(aula.tutor?.displayName || aula.tutor?.nombre_completo || aula.codigo_aula) && (
+                              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                                | {aula.tutor?.displayName || aula.tutor?.nombre_completo || 'Sin tutor'} | {aula.codigo_aula ?? '—'}
+                              </span>
+                            )}
                             {!aula.activa && (
                               <span className="ml-2 text-xs font-normal text-amber-600 dark:text-amber-400">
                                 (Inactiva)
@@ -805,6 +811,7 @@ export function AulaList() {
             nombre: editingAula.nombre,
             descripcion: editingAula.descripcion || '',
             activa: editingAula.activa,
+            codigo_aula: editingAula.codigo_aula,
           }}
         />
       )}

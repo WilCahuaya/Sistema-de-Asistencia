@@ -36,7 +36,7 @@ interface MoverEstudianteMesDialogProps {
   fcpId: string
   aulaOrigenId: string
   aulaOrigenNombre: string
-  aulas: Array<{ id: string; nombre: string; tutor_display?: string | null }>
+  aulas: Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null }>
   firstDay: string
   lastDay: string
   mesLabel: string
@@ -204,8 +204,7 @@ export function MoverEstudianteMesDialog({
               <SelectContent>
                 {aulasDestino.map((a) => (
                   <SelectItem key={a.id} value={a.id}>
-                    {a.nombre}
-                    {a.tutor_display ? ` — ${a.tutor_display}` : ''}
+                    {a.nombre} | {a.tutor_display || 'Sin tutor'} | {a.codigo_aula ?? '—'}
                   </SelectItem>
                 ))}
               </SelectContent>

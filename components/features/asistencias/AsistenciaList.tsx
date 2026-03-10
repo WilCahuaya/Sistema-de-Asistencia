@@ -67,7 +67,7 @@ export function AsistenciaList() {
   const [selectedDate, setSelectedDate] = useState<string>(() => getTodayInAppTimezone())
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string }>>([])
   const [loadingFCPs, setLoadingFCPs] = useState(true)
-  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string; tutor_display?: string | null }>>([])
+  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null }>>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [isMobile, setIsMobile] = useState(false)
@@ -168,7 +168,7 @@ export function AsistenciaList() {
       const supabase = createClient()
       const { data, error } = await supabase
         .from('aulas')
-        .select('id, nombre')
+        .select('id, nombre, codigo_aula')
         .eq('fcp_id', selectedFCP)
         .eq('activa', true)
         .order('nombre', { ascending: true })
@@ -397,7 +397,7 @@ export function AsistenciaList() {
                   {selectedAula && selectedAula !== '__all__' ? (() => {
                     const aula = aulas.find(a => a.id === selectedAula)
                     if (!aula) return 'Todas las aulas'
-                    return aula.tutor_display ? `${aula.nombre} — ${aula.tutor_display}` : aula.nombre
+                    return `${aula.nombre} | ${aula.tutor_display || 'Sin tutor'} | ${aula.codigo_aula ?? '—'}`
                   })() : 'Todas las aulas'}
                 </SelectValue>
               </SelectTrigger>
@@ -405,8 +405,7 @@ export function AsistenciaList() {
                 <SelectItem value="__all__">Todas las aulas</SelectItem>
             {aulas.map((aula) => (
                 <SelectItem key={aula.id} value={aula.id}>
-                  {aula.nombre}
-                  {aula.tutor_display ? ` — ${aula.tutor_display}` : ''}
+                  {aula.nombre} | {aula.tutor_display || 'Sin tutor'} | {aula.codigo_aula ?? '—'}
                 </SelectItem>
             ))}
             </SelectContent>

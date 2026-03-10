@@ -38,7 +38,7 @@ interface EstudianteMovimientoDialogProps {
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
   estudiante: Estudiante | null
-  aulas: Array<{ id: string; nombre: string; tutor_display?: string | null }>
+  aulas: Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null }>
 }
 
 export function EstudianteMovimientoDialog({
@@ -203,8 +203,7 @@ export function EstudianteMovimientoDialog({
                 <SelectContent>
                   {aulasDisponibles.map((aula) => (
                     <SelectItem key={aula.id} value={aula.id}>
-                      {aula.nombre}
-                      {aula.tutor_display ? ` — ${aula.tutor_display}` : ''}
+                      {aula.nombre} | {aula.tutor_display || 'Sin tutor'} | {aula.codigo_aula ?? '—'}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -35,7 +35,7 @@ interface EstudianteDialogProps {
   onSuccess: () => void
   fcpId: string
   aulaId?: string
-  aulas: Array<{ id: string; nombre: string; tutor_display?: string | null }>
+  aulas: Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null }>
 }
 
 export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId, aulas }: EstudianteDialogProps) {
@@ -166,15 +166,14 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId,
                     {selectedAulaId ? (() => {
                       const aula = aulas.find(a => a.id === selectedAulaId)
                       if (!aula) return 'Selecciona un aula'
-                      return aula.tutor_display ? `${aula.nombre} — ${aula.tutor_display}` : aula.nombre
+                      return `${aula.nombre} | ${aula.tutor_display || 'Sin tutor'} | ${aula.codigo_aula ?? '—'}`
                     })() : 'Selecciona un aula'}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {aulas.map((aula) => (
                     <SelectItem key={aula.id} value={aula.id}>
-                      {aula.nombre}
-                      {aula.tutor_display ? ` — ${aula.tutor_display}` : ''}
+                      {aula.nombre} | {aula.tutor_display || 'Sin tutor'} | {aula.codigo_aula ?? '—'}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -27,6 +27,7 @@ interface AulaFormData {
   nombre: string
   descripcion?: string
   activa?: boolean
+  codigo_aula?: string
 }
 
 interface AulaEditDialogProps {
@@ -125,6 +126,18 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, initialD
             </div>
           )}
           <div className="grid gap-4 py-4">
+            {initialData.codigo_aula && (
+              <div className="grid gap-2">
+                <Label>Código de aula</Label>
+                <Input
+                  id="codigo_aula"
+                  value={initialData.codigo_aula}
+                  readOnly
+                  disabled
+                  className="bg-muted font-mono"
+                />
+              </div>
+            )}
             <div className="grid gap-2">
               <Label htmlFor="nombre">Nombre *</Label>
               <Input

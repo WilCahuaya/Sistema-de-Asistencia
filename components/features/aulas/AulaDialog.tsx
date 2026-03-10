@@ -27,7 +27,7 @@ interface AulaDialogProps {
   onSuccess: () => void
   fcpId: string
   /** Si se provee, se llama con el aula creada (útil para asignarla de inmediato desde otro diálogo) */
-  onAulaCreated?: (aula: { id: string; nombre: string }) => void
+  onAulaCreated?: (aula: { id: string; nombre: string; codigo_aula: string }) => void
 }
 
 export function AulaDialog({ open, onOpenChange, onSuccess, fcpId, onAulaCreated }: AulaDialogProps) {
@@ -61,7 +61,7 @@ export function AulaDialog({ open, onOpenChange, onSuccess, fcpId, onAulaCreated
           activa: true,
           created_by: user.id,
         })
-        .select('id, nombre')
+        .select('id, nombre, codigo_aula')
         .single()
 
       if (error) throw error

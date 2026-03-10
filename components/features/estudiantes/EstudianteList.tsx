@@ -79,7 +79,7 @@ export function EstudianteList() {
   const [selectedAula, setSelectedAula] = useState<string | null>(null)
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
   const [loadingFCPs, setLoadingFCPs] = useState(true)
-  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string; tutor_display?: string | null }>>([])
+  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null }>>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [includeInactivos, setIncludeInactivos] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
@@ -402,7 +402,7 @@ export function EstudianteList() {
             .select(`
               aula_id,
               fcp_id,
-              aula:aulas!inner(id, nombre, activa, fcp_id)
+              aula:aulas!inner(id, nombre, activa, fcp_id, codigo_aula)
             `)
             .in('fcp_miembro_id', tutorMiembroIds)
             .eq('activo', true)
@@ -467,7 +467,7 @@ export function EstudianteList() {
         
         const { data: aulasData, error: aulasError } = await supabase
           .from('aulas')
-          .select('id, nombre')
+          .select('id, nombre, codigo_aula')
           .eq('fcp_id', fcpIdToUse)
           .eq('activa', true)
           .order('nombre', { ascending: true })
@@ -940,7 +940,9 @@ export function EstudianteList() {
                   {selectedAula && selectedAula !== '__all__' ? (() => {
                     const aula = aulas.find(a => a.id === selectedAula)
                     if (!aula) return 'Todas las aulas'
-                    return aula.tutor_display ? `${aula.nombre} — ${aula.tutor_display}` : aula.nombre
+                    const tutor = aula.tutor_display || 'Sin tutor'
+                    const cod = aula.codigo_aula ?? ''
+                    return cod ? `${aula.nombre} | ${tutor} | ${cod}` : (aula.tutor_display ? `${aula.nombre} | ${tutor}` : aula.nombre)
                   })() : 'Todas las aulas'}
                 </SelectValue>
               </SelectTrigger>
@@ -948,8 +950,7 @@ export function EstudianteList() {
                 <SelectItem value="__all__">Todas las aulas</SelectItem>
               {aulas.map((aula) => (
                   <SelectItem key={aula.id} value={aula.id}>
-                    {aula.nombre}
-                    {aula.tutor_display ? ` — ${aula.tutor_display}` : ''}
+                    {aula.nombre} | {aula.tutor_display || 'Sin tutor'} | {aula.codigo_aula ?? '—'}
                   </SelectItem>
               ))}
               </SelectContent>
