@@ -203,7 +203,8 @@ export function EstudianteMovimientoDialog({
                 <SelectContent>
                   {aulasDisponibles.map((aula) => (
                     <SelectItem key={aula.id} value={aula.id}>
-                      {aula.nombre} | {aula.tutor_display || 'Sin tutor'} | {aula.codigo_aula ?? '—'}
+                      {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
+                      {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>

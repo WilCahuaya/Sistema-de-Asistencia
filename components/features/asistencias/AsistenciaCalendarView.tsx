@@ -1568,7 +1568,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                     (() => {
                       const aula = aulas.find(a => a.id === selectedAula)
                       if (!aula) return 'Selecciona un aula'
-                      return `${aula.nombre} | ${aula.tutor_display || 'Sin tutor'} | ${aula.codigo_aula ?? '—'}`
+                      const base = `${aula.nombre} | ${aula.tutor_display || 'Sin tutor'}`
+                      return aula.codigo_aula ? `${base} | ${aula.codigo_aula}` : base
                     })()
                   ) : (
                     'Selecciona un aula'
@@ -1578,7 +1579,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
               <SelectContent>
                 {aulas.map((aula) => (
                   <SelectItem key={aula.id} value={aula.id}>
-                    {aula.nombre} | {aula.tutor_display || 'Sin tutor'} | {aula.codigo_aula ?? '—'}
+                    {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
+                    {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1646,7 +1648,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                     (() => {
                       const aula = aulas.find(a => a.id === selectedAula)
                       if (!aula) return 'Seleccionar aula'
-                      return `${aula.nombre} | ${aula.tutor_display || 'Sin tutor'} | ${aula.codigo_aula ?? '—'}`
+                      const base = `${aula.nombre} | ${aula.tutor_display || 'Sin tutor'}`
+                      return aula.codigo_aula ? `${base} | ${aula.codigo_aula}` : base
                     })()
                   ) : (
                     'Seleccionar aula'
@@ -1656,7 +1659,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
               <SelectContent>
                 {aulas.map((aula) => (
                   <SelectItem key={aula.id} value={aula.id}>
-                    {aula.nombre} | {aula.tutor_display || 'Sin tutor'} | {aula.codigo_aula ?? '—'}
+                    {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
+                    {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
                   </SelectItem>
                 ))}
               </SelectContent>

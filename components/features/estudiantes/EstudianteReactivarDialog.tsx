@@ -135,14 +135,16 @@ export function EstudianteReactivarDialog({
                   {selectedAulaId ? (() => {
                     const aula = aulas.find(a => a.id === selectedAulaId)
                     if (!aula) return 'Selecciona salón'
-                    return `${aula.nombre} | ${aula.tutor_display || 'Sin tutor'} | ${aula.codigo_aula ?? '—'}`
+                    const base = `${aula.nombre} | ${aula.tutor_display || 'Sin tutor'}`
+                    return aula.codigo_aula ? `${base} | ${aula.codigo_aula}` : base
                   })() : 'Selecciona salón'}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {aulas.map((aula) => (
                   <SelectItem key={aula.id} value={aula.id}>
-                    {aula.nombre} | {aula.tutor_display || 'Sin tutor'} | {aula.codigo_aula ?? '—'}
+                    {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
+                    {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
                   </SelectItem>
                 ))}
               </SelectContent>

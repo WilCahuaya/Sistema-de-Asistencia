@@ -397,7 +397,8 @@ export function AsistenciaList() {
                   {selectedAula && selectedAula !== '__all__' ? (() => {
                     const aula = aulas.find(a => a.id === selectedAula)
                     if (!aula) return 'Todas las aulas'
-                    return `${aula.nombre} | ${aula.tutor_display || 'Sin tutor'} | ${aula.codigo_aula ?? '—'}`
+                    const base = `${aula.nombre} | ${aula.tutor_display || 'Sin tutor'}`
+                    return aula.codigo_aula ? `${base} | ${aula.codigo_aula}` : base
                   })() : 'Todas las aulas'}
                 </SelectValue>
               </SelectTrigger>
@@ -405,7 +406,8 @@ export function AsistenciaList() {
                 <SelectItem value="__all__">Todas las aulas</SelectItem>
             {aulas.map((aula) => (
                 <SelectItem key={aula.id} value={aula.id}>
-                  {aula.nombre} | {aula.tutor_display || 'Sin tutor'} | {aula.codigo_aula ?? '—'}
+                  {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
+                  {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
                 </SelectItem>
             ))}
             </SelectContent>

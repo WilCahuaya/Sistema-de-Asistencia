@@ -204,7 +204,8 @@ export function MoverEstudianteMesDialog({
               <SelectContent>
                 {aulasDestino.map((a) => (
                   <SelectItem key={a.id} value={a.id}>
-                    {a.nombre} | {a.tutor_display || 'Sin tutor'} | {a.codigo_aula ?? '—'}
+                    {a.nombre} | {a.tutor_display || 'Sin tutor'}
+                    {a.codigo_aula ? ` | ${a.codigo_aula}` : ''}
                   </SelectItem>
                 ))}
               </SelectContent>

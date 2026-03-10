@@ -941,8 +941,9 @@ export function EstudianteList() {
                     const aula = aulas.find(a => a.id === selectedAula)
                     if (!aula) return 'Todas las aulas'
                     const tutor = aula.tutor_display || 'Sin tutor'
-                    const cod = aula.codigo_aula ?? ''
-                    return cod ? `${aula.nombre} | ${tutor} | ${cod}` : (aula.tutor_display ? `${aula.nombre} | ${tutor}` : aula.nombre)
+                    return aula.codigo_aula
+                      ? `${aula.nombre} | ${tutor} | ${aula.codigo_aula}`
+                      : `${aula.nombre} | ${tutor}`
                   })() : 'Todas las aulas'}
                 </SelectValue>
               </SelectTrigger>
@@ -950,7 +951,8 @@ export function EstudianteList() {
                 <SelectItem value="__all__">Todas las aulas</SelectItem>
               {aulas.map((aula) => (
                   <SelectItem key={aula.id} value={aula.id}>
-                    {aula.nombre} | {aula.tutor_display || 'Sin tutor'} | {aula.codigo_aula ?? '—'}
+                    {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
+                    {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
                   </SelectItem>
               ))}
               </SelectContent>

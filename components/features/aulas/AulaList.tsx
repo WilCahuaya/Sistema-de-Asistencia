@@ -627,7 +627,8 @@ export function AulaList() {
                             {aula.nombre}
                             {(aula.tutor?.displayName || aula.tutor?.nombre_completo || aula.codigo_aula) && (
                               <span className="ml-2 text-sm font-normal text-muted-foreground">
-                                | {aula.tutor?.displayName || aula.tutor?.nombre_completo || 'Sin tutor'} | {aula.codigo_aula ?? '—'}
+                                | {aula.tutor?.displayName || aula.tutor?.nombre_completo || 'Sin tutor'}
+                                {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
                               </span>
                             )}
                             {!aula.activa && (
