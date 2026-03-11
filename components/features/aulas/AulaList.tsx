@@ -675,16 +675,6 @@ export function AulaList() {
                               </p>
                             )}
                             <div className="space-y-1">
-                              <p className="text-muted-foreground">
-                                <span className="font-medium">Tutor encargado:</span>{' '}
-                                {aula.tutor ? (
-                                  <span>{aula.tutor.displayName || aula.tutor.nombre_completo || aula.tutor.email}</span>
-                                ) : (
-                                  <span className="text-orange-600 dark:text-orange-400 italic">
-                                    Falta agregar tutor
-                                  </span>
-                                )}
-                              </p>
                               <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
                                 <Button
                                   type="button"
