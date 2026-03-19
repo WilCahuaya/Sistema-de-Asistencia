@@ -1,7 +1,5 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { checkUserAccess } from '@/lib/utils/check-user-access'
-import { getUserRole } from '@/lib/utils/get-user-role'
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -52,37 +50,13 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Si el usuario está autenticado y está en /login, verificar acceso y redirigir
-  // EXCEPTO si hay un parámetro logout=true (indicando que estamos cerrando sesión)
+  // Usuario en /login: redirigir a seleccionar-rol (sin checkUserAccess para evitar timeout 504)
+  // seleccionar-rol verificará roles y redirigirá a dashboard o pendiente
   const isLogout = request.nextUrl.searchParams.get('logout') === 'true'
   if (user && request.nextUrl.pathname.startsWith('/login') && !isLogout) {
-    // Verificar si el usuario tiene acceso (tiene al menos un rol asignado)
-    // Pasar user.id para evitar llamar getUser() de nuevo
-    const accessCheck = await checkUserAccess(user.id)
     const url = request.nextUrl.clone()
-    
-    if (accessCheck.hasAccess) {
-      // Si tiene múltiples roles, redirigir a selección; si uno solo, al dashboard
-      url.pathname = accessCheck.roleCount > 1 ? '/seleccionar-rol' : '/dashboard'
-    } else {
-      // Sin rol → /pendiente
-      url.pathname = '/pendiente'
-    }
+    url.pathname = '/seleccionar-rol'
     return NextResponse.redirect(url)
-  }
-
-  // Si el usuario está autenticado y accede a rutas del dashboard, verificar que tenga roles
-  // EXCEPTO la ruta /pendiente que debe ser accesible
-  const isDashboardRoute = request.nextUrl.pathname.startsWith('/dashboard')
-  const isPendienteRoute = request.nextUrl.pathname.startsWith('/pendiente')
-  if (user && isDashboardRoute && !isPendienteRoute) {
-    // Pasar user.id para evitar llamar getUser() de nuevo
-    const accessCheck = await checkUserAccess(user.id)
-    if (!accessCheck.hasAccess) {
-      const url = request.nextUrl.clone()
-      url.pathname = '/pendiente'
-      return NextResponse.redirect(url)
-    }
   }
 
   // IMPORTANT: You *must* return the supabaseResponse object as it is. If you're

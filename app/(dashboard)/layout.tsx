@@ -47,6 +47,10 @@ export default async function DashboardLayout({
 
   const hasAnyRole = (rolesData?.length ?? 0) > 0 || isFacilitator
 
+  if (user && !hasAnyRole && !hasError) {
+    redirect('/pendiente')
+  }
+
   if (user && hasAnyRole) {
     try {
       const selectedRoleInfo = await getSelectedRoleOrHighest(user.id)
