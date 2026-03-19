@@ -6,13 +6,9 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    /*
-     * Excluir: _next/static, _next/image, favicon, api, auth/callback, imágenes, y raíz /
-     * La raíz / se excluye para evitar timeout 504: la página Home hace el redirect
-     */
-    '/((?!_next/static|_next/image|favicon.ico|api|auth/callback|$|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
+  // Solo ejecutar middleware en auth/callback (OAuth). Evita 504 en resto de rutas.
+  // Las páginas manejan auth con createClient; la sesión se lee de cookies.
+  matcher: ['/auth/callback'],
 }
 
 
