@@ -20,7 +20,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '@/components/ui/pagination'
-import { Plus, GraduationCap, Users, Edit, Building2, Eye, EyeOff, Search, ClipboardCheck, Trash2 } from 'lucide-react'
+import { Plus, GraduationCap, Users, Edit, Building2, Eye, EyeOff, Search, ClipboardCheck, Trash2, XCircle } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -69,6 +69,8 @@ export function AulaList() {
   const [editingAula, setEditingAula] = useState<Aula | null>(null)
   const [vaciarSalonAula, setVaciarSalonAula] = useState<Aula | null>(null)
   const [vaciarLoading, setVaciarLoading] = useState(false)
+  const [eliminarAula, setEliminarAula] = useState<Aula | null>(null)
+  const [eliminarLoading, setEliminarLoading] = useState(false)
   const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
   const [loadingFCPs, setLoadingFCPs] = useState(true)
@@ -699,7 +701,7 @@ export function AulaList() {
                                 {aula.activa ? 'Activa' : 'Inactiva'}
                               </span>
                               <RoleGuard fcpId={aula.fcp_id || selectedFCP} allowedRoles={['director', 'secretario']}>
-                                <div className="flex items-center gap-1">
+                                <div className="flex flex-wrap items-center gap-1">
                                   <Button
                                     type="button"
                                     variant="outline"
@@ -727,6 +729,20 @@ export function AulaList() {
                                   >
                                     <Trash2 className="mr-1 h-3 w-3" />
                                     Vaciar salón
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setEliminarAula(aula)
+                                    }}
+                                    className="text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                                    title="Eliminar aula permanentemente (debe estar vacía)"
+                                  >
+                                    <XCircle className="mr-1 h-3 w-3" />
+                                    Eliminar aula
                                   </Button>
                                 </div>
                               </RoleGuard>
@@ -843,6 +859,44 @@ export function AulaList() {
             toast.error('Error', e instanceof Error ? e.message : 'No se pudo vaciar el salón.')
           } finally {
             setVaciarLoading(false)
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={!!eliminarAula}
+        onOpenChange={(open) => {
+          if (!open) setEliminarAula(null)
+        }}
+        title="Eliminar aula"
+        message={
+          eliminarAula
+            ? `Se eliminará permanentemente el aula "${eliminarAula.nombre}". El aula debe estar vacía (sin estudiantes). Esta acción no se puede deshacer. ¿Continuar?`
+            : ''
+        }
+        confirmLabel="Eliminar aula"
+        cancelLabel="Cancelar"
+        variant="destructive"
+        loading={eliminarLoading}
+        onConfirm={async () => {
+          if (!eliminarAula) return
+          setEliminarLoading(true)
+          try {
+            const res = await fetch(`/api/aulas/${eliminarAula.id}`, {
+              method: 'DELETE',
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) {
+              toast.error('Error al eliminar aula', data.error || res.statusText)
+              return
+            }
+            toast.success('Aula eliminada', data.message || 'El aula se eliminó correctamente.')
+            loadAulas()
+            setEliminarAula(null)
+          } catch (e) {
+            toast.error('Error', e instanceof Error ? e.message : 'No se pudo eliminar el aula.')
+          } finally {
+            setEliminarLoading(false)
           }
         }}
       />
