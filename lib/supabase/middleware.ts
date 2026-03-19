@@ -57,6 +57,7 @@ export async function updateSession(request: NextRequest) {
   const isLogout = request.nextUrl.searchParams.get('logout') === 'true'
   if (user && request.nextUrl.pathname.startsWith('/login') && !isLogout) {
     // Verificar si el usuario tiene acceso (tiene al menos un rol asignado)
+    // Pasar user.id para evitar llamar getUser() de nuevo
     const accessCheck = await checkUserAccess(user.id)
     const url = request.nextUrl.clone()
     
@@ -75,6 +76,7 @@ export async function updateSession(request: NextRequest) {
   const isDashboardRoute = request.nextUrl.pathname.startsWith('/dashboard')
   const isPendienteRoute = request.nextUrl.pathname.startsWith('/pendiente')
   if (user && isDashboardRoute && !isPendienteRoute) {
+    // Pasar user.id para evitar llamar getUser() de nuevo
     const accessCheck = await checkUserAccess(user.id)
     if (!accessCheck.hasAccess) {
       const url = request.nextUrl.clone()

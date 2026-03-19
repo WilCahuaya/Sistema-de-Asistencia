@@ -19,19 +19,31 @@ export interface UserAccessCheck {
 export async function checkUserAccess(userId?: string): Promise<UserAccessCheck> {
   try {
     const supabase = await createClient()
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-
-    if (userError || !user) {
-      console.error('Error getting authenticated user:', userError)
-      return { hasAccess: false, roleCount: 0 }
+    // Si ya tenemos userId (desde middleware), no llamar getUser() de nuevo
+    let actualUserId = userId
+    if (!actualUserId) {
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError || !user) {
+        console.error('Error getting authenticated user:', userError)
+        return { hasAccess: false, roleCount: 0 }
+      }
+      actualUserId = user.id
     }
 
-    const actualUserId = userId || user.id
     let roleCount = 0
 
-    // Usar RPC es_facilitador (SECURITY DEFINER) para evitar problemas de RLS/cookies en callback
-    const { data: isFacilitador } = await supabase.rpc('es_facilitador', { p_usuario_id: actualUserId })
+    // Ejecutar RPC y consulta de miembros en paralelo para reducir latencia
+    const [facilitadorResult, miembrosResult] = await Promise.all([
+      supabase.rpc('es_facilitador', { p_usuario_id: actualUserId }),
+      supabase
+        .from('fcp_miembros')
+        .select('id, activo, rol, fcp_id')
+        .eq('usuario_id', actualUserId)
+        .eq('activo', true)
+        .not('fcp_id', 'is', null),
+    ])
 
+    const isFacilitador = facilitadorResult.data
     if (isFacilitador) {
       const { count } = await supabase
         .from('fcps')
@@ -42,14 +54,9 @@ export async function checkUserAccess(userId?: string): Promise<UserAccessCheck>
       if (roleCount === 0) roleCount = 1
     }
 
-    const { data: miembros, error } = await supabase
-      .from('fcp_miembros')
-      .select('id, activo, rol, fcp_id')
-      .eq('usuario_id', actualUserId)
-      .eq('activo', true)
-      .not('fcp_id', 'is', null)
-
-    if (!error && miembros) roleCount += miembros.length
+    if (!miembrosResult.error && miembrosResult.data) {
+      roleCount += miembrosResult.data.length
+    }
 
     const hasAccess = roleCount > 0
     return { hasAccess, roleCount }
