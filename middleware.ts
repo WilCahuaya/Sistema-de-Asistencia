@@ -8,14 +8,10 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - api routes
-     * - auth callback (needs to process OAuth before middleware)
+     * Excluir: _next/static, _next/image, favicon, api, auth/callback, imágenes, y raíz /
+     * La raíz / se excluye para evitar timeout 504: la página Home hace el redirect
      */
-    '/((?!_next/static|_next/image|favicon.ico|api|auth/callback|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api|auth/callback|$|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
 
