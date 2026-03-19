@@ -20,7 +20,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '@/components/ui/pagination'
-import { Plus, GraduationCap, Users, Edit, Building2, Eye, EyeOff, Search, ClipboardCheck, Trash2, XCircle } from 'lucide-react'
+import { Plus, GraduationCap, Edit, Building2, Eye, EyeOff, Search, ClipboardCheck, Trash2, XCircle, MoreVertical } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -28,6 +28,13 @@ import { AulaDialog } from './AulaDialog'
 import { AulaTutorDialog } from './AulaTutorDialog'
 import { AulaEditDialog } from './AulaEditDialog'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useRouter } from 'next/navigation'
 import { useUserRole } from '@/hooks/useUserRole'
 import { toast } from '@/lib/toast'
@@ -623,132 +630,143 @@ export function AulaList() {
                     }}
                   >
                     <div className={isMobile ? 'cursor-pointer' : ''}>
-                      <CardHeader>
-                        <div className="flex items-start justify-between gap-2">
-                          <CardTitle className={`flex-1 ${!aula.activa ? 'text-muted-foreground' : ''}`}>
-                            {aula.nombre}
-                            {(aula.tutor?.displayName || aula.tutor?.nombre_completo || aula.codigo_aula) && (
-                              <span className="ml-2 text-sm font-normal text-muted-foreground">
-                                | {aula.tutor?.displayName || aula.tutor?.nombre_completo || 'Sin tutor'}
-                                {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
-                              </span>
-                            )}
-                            {!aula.activa && (
-                              <span className="ml-2 text-xs font-normal text-amber-600 dark:text-amber-400">
-                                (Inactiva)
-                              </span>
-                            )}
-                          </CardTitle>
+                      <CardHeader className="pb-2">
+                        <div className="flex flex-col gap-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <CardTitle className={`text-base leading-tight ${!aula.activa ? 'text-muted-foreground' : ''}`}>
+                                {aula.nombre}
+                                {aula.codigo_aula && (
+                                  <span className="ml-1.5 text-sm font-normal text-muted-foreground">
+                                    {aula.codigo_aula}
+                                  </span>
+                                )}
+                                {!aula.activa && (
+                                  <span className="ml-1.5 text-xs font-normal text-amber-600 dark:text-amber-400">
+                                    (Inactiva)
+                                  </span>
+                                )}
+                              </CardTitle>
+                              {(aula.tutor?.displayName || aula.tutor?.nombre_completo) && (
+                                <CardDescription className="mt-0.5">
+                                  {aula.tutor?.displayName || aula.tutor?.nombre_completo}
+                                </CardDescription>
+                              )}
+                            </div>
+                            <span
+                              className={`shrink-0 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                                aula.activa
+                                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                  : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
+                              }`}
+                            >
+                              {aula.activa ? 'Activa' : 'Inactiva'}
+                            </span>
+                          </div>
+                          {aula.descripcion && (
+                            <p className="text-sm text-muted-foreground">{aula.descripcion}</p>
+                          )}
                           <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
                             {aula.tutor && aula.tutorAulaId && (
                               <div
                                 onClick={(ev) => ev.stopPropagation()}
-                                className="shrink-0 flex items-center gap-2"
+                                className="flex items-center gap-2"
                               >
                                 <Checkbox
                                   id={`habilitar-${aula.id}`}
                                   checked={aula.tutorPuedeRegistrarAsistencia ?? false}
                                   onCheckedChange={(v) => handleToggleHabilitarRegistro(aula, v === true)}
-                                  className="mt-0.5"
+                                  className="h-4 w-4"
                                 />
                                 <Label
                                   htmlFor={`habilitar-${aula.id}`}
-                                  className="text-xs text-muted-foreground cursor-pointer font-normal whitespace-nowrap"
+                                  className="text-xs text-muted-foreground cursor-pointer font-normal"
                                 >
                                   Habilitar registro de asistencia
                                 </Label>
                               </div>
                             )}
                           </RoleGuard>
+                          {aula.tutorPuedeRegistrarAsistencia && (
+                            <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1.5">
+                              <ClipboardCheck className="h-3.5 w-3.5 shrink-0" />
+                              Registro habilitado para el tutor
+                            </p>
+                          )}
                         </div>
-                        {aula.descripcion && <CardDescription>{aula.descripcion}</CardDescription>}
-                        {aula.tutorPuedeRegistrarAsistencia && (
-                          <p className="text-xs text-green-600 dark:text-green-400 mt-1 flex items-center gap-1">
-                            <ClipboardCheck className="h-3.5 w-3.5" />
-                            Registro de asistencia habilitado para el tutor
-                          </p>
-                        )}
                       </CardHeader>
-                      <CardContent>
-                          <div className="space-y-2 text-sm">
-                            {aula.fcp && (
-                              <p className="text-muted-foreground">
-                                <span className="font-medium">FCP:</span> {aula.fcp.razon_social}
-                              </p>
-                            )}
-                            <div className="space-y-1">
-                              <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={(e) => { e.stopPropagation(); handleAssignTutor(aula) }}
-                                  className="text-xs"
-                                >
-                                  <Edit className="mr-1 h-3 w-3" />
-                                  {aula.tutor ? 'Cambiar tutor' : 'Asignar tutor'}
-                                </Button>
-                              </RoleGuard>
-                            </div>
-                            <div className="pt-2 flex items-center justify-between">
-                              <span
-                                className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
-                                  aula.activa
-                                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                                    : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
-                                }`}
+                      <CardContent className="pt-0">
+                        <div className="space-y-3">
+                          {aula.fcp && (
+                            <p className="text-sm text-muted-foreground">
+                              <span className="font-medium">FCP:</span> {aula.fcp.razon_social}
+                            </p>
+                          )}
+                          <RoleGuard fcpId={aula.fcp_id || selectedFCP} allowedRoles={['director', 'secretario']}>
+                            <div className="flex flex-wrap items-center gap-2 pt-1">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={(e) => { e.stopPropagation(); handleAssignTutor(aula) }}
+                                className="text-xs h-8"
                               >
-                                {aula.activa ? 'Activa' : 'Inactiva'}
-                              </span>
-                              <RoleGuard fcpId={aula.fcp_id || selectedFCP} allowedRoles={['director', 'secretario']}>
-                                <div className="flex flex-wrap items-center gap-1">
+                                <Edit className="mr-1.5 h-3.5 w-3.5" />
+                                {aula.tutor ? 'Cambiar tutor' : 'Asignar tutor'}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setEditingAula(aula)
+                                  setIsEditDialogOpen(true)
+                                }}
+                                className="text-xs h-8"
+                              >
+                                <Edit className="mr-1.5 h-3.5 w-3.5" />
+                                Editar
+                              </Button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
                                   <Button
                                     type="button"
                                     variant="outline"
                                     size="sm"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setEditingAula(aula)
-                                      setIsEditDialogOpen(true)
-                                    }}
-                                    className="text-xs"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-xs h-8 px-2"
                                   >
-                                    <Edit className="mr-1 h-3 w-3" />
-                                    Editar
+                                    <MoreVertical className="h-4 w-4" />
                                   </Button>
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                                  <DropdownMenuItem
                                     onClick={(e) => {
                                       e.stopPropagation()
                                       setVaciarSalonAula(aula)
                                     }}
-                                    className="text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                                    title="Vaciar salón: eliminar todos los estudiantes y su historial"
+                                    className="text-destructive focus:text-destructive"
                                   >
-                                    <Trash2 className="mr-1 h-3 w-3" />
+                                    <Trash2 className="mr-2 h-4 w-4" />
                                     Vaciar salón
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
                                     onClick={(e) => {
                                       e.stopPropagation()
                                       setEliminarAula(aula)
                                     }}
-                                    className="text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                                    title="Eliminar aula permanentemente (debe estar vacía)"
+                                    className="text-destructive focus:text-destructive"
                                   >
-                                    <XCircle className="mr-1 h-3 w-3" />
+                                    <XCircle className="mr-2 h-4 w-4" />
                                     Eliminar aula
-                                  </Button>
-                                </div>
-                              </RoleGuard>
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </div>
-                          </div>
-                        </CardContent>
+                          </RoleGuard>
+                        </div>
+                      </CardContent>
                     </div>
                   </Card>
                 )
