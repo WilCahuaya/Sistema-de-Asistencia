@@ -415,13 +415,14 @@ export function EstudianteList() {
           const tutorMiembroIds = tutorMiembrosData.map((tm: any) => tm.id)
           const tutorFcpId = fcpIdParaTutor || tutorMiembrosData[0].fcp_id
 
-          // Obtener las aulas asignadas al tutor
+          // Obtener las aulas asignadas al tutor (incluir fcp_miembro para mostrar nombre del tutor)
           let query = supabase
             .from('tutor_aula')
             .select(`
               aula_id,
               fcp_id,
-              aula:aulas!inner(id, nombre, activa, fcp_id, codigo_aula)
+              aula:aulas!inner(id, nombre, activa, fcp_id, codigo_aula),
+              fcp_miembro:fcp_miembros(nombre_display, email_pendiente, usuario:usuarios(nombre_completo, email))
             `)
             .in('fcp_miembro_id', tutorMiembroIds)
             .eq('activo', true)
