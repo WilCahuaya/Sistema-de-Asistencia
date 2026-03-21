@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { CheckCircle2, XCircle, Clock, CheckCheck, X, Info, Calendar, Search, MoreVertical } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
+import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import { useTutorPuedeRegistrarAula } from '@/hooks/useTutorPuedeRegistrarAula'
 import { toLocalDateString, getTodayInAppTimezone } from '@/lib/utils/dateUtils'
 import { RoleGuard } from '@/components/auth/RoleGuard'
@@ -235,7 +236,12 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   
   const longPressTimerRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
   const prevAulaRef = useRef<string | null>(null) // Para detectar cambios de aula
-  const { canEdit, role } = useUserRole(fcpId)
+  const { selectedRole } = useSelectedRole()
+  const { canEdit, role: roleFromHook } = useUserRole(fcpId)
+  // Priorizar el rol seleccionado explícitamente para evitar mezcla de roles (ej: tutor viendo todos los salones)
+  const role = (selectedRole && selectedRole.fcpId === fcpId)
+    ? selectedRole.role
+    : roleFromHook
   const { puedeRegistrar: tutorPuedeRegistrar } = useTutorPuedeRegistrarAula(fcpId, selectedAula)
   const mesNum = selectedMonth + 1
   const { data: correccionMes, loading: correccionLoading, refetch: refetchCorreccion } = useCorreccionMes(fcpId, selectedYear, mesNum)

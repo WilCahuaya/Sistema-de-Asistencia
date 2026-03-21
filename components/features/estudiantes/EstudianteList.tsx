@@ -377,29 +377,27 @@ export function EstudianteList() {
       let data: any[] = []
       let error: any = null
 
-      // Si es tutor, cargar solo las aulas asignadas
+      // Si es tutor, cargar solo las aulas asignadas (filtrar por fcpIdFromRole cuando hay múltiples roles)
       if (isTutorState) {
-        // Obtener los fcp_miembros del tutor
-        const { data: tutorMiembrosData, error: tutorMiembrosError } = await supabase
+        let tutorQuery = supabase
           .from('fcp_miembros')
           .select('id, fcp_id')
           .eq('usuario_id', user.id)
           .eq('rol', 'tutor')
           .eq('activo', true)
+        if (fcpIdFromRole) {
+          tutorQuery = tutorQuery.eq('fcp_id', fcpIdFromRole)
+        }
+        const { data: tutorMiembrosData, error: tutorMiembrosError } = await tutorQuery
 
         if (tutorMiembrosError) {
           console.error('Error obteniendo miembros del tutor:', tutorMiembrosError)
           throw tutorMiembrosError
         }
 
-        console.log('Tutor miembros encontrados:', tutorMiembrosData)
-
         if (tutorMiembrosData && tutorMiembrosData.length > 0) {
           const tutorMiembroIds = tutorMiembrosData.map((tm: any) => tm.id)
-          const tutorFcpId = tutorMiembrosData[0].fcp_id
-
-          console.log('Tutor miembro IDs:', tutorMiembroIds)
-          console.log('Tutor FCP ID:', tutorFcpId)
+          const tutorFcpId = fcpIdFromRole || tutorMiembrosData[0].fcp_id
 
           // Obtener las aulas asignadas al tutor
           let query = supabase
@@ -412,7 +410,6 @@ export function EstudianteList() {
             .in('fcp_miembro_id', tutorMiembroIds)
             .eq('activo', true)
 
-          // Si tenemos el fcp_id, también filtrar por él para mayor precisión
           if (tutorFcpId) {
             query = query.eq('fcp_id', tutorFcpId)
           }
@@ -573,15 +570,18 @@ export function EstudianteList() {
 
       let query: any
 
-      // Si es tutor, cargar solo estudiantes de sus aulas asignadas
+      // Si es tutor, cargar solo estudiantes de sus aulas asignadas (filtrar por fcpIdFromRole cuando hay múltiples roles)
       if (isTutorState) {
-        // Obtener los fcp_miembros del tutor
-        const { data: tutorMiembrosData, error: tutorMiembrosError } = await supabase
+        let tutorMembersQuery = supabase
           .from('fcp_miembros')
           .select('id')
           .eq('usuario_id', user.id)
           .eq('rol', 'tutor')
           .eq('activo', true)
+        if (fcpIdFromRole) {
+          tutorMembersQuery = tutorMembersQuery.eq('fcp_id', fcpIdFromRole)
+        }
+        const { data: tutorMiembrosData, error: tutorMiembrosError } = await tutorMembersQuery
 
         if (tutorMiembrosError) {
           throw tutorMiembrosError
