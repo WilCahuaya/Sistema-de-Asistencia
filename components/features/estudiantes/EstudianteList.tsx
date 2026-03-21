@@ -308,7 +308,24 @@ export function EstudianteList() {
 
       let fcps: Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }> = []
 
-      if (isFacilitador) {
+      // Cuando el rol tiene fcpId (tutor, director, secretario), obtener la FCP directamente desde fcps
+      // Igual que en Asistencias - evita problemas con fcp_miembros/RLS
+      if (selectedRole?.fcpId) {
+        const { data: fcpData, error: fcpError } = await supabase
+          .from('fcps')
+          .select('id, razon_social, numero_identificacion')
+          .eq('id', selectedRole.fcpId)
+          .eq('activa', true)
+          .maybeSingle()
+        if (!fcpError && fcpData) {
+          fcps = [{
+            id: fcpData.id,
+            nombre: fcpData.razon_social || 'FCP',
+            numero_identificacion: fcpData.numero_identificacion,
+            razon_social: fcpData.razon_social,
+          }]
+        }
+      } else if (isFacilitador) {
         const { data: d, error: e } = await supabase
           .from('fcps')
           .select('id, razon_social, numero_identificacion')
@@ -332,10 +349,6 @@ export function EstudianteList() {
         }
       }
 
-      if (selectedRole?.fcpId) {
-        const sole = fcps.find(f => f.id === selectedRole!.fcpId!)
-        fcps = sole ? [sole] : []
-      }
       if (fcpIdFromRole && selectedRole?.fcp && !fcps.find(f => f.id === fcpIdFromRole)) {
         fcps = [{
           id: fcpIdFromRole,
