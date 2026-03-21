@@ -377,16 +377,17 @@ export function EstudianteList() {
       let data: any[] = []
       let error: any = null
 
-      // Si es tutor, cargar solo las aulas asignadas (filtrar por fcpIdFromRole cuando hay múltiples roles)
+      // Si es tutor, cargar solo las aulas asignadas (siempre filtrar por FCP para no mezclar salones)
       if (isTutorState) {
+        const fcpIdParaTutor = fcpIdFromRole || selectedFCP
         let tutorQuery = supabase
           .from('fcp_miembros')
           .select('id, fcp_id')
           .eq('usuario_id', user.id)
           .eq('rol', 'tutor')
           .eq('activo', true)
-        if (fcpIdFromRole) {
-          tutorQuery = tutorQuery.eq('fcp_id', fcpIdFromRole)
+        if (fcpIdParaTutor) {
+          tutorQuery = tutorQuery.eq('fcp_id', fcpIdParaTutor)
         }
         const { data: tutorMiembrosData, error: tutorMiembrosError } = await tutorQuery
 
@@ -397,7 +398,7 @@ export function EstudianteList() {
 
         if (tutorMiembrosData && tutorMiembrosData.length > 0) {
           const tutorMiembroIds = tutorMiembrosData.map((tm: any) => tm.id)
-          const tutorFcpId = fcpIdFromRole || tutorMiembrosData[0].fcp_id
+          const tutorFcpId = fcpIdParaTutor || tutorMiembrosData[0].fcp_id
 
           // Obtener las aulas asignadas al tutor
           let query = supabase
@@ -570,16 +571,17 @@ export function EstudianteList() {
 
       let query: any
 
-      // Si es tutor, cargar solo estudiantes de sus aulas asignadas (filtrar por fcpIdFromRole cuando hay múltiples roles)
+      // Si es tutor, cargar solo estudiantes de sus aulas asignadas (siempre filtrar por FCP)
       if (isTutorState) {
+        const fcpIdParaTutor = fcpIdFromRole || selectedFCP
         let tutorMembersQuery = supabase
           .from('fcp_miembros')
           .select('id')
           .eq('usuario_id', user.id)
           .eq('rol', 'tutor')
           .eq('activo', true)
-        if (fcpIdFromRole) {
-          tutorMembersQuery = tutorMembersQuery.eq('fcp_id', fcpIdFromRole)
+        if (fcpIdParaTutor) {
+          tutorMembersQuery = tutorMembersQuery.eq('fcp_id', fcpIdParaTutor)
         }
         const { data: tutorMiembrosData, error: tutorMiembrosError } = await tutorMembersQuery
 
@@ -590,12 +592,16 @@ export function EstudianteList() {
         if (tutorMiembrosData && tutorMiembrosData.length > 0) {
           const tutorMiembroIds = tutorMiembrosData.map((tm: any) => tm.id)
 
-          // Obtener las aulas asignadas al tutor
-          const { data: tutorAulasData, error: tutorAulasError } = await supabase
+          // Obtener las aulas asignadas al tutor en esta FCP
+          let tutorAulasQuery = supabase
             .from('tutor_aula')
             .select('aula_id')
             .in('fcp_miembro_id', tutorMiembroIds)
             .eq('activo', true)
+          if (fcpIdParaTutor) {
+            tutorAulasQuery = tutorAulasQuery.eq('fcp_id', fcpIdParaTutor)
+          }
+          const { data: tutorAulasData, error: tutorAulasError } = await tutorAulasQuery
 
           if (tutorAulasError) {
             throw tutorAulasError
