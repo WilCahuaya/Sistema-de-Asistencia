@@ -20,6 +20,7 @@ import {
 import { EstudianteUploadDialog } from './EstudianteUploadDialog'
 import { EstudianteMovimientoDialog } from './EstudianteMovimientoDialog'
 import { EstudianteMovimientoMasivoDialog } from './EstudianteMovimientoMasivoDialog'
+import { EstudianteMoverExcelDialog } from './EstudianteMoverExcelDialog'
 import { EstudianteRetirarDialog } from './EstudianteRetirarDialog'
 import { EstudianteReactivarDialog } from './EstudianteReactivarDialog'
 import { useUserRole } from '@/hooks/useUserRole'
@@ -93,6 +94,7 @@ export function EstudianteList() {
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isMovimientoMasivoDialogOpen, setIsMovimientoMasivoDialogOpen] = useState(false)
+  const [isMoverExcelDialogOpen, setIsMoverExcelDialogOpen] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
   const aulaIdFromUrl = searchParams.get('aulaId')
@@ -1012,6 +1014,15 @@ export function EstudianteList() {
                 )}
                 <Button
                   variant="outline"
+                  onClick={() => setIsMoverExcelDialogOpen(true)}
+                  disabled={!selectedFCP || aulas.length < 2}
+                  title="Mover estudiantes a nuevos salones desde un archivo Excel"
+                >
+                  <ArrowRight className="mr-2 h-4 w-4" />
+                  Mover desde Excel
+                </Button>
+                <Button
+                  variant="outline"
                   onClick={() => setIsUploadDialogOpen(true)}
                   disabled={!selectedFCP || aulas.length === 0}
                 >
@@ -1495,6 +1506,17 @@ export function EstudianteList() {
           setSelectedIds(new Set())
         }}
         estudiantes={sourceList.filter((s) => selectedIds.has(s.id) && s.activo)}
+        aulas={aulas}
+      />
+
+      <EstudianteMoverExcelDialog
+        open={isMoverExcelDialogOpen}
+        onOpenChange={setIsMoverExcelDialogOpen}
+        onSuccess={() => {
+          loadEstudiantes()
+          setIsMoverExcelDialogOpen(false)
+        }}
+        fcpId={selectedFCP || ''}
         aulas={aulas}
       />
     </div>
