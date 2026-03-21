@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/table'
 import { EstudianteUploadDialog } from './EstudianteUploadDialog'
 import { EstudianteMovimientoDialog } from './EstudianteMovimientoDialog'
+import { EstudianteMovimientoMasivoDialog } from './EstudianteMovimientoMasivoDialog'
 import { EstudianteRetirarDialog } from './EstudianteRetirarDialog'
 import { EstudianteReactivarDialog } from './EstudianteReactivarDialog'
 import { useUserRole } from '@/hooks/useUserRole'
@@ -90,6 +91,8 @@ export function EstudianteList() {
   const [resizeStartWidth, setResizeStartWidth] = useState(0)
   const [isMobile, setIsMobile] = useState(false)
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [isMovimientoMasivoDialogOpen, setIsMovimientoMasivoDialogOpen] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
   const aulaIdFromUrl = searchParams.get('aulaId')
@@ -993,9 +996,20 @@ export function EstudianteList() {
               )}
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {(isDirector || isSecretario) && (
               <>
+                {selectedIds.size > 0 && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsMovimientoMasivoDialogOpen(true)}
+                    disabled={aulas.length <= 1}
+                    title="Mover los alumnos seleccionados a otro salón"
+                  >
+                    <ArrowRight className="mr-2 h-4 w-4" />
+                    Mover {selectedIds.size} seleccionado(s)
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   onClick={() => setIsUploadDialogOpen(true)}
@@ -1004,8 +1018,8 @@ export function EstudianteList() {
                   <Upload className="mr-2 h-4 w-4" />
                   Cargar Excel
                 </Button>
-                <Button 
-                  onClick={() => setIsDialogOpen(true)} 
+                <Button
+                  onClick={() => setIsDialogOpen(true)}
                   disabled={!selectedFCP || aulas.length === 0}
                 >
                   <Plus className="mr-2 h-4 w-4" />
@@ -1130,6 +1144,21 @@ export function EstudianteList() {
                           onClick={() => setExpandedCardId(isExpanded ? null : estudiante.id)}
                         >
                           <div className="flex items-start justify-between gap-2">
+                            <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']} fallback={null}>
+                              <div onClick={(e) => e.stopPropagation()} className="shrink-0 pt-0.5">
+                                <Checkbox
+                                  checked={selectedIds.has(estudiante.id)}
+                                  onCheckedChange={(v) => {
+                                    const next = new Set(selectedIds)
+                                    if (v === true) next.add(estudiante.id)
+                                    else next.delete(estudiante.id)
+                                    setSelectedIds(next)
+                                  }}
+                                  disabled={!estudiante.activo}
+                                  aria-label={`Seleccionar ${estudiante.nombre_completo}`}
+                                />
+                              </div>
+                            </RoleGuard>
                             <div className="min-w-0 flex-1">
                               <p className="font-mono text-sm text-muted-foreground">{estudiante.codigo}</p>
                               <p className="font-medium truncate">{estudiante.nombre_completo}</p>
@@ -1187,9 +1216,24 @@ export function EstudianteList() {
               <>
                 <p className="mb-2 text-xs text-muted-foreground md:hidden">Desliza para ver más columnas →</p>
                 <div className="table-responsive overflow-x-auto">
-                  <Table className="min-w-[600px]">
+                    <Table className="min-w-[600px]">
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-10">
+                          <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']} fallback={null}>
+                            <Checkbox
+                              checked={displayEstudiantes.length > 0 && displayEstudiantes.every((e) => selectedIds.has(e.id))}
+                              onCheckedChange={(v) => {
+                                if (v === true) {
+                                  setSelectedIds(new Set(displayEstudiantes.map((e) => e.id)))
+                                } else {
+                                  setSelectedIds(new Set())
+                                }
+                              }}
+                              aria-label="Seleccionar todos"
+                            />
+                          </RoleGuard>
+                        </TableHead>
                         <TableHead>Código</TableHead>
                         <TableHead>Nombre Completo</TableHead>
                         <TableHead>Aula</TableHead>
@@ -1201,13 +1245,28 @@ export function EstudianteList() {
                     <TableBody>
                       {displayEstudiantes.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                             {searchTerm ? 'No se encontraron estudiantes con ese criterio' : 'No hay estudiantes'}
                           </TableCell>
                         </TableRow>
                       ) : (
                         displayEstudiantes.map((estudiante) => (
                           <TableRow key={estudiante.id}>
+                            <TableCell className="w-10">
+                              <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']} fallback={<span />}>
+                                <Checkbox
+                                  checked={selectedIds.has(estudiante.id)}
+                                  onCheckedChange={(v) => {
+                                    const next = new Set(selectedIds)
+                                    if (v === true) next.add(estudiante.id)
+                                    else next.delete(estudiante.id)
+                                    setSelectedIds(next)
+                                  }}
+                                  disabled={!estudiante.activo}
+                                  aria-label={`Seleccionar ${estudiante.nombre_completo}`}
+                                />
+                              </RoleGuard>
+                            </TableCell>
                             <TableCell className="font-mono">{estudiante.codigo}</TableCell>
                             <TableCell>{estudiante.nombre_completo}</TableCell>
                             <TableCell>{estudiante.aula?.nombre || 'Sin aula'}</TableCell>
@@ -1426,6 +1485,18 @@ export function EstudianteList() {
           aulas={aulas}
         />
       )}
+
+      <EstudianteMovimientoMasivoDialog
+        open={isMovimientoMasivoDialogOpen}
+        onOpenChange={setIsMovimientoMasivoDialogOpen}
+        onSuccess={() => {
+          loadEstudiantes()
+          setIsMovimientoMasivoDialogOpen(false)
+          setSelectedIds(new Set())
+        }}
+        estudiantes={sourceList.filter((s) => selectedIds.has(s.id) && s.activo)}
+        aulas={aulas}
+      />
     </div>
   )
 }
