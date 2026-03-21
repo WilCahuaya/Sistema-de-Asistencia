@@ -109,7 +109,7 @@ export function EstudianteList() {
   }, [])
 
   const itemsPerPage = 20 // 20 por página para todos los roles
-  const { selectedRole } = useSelectedRole()
+  const { selectedRole, loading: roleContextLoading } = useSelectedRole()
   
   // Usar el rol seleccionado para determinar los flags
   const isDirector = selectedRole?.role === 'director'
@@ -125,8 +125,9 @@ export function EstudianteList() {
   const defaultWidthRef = useRef<number | null>(null) // Ancho por defecto del contenedor
 
   useEffect(() => {
+    if (roleContextLoading) return
     loadUserFCPs()
-  }, [selectedRole?.role, selectedRole?.fcpId])
+  }, [selectedRole?.role, selectedRole?.fcpId, roleContextLoading])
 
   // Efecto para obtener el ancho por defecto del div contenedor (mb-8 mx-auto max-w-7xl)
   useEffect(() => {
@@ -263,6 +264,7 @@ export function EstudianteList() {
       loadEstudiantes()
     } else {
       setEstudiantes([])
+      setEstudiantesCompletos([])
       setTotalEstudiantes(0)
     }
   }, [selectedFCP, selectedAula, isTutorState, includeInactivos])
@@ -848,6 +850,11 @@ export function EstudianteList() {
   const handleReactivar = (est: Estudiante) => {
     setSelectedEstudianteForReactivar(est)
     setIsReactivarDialogOpen(true)
+  }
+
+  // Esperar a que el rol esté cargado antes de obtener FCPs (evita usar rama incorrecta para facilitadores)
+  if (roleContextLoading) {
+    return <div className="text-center py-8">Cargando estudiantes...</div>
   }
 
   if (loadingFCPs) {
