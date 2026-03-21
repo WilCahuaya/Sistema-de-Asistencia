@@ -460,7 +460,7 @@ export function EstudianteList() {
               }
             })
             .filter((aula: any) => aula)
-            .sort((a: any, b: any) => aulaNombre(a).localeCompare(aulaNombre(b)))
+            .sort((a: any, b: any) => (a?.nombre || '').localeCompare(b?.nombre || ''))
 
           console.log('Aulas procesadas para el tutor:', data)
         } else {
