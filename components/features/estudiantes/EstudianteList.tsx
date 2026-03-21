@@ -108,7 +108,7 @@ export function EstudianteList() {
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  const itemsPerPage = isMobile ? 8 : 15 // móvil: 8 por página, PC: 15
+  const itemsPerPage = 20 // 20 por página para todos los roles
   const { selectedRole } = useSelectedRole()
   
   // Usar el rol seleccionado para determinar los flags
