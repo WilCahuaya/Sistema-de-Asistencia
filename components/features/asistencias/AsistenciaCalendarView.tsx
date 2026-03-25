@@ -9,7 +9,12 @@ import { CheckCircle2, XCircle, Clock, CheckCheck, X, Info, Calendar, Search, Mo
 import { useUserRole } from '@/hooks/useUserRole'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import { useTutorPuedeRegistrarAula } from '@/hooks/useTutorPuedeRegistrarAula'
-import { toLocalDateString, getTodayInAppTimezone } from '@/lib/utils/dateUtils'
+import {
+  toLocalDateString,
+  getTodayInAppTimezone,
+  getCurrentMonthYearInAppTimezone,
+  mesPermiteRegistroSinCorreccionFacilitador,
+} from '@/lib/utils/dateUtils'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import {
   Select,
@@ -247,32 +252,34 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const { data: correccionMes, loading: correccionLoading, refetch: refetchCorreccion } = useCorreccionMes(fcpId, selectedYear, mesNum)
   const esMesPasadoVista = esMesPasado(selectedYear, mesNum)
   const correccionHabilitada = correccionMes?.estado === 'correccion_habilitada'
+  /** Semana de gracia después del cierre del mes: aún se puede registrar sin corrección del facilitador */
+  const enGraciaRegistro = mesPermiteRegistroSinCorreccionFacilitador(selectedYear, selectedMonth)
   const puedeEditarMes =
     (() => {
-      const now = new Date()
-      const y = now.getFullYear()
-      const m = now.getMonth()
+      const { year: cy, month: cm0 } = getCurrentMonthYearInAppTimezone()
       const vista = selectedYear * 12 + selectedMonth
-      const actual = y * 12 + m
-      // Mes futuro o actual: director, secretario, o tutor habilitado (solo mes actual)
+      const actual = cy * 12 + cm0
+      // Mes futuro: solo director/secretario
       if (vista > actual) return canEdit && (role === 'director' || role === 'secretario')
-      if (vista === actual) {
+      // Mes actual o mes pasado dentro de 7 días naturales tras el último día del mes
+      if (enGraciaRegistro) {
         if (canEdit && (role === 'director' || role === 'secretario')) return true
         if (role === 'tutor' && tutorPuedeRegistrar) return true
         return false
       }
-      // Cualquier mes pasado: secretario o director, solo si el facilitador habilitó la corrección
+      // Mes pasado fuera de gracia: director/secretario solo con corrección habilitada por el facilitador
       if (vista < actual && correccionHabilitada && (role === 'secretario' || role === 'director')) return true
       return false
     })()
   const showHabilitarCorreccion =
     role === 'facilitador' &&
     esMesPasadoVista &&
+    !enGraciaRegistro &&
     (correccionMes?.estado === 'cerrado' || correccionMes?.estado === 'bloqueado')
 
   const showAgregarEstudianteMes =
     esMesPasadoVista &&
-    correccionHabilitada &&
+    (correccionHabilitada || enGraciaRegistro) &&
     (role === 'director' || role === 'secretario') &&
     !!selectedAula
 
@@ -878,16 +885,9 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   ) => {
     if (!puedeEditarMes) return
 
-    const fechaAsistencia = new Date(fechaStr + 'T00:00:00')
-    const y = fechaAsistencia.getFullYear()
-    const m = fechaAsistencia.getMonth()
-    const now = new Date()
-    const ay = now.getFullYear()
-    const am = now.getMonth()
-    const vista = y * 12 + m
-    const actual = ay * 12 + am
-    const esMesPasadoVista = vista < actual
-    if (esMesPasadoVista && !correccionHabilitada) {
+    const [fy, fm] = fechaStr.split('-').map(Number)
+    const puedeSinCorreccion = mesPermiteRegistroSinCorreccionFacilitador(fy, fm - 1)
+    if (!puedeSinCorreccion && !correccionHabilitada) {
       toast.warning('Corrección no habilitada', 'El facilitador debe habilitar la corrección para poder editar.')
       return
     }
@@ -1032,15 +1032,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const deleteAsistencia = async (estudianteId: string, fechaStr: string) => {
     if (!puedeEditarMes) return
 
-    const fechaAsistencia = new Date(fechaStr + 'T00:00:00')
-    const y = fechaAsistencia.getFullYear()
-    const m = fechaAsistencia.getMonth()
-    const now = new Date()
-    const ay = now.getFullYear()
-    const am = now.getMonth()
-    const vista = y * 12 + m
-    const actual = ay * 12 + am
-    if (vista < actual && !correccionHabilitada) {
+    const [fyDel, fmDel] = fechaStr.split('-').map(Number)
+    if (!mesPermiteRegistroSinCorreccionFacilitador(fyDel, fmDel - 1) && !correccionHabilitada) {
       toast.warning('Corrección no habilitada', 'El facilitador debe habilitar la corrección para poder editar.')
       return
     }
@@ -1183,15 +1176,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const handleMarkAllPresente = async (fechaStr: string) => {
     if (!puedeEditarMes || !selectedAula) return
 
-    const fechaAsistencia = new Date(fechaStr + 'T00:00:00')
-    const y = fechaAsistencia.getFullYear()
-    const m = fechaAsistencia.getMonth()
-    const now = new Date()
-    const ay = now.getFullYear()
-    const am = now.getMonth()
-    const vista = y * 12 + m
-    const actual = ay * 12 + am
-    if (vista < actual && !correccionHabilitada) {
+    const [fyM, fmM] = fechaStr.split('-').map(Number)
+    if (!mesPermiteRegistroSinCorreccionFacilitador(fyM, fmM - 1) && !correccionHabilitada) {
       toast.warning('Corrección no habilitada', 'El facilitador debe habilitar la corrección para poder editar.')
       return
     }
@@ -1446,15 +1432,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const handleEliminarTodasAsistencias = (fechaStr: string) => {
     if (!puedeEditarMes || !selectedAula) return
 
-    const fechaDate = new Date(fechaStr + 'T00:00:00')
-    const y = fechaDate.getFullYear()
-    const m = fechaDate.getMonth()
-    const now = new Date()
-    const ay = now.getFullYear()
-    const am = now.getMonth()
-    const vista = y * 12 + m
-    const actual = ay * 12 + am
-    if (vista < actual && !correccionHabilitada) {
+    const [fyE, fmE] = fechaStr.split('-').map(Number)
+    if (!mesPermiteRegistroSinCorreccionFacilitador(fyE, fmE - 1) && !correccionHabilitada) {
       toast.warning('Corrección no habilitada', 'El facilitador debe habilitar la corrección para poder editar.')
       return
     }
@@ -1724,7 +1703,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
             </span>
           </div>
         )}
-        {esMesPasadoVista && correccionMes && !correccionLoading && (
+        {esMesPasadoVista && !enGraciaRegistro && correccionMes && !correccionLoading && (
           <CorreccionMesBanner
             estado={correccionMes.estado}
             habilitadoPorNombre={correccionMes.habilitadoPorNombre}

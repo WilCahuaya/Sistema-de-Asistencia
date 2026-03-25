@@ -19,6 +19,7 @@ import { useUserRole } from '@/hooks/useUserRole'
 import { useTutorPuedeRegistrarAula } from '@/hooks/useTutorPuedeRegistrarAula'
 import { useCorreccionMes } from '@/hooks/useCorreccionMes'
 import { toast } from '@/lib/toast'
+import { getCurrentMonthYearInAppTimezone, mesPermiteRegistroSinCorreccionFacilitador } from '@/lib/utils/dateUtils'
 
 interface Estudiante {
   id: string
@@ -61,20 +62,19 @@ export function AsistenciaRegistroDialog({
   })()
   const { data: correccionMes } = useCorreccionMes(fcpId, y, m)
   const correccionHabilitada = correccionMes?.estado === 'correccion_habilitada'
+  const month0Fecha = m - 1
+  const enGraciaRegistro = mesPermiteRegistroSinCorreccionFacilitador(y, month0Fecha)
   const puedeEditarMes = (() => {
-    const now = new Date()
-    const ay = now.getFullYear()
-    const am0 = now.getMonth()
-    const vista = y * 12 + (m - 1)
-    const actual = ay * 12 + am0
-    const prev = actual - 1
+    const { year: cy, month: cm0 } = getCurrentMonthYearInAppTimezone()
+    const vista = y * 12 + month0Fecha
+    const actual = cy * 12 + cm0
     if (vista > actual) return canEdit && (role === 'director' || role === 'secretario')
-    if (vista === actual) {
+    if (enGraciaRegistro) {
       if (canEdit && (role === 'director' || role === 'secretario')) return true
       if (role === 'tutor' && tutorPuedeRegistrar) return true
       return false
     }
-    if (vista === prev && correccionHabilitada && (role === 'secretario' || role === 'director')) return true
+    if (vista < actual && correccionHabilitada && (role === 'secretario' || role === 'director')) return true
     return false
   })()
 
@@ -188,18 +188,8 @@ export function AsistenciaRegistroDialog({
       return
     }
 
-    const now = new Date()
-    const ay = now.getFullYear()
-    const am0 = now.getMonth()
-    const vista = y * 12 + (m - 1)
-    const actual = ay * 12 + am0
-    const prev = actual - 1
-    if (vista < actual && vista !== prev) {
-      toast.warning('Mes cerrado', 'No se pueden registrar asistencias de meses más antiguos que el anterior.')
-      return
-    }
-    if (vista < actual && !correccionHabilitada) {
-      toast.warning('Corrección no habilitada', 'El facilitador debe habilitar la corrección del mes anterior.')
+    if (!mesPermiteRegistroSinCorreccionFacilitador(y, month0Fecha) && !correccionHabilitada) {
+      toast.warning('Corrección no habilitada', 'El facilitador debe habilitar la corrección para ese mes o el plazo de registro ya venció.')
       return
     }
 

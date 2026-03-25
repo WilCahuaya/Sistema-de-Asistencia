@@ -110,3 +110,35 @@ export function getCurrentMonthLabelInAppTimezone(locale = 'es-PE'): string {
   const { year, month } = getCurrentMonthYearInAppTimezone()
   return new Date(year, month, 1).toLocaleDateString(locale, { month: 'long', year: 'numeric' })
 }
+
+/** Días naturales después del último día del mes para registrar asistencia sin corrección del facilitador */
+export const DIAS_GRACIA_REGISTRO_ASISTENCIA_DESPUES_DEL_MES = 7
+
+/**
+ * Suma días a una fecha YYYY-MM-DD en calendario local (misma lógica que el resto de la app).
+ */
+export function addDaysToYyyyMmDd(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split('-').map(Number)
+  const dt = new Date(y, m - 1, d + days)
+  return toLocalDateString(dt)
+}
+
+/**
+ * Fecha límite inclusive (YYYY-MM-DD) para registrar asistencias de ese mes sin habilitar corrección.
+ */
+export function fechaLimiteGraciaRegistroMes(year: number, month0: number): string {
+  const { end } = getMonthRangeInAppTimezone(year, month0)
+  return addDaysToYyyyMmDd(end, DIAS_GRACIA_REGISTRO_ASISTENCIA_DESPUES_DEL_MES)
+}
+
+/**
+ * True si "hoy" (zona app) aún permite registrar/editar asistencias de ese mes calendario
+ * sin que el facilitador habilite corrección (incluye el mes en curso hasta fin de mes + N días).
+ */
+export function mesPermiteRegistroSinCorreccionFacilitador(year: number, month0: number): boolean {
+  const hoy = getTodayInAppTimezone()
+  const { start } = getMonthRangeInAppTimezone(year, month0)
+  if (hoy < start) return false
+  const limite = fechaLimiteGraciaRegistroMes(year, month0)
+  return hoy <= limite
+}
