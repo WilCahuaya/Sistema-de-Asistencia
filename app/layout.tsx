@@ -10,6 +10,9 @@ import { Suspense } from "react";
 export const metadata: Metadata = {
   title: "Sistema de Gestión de Asistencias - FCP",
   description: "Sistema web para la gestión de asistencias de estudiantes en FCP",
+  icons: {
+    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+  },
 };
 
 export default function RootLayout({
