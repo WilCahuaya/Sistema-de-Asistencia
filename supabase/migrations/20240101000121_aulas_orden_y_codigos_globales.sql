@@ -25,6 +25,8 @@ DROP TRIGGER IF EXISTS trigger_asignar_codigo_aula ON public.aulas;
 DROP FUNCTION IF EXISTS public.asignar_codigo_aula();
 
 -- 4) Recalcular códigos A01, A02... para todos los salones de una FCP (orden global)
+--    Primero se pone codigo_aula a NULL para no violar el índice único (fcp_id, codigo_aula)
+--    durante el UPDATE que reasigna códigos.
 CREATE OR REPLACE FUNCTION public.recalcular_codigos_aulas_fcp(p_fcp_id UUID)
 RETURNS void
 LANGUAGE plpgsql
@@ -32,6 +34,10 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
+  UPDATE public.aulas
+  SET codigo_aula = NULL
+  WHERE fcp_id = p_fcp_id;
+
   UPDATE public.aulas a
   SET codigo_aula = sub.cod
   FROM (
@@ -51,7 +57,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION public.recalcular_codigos_aulas_fcp(UUID) IS 'Asigna codigo_aula A01..AN según orden, nombre e id dentro de la FCP.';
+COMMENT ON FUNCTION public.recalcular_codigos_aulas_fcp(UUID) IS 'Asigna codigo_aula A01..AN según orden, nombre e id dentro de la FCP. Libera códigos antes de reasignar para evitar índice único.';
 
 -- 5) Nueva aula: siguiente orden al final de la FCP
 CREATE OR REPLACE FUNCTION public.trg_aulas_before_insert_orden()

@@ -294,12 +294,12 @@ export function AulaList() {
           return
         }
         
-        // Construir la consulta base
+        // Construir la consulta base (no ordenar por "orden" en SQL: la columna existe tras migración;
+        // si aún no está aplicada, ORDER BY orden rompe la consulta — se ordena abajo en el cliente)
         let aulasQuery = supabase
           .from('aulas')
           .select('*')
           .eq('fcp_id', fcpIdToUse)
-          .order('orden', { ascending: true })
           .order('nombre', { ascending: true })
         
         // Si no se muestran inactivos, filtrar solo las activas
@@ -309,7 +309,13 @@ export function AulaList() {
         
         const { data: aulasData, error: aulasError } = await aulasQuery
 
-        data = aulasData || []
+        const raw = aulasData || []
+        data = [...raw].sort((a: any, b: any) => {
+          const oa = typeof a.orden === 'number' ? a.orden : 0
+          const ob = typeof b.orden === 'number' ? b.orden : 0
+          if (oa !== ob) return oa - ob
+          return (a.nombre || '').localeCompare(b.nombre || '')
+        })
         error = aulasError
       }
 
@@ -442,6 +448,13 @@ export function AulaList() {
 
   /** Reordenar salones con el mismo nombre en la FCP (intercambia orden y recalcula códigos en BD) */
   const handleMoveOrden = async (aula: Aula, dir: 'up' | 'down') => {
+    if (!aulas.some((a) => typeof a.orden === 'number')) {
+      toast.error(
+        'Orden no disponible',
+        'Ejecuta la migración de base de datos (columna orden en aulas) o contacta al administrador.',
+      )
+      return
+    }
     const siblings = aulas
       .filter((a) => a.fcp_id === aula.fcp_id && a.nombre === aula.nombre)
       .sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
@@ -742,6 +755,7 @@ export function AulaList() {
                           <RoleGuard fcpId={aula.fcp_id || selectedFCP} allowedRoles={['director', 'secretario']}>
                             <div className="flex flex-wrap items-center gap-2 pt-1">
                               {(() => {
+                                if (!aulas.some((a) => typeof a.orden === 'number')) return null
                                 const siblings = aulas
                                   .filter((a) => a.fcp_id === aula.fcp_id && a.nombre === aula.nombre)
                                   .sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
