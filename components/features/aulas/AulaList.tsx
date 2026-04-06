@@ -20,7 +20,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '@/components/ui/pagination'
-import { Plus, GraduationCap, Edit, Building2, Eye, EyeOff, Search, ClipboardCheck, Trash2, XCircle, MoreVertical } from 'lucide-react'
+import { Plus, GraduationCap, Edit, Building2, Eye, EyeOff, Search, ClipboardCheck, Trash2, XCircle, MoreVertical, ArrowUp, ArrowDown } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -53,6 +53,8 @@ interface Aula {
   id: string
   nombre: string
   codigo_aula?: string
+  /** Orden de listado en la FCP (reordenar salones con el mismo nombre) */
+  orden?: number
   descripcion?: string
   activa: boolean
   fcp_id: string
@@ -85,6 +87,7 @@ export function AulaList() {
   const [searchTerm, setSearchTerm] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [isMobile, setIsMobile] = useState(false)
+  const [reordenandoId, setReordenandoId] = useState<string | null>(null)
   const router = useRouter()
   const { selectedRole } = useSelectedRole()
   
@@ -264,7 +267,12 @@ export function AulaList() {
           data = (tutorAulasData || [])
             .map((ta: any) => ta.aula)
             .filter((aula: any) => aula && aula.activa)
-            .sort((a: any, b: any) => a.nombre.localeCompare(b.nombre))
+            .sort((a: any, b: any) => {
+              const oa = a.orden ?? 0
+              const ob = b.orden ?? 0
+              if (oa !== ob) return oa - ob
+              return a.nombre.localeCompare(b.nombre)
+            })
         }
       } else {
         // Para otros roles, cargar todas las aulas de la FCP
@@ -291,6 +299,7 @@ export function AulaList() {
           .from('aulas')
           .select('*')
           .eq('fcp_id', fcpIdToUse)
+          .order('orden', { ascending: true })
           .order('nombre', { ascending: true })
         
         // Si no se muestran inactivos, filtrar solo las activas
@@ -429,6 +438,34 @@ export function AulaList() {
   const handleAssignTutor = (aula: Aula) => {
     setSelectedAulaForTutor(aula)
     setIsTutorDialogOpen(true)
+  }
+
+  /** Reordenar salones con el mismo nombre en la FCP (intercambia orden y recalcula códigos en BD) */
+  const handleMoveOrden = async (aula: Aula, dir: 'up' | 'down') => {
+    const siblings = aulas
+      .filter((a) => a.fcp_id === aula.fcp_id && a.nombre === aula.nombre)
+      .sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
+    if (siblings.length <= 1) return
+    const idx = siblings.findIndex((a) => a.id === aula.id)
+    const j = dir === 'up' ? idx - 1 : idx + 1
+    if (j < 0 || j >= siblings.length) return
+    const other = siblings[j]
+    const ordA = aula.orden ?? 0
+    const ordB = other.orden ?? 0
+    try {
+      setReordenandoId(aula.id)
+      const supabase = createClient()
+      const { error: e1 } = await supabase.from('aulas').update({ orden: ordB }).eq('id', aula.id)
+      if (e1) throw e1
+      const { error: e2 } = await supabase.from('aulas').update({ orden: ordA }).eq('id', other.id)
+      if (e2) throw e2
+      toast.success('Orden actualizado', 'Los códigos de salón se recalcularon en esta FCP.')
+      await loadAulas()
+    } catch (e: unknown) {
+      toast.error('No se pudo reordenar', e instanceof Error ? e.message : 'Intenta de nuevo')
+    } finally {
+      setReordenandoId(null)
+    }
   }
 
   const handleToggleHabilitarRegistro = async (aula: Aula, checked: boolean) => {
@@ -704,6 +741,45 @@ export function AulaList() {
                           )}
                           <RoleGuard fcpId={aula.fcp_id || selectedFCP} allowedRoles={['director', 'secretario']}>
                             <div className="flex flex-wrap items-center gap-2 pt-1">
+                              {(() => {
+                                const siblings = aulas
+                                  .filter((a) => a.fcp_id === aula.fcp_id && a.nombre === aula.nombre)
+                                  .sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
+                                if (siblings.length <= 1) return null
+                                const idx = siblings.findIndex((a) => a.id === aula.id)
+                                return (
+                                  <div className="flex items-center gap-0.5 mr-1" onClick={(e) => e.stopPropagation()}>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-8 w-8 p-0"
+                                      title="Subir en el listado (mismo nombre)"
+                                      disabled={idx === 0 || reordenandoId !== null}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleMoveOrden(aula, 'up')
+                                      }}
+                                    >
+                                      <ArrowUp className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-8 w-8 p-0"
+                                      title="Bajar en el listado (mismo nombre)"
+                                      disabled={idx >= siblings.length - 1 || reordenandoId !== null}
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleMoveOrden(aula, 'down')
+                                      }}
+                                    >
+                                      <ArrowDown className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                )
+                              })()}
                               <Button
                                 type="button"
                                 variant="outline"

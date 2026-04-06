@@ -126,18 +126,19 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, initialD
             </div>
           )}
           <div className="grid gap-4 py-4">
-            {initialData.codigo_aula && (
-              <div className="grid gap-2">
-                <Label>Código de aula</Label>
-                <Input
-                  id="codigo_aula"
-                  value={initialData.codigo_aula}
-                  readOnly
-                  disabled
-                  className="bg-muted font-mono"
-                />
-              </div>
-            )}
+            <div className="grid gap-2">
+              <Label>Código de salón</Label>
+              <Input
+                id="codigo_aula"
+                value={initialData.codigo_aula || '—'}
+                readOnly
+                disabled
+                className="bg-muted font-mono"
+              />
+              <p className="text-xs text-muted-foreground">
+                Se asigna automáticamente (A01, A02…) según el orden en la FCP. Al guardar el nombre o al reordenar salones con el mismo nombre, puede actualizarse.
+              </p>
+            </div>
             <div className="grid gap-2">
               <Label htmlFor="nombre">Nombre *</Label>
               <Input
