@@ -54,6 +54,8 @@ interface DiaIncompleto {
   fechaFormateada: string
   nivel: string
   aulaId: string
+  /** FCP a la que pertenece el salón (necesario al ver “todas las FCPs”). */
+  fcpId: string
   marcados: number
   total: number
 }
@@ -263,22 +265,34 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
         const fechaFinStr = toLocalDateString(fechaFin)
 
         // IMPORTANTE: Incluir aula_id de la asistencia para preservar el aula histórica
-        // También incluir datos del estudiante para poder determinar estudiantes por mes
-        const { data: todasAsistenciasData, error: todasAsistenciasError } = await supabase
-          .from('asistencias')
-          .select(`
-            estudiante_id, 
-            fecha, 
+        // Paginar: el límite por defecto de PostgREST (~1000) truncaba el año y bajaba
+        // artificialmente "marcados", generando alertas de incompleto inexistentes.
+        const selectAsistencias = `
+            estudiante_id,
+            fecha,
             estado,
             aula_id,
             aula:aulas(id, nombre),
             estudiante:estudiantes(id, aula_id)
-          `)
-          .eq('fcp_id', fcp.id)
-          .gte('fecha', fechaInicioStr)
-          .lte('fecha', fechaFinStr)
-
-        if (todasAsistenciasError) throw todasAsistenciasError
+          `
+        let todasAsistenciasData: any[] = []
+        let offsetAsist = 0
+        const pageSizeAsist = 1000
+        let hasMoreAsist = true
+        while (hasMoreAsist) {
+          const { data: page, error: pageErr } = await supabase
+            .from('asistencias')
+            .select(selectAsistencias)
+            .eq('fcp_id', fcp.id)
+            .gte('fecha', fechaInicioStr)
+            .lte('fecha', fechaFinStr)
+            .order('fecha', { ascending: true })
+            .range(offsetAsist, offsetAsist + pageSizeAsist - 1)
+          if (pageErr) throw pageErr
+          todasAsistenciasData = todasAsistenciasData.concat(page || [])
+          hasMoreAsist = (page?.length || 0) === pageSizeAsist
+          offsetAsist += pageSizeAsist
+        }
 
         // Obtener estudiantes activos actuales de la FCP (para meses actuales/futuros)
         const { data: estudiantesActualesData, error: estudiantesError } = await supabase
@@ -288,8 +302,6 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
           .eq('activo', true)
 
         if (estudiantesError) throw estudiantesError
-
-        if (todasAsistenciasError) throw todasAsistenciasError
 
         // Obtener asistencias "presente" para el cálculo
         const asistenciasPresente = todasAsistenciasData?.filter(a => a.estado === 'presente') || []
@@ -341,19 +353,48 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
             aulasParaMes = aulasData || []
           }
 
-          // Para meses anteriores: usar RPC (SECURITY DEFINER) para evitar problemas de RLS
+          // contar: solo meses ya cerrados (totales por día). Alertas: siempre vía RPC (como el resto de reportes).
           const totalPorAulaFechaFCP = new Map<string, number>()
-          if (esMesAnterior && aulasParaMes.length > 0) {
+          if (aulasParaMes.length > 0) {
             const aulaIdsMes = aulasParaMes.map((a: any) => a.id)
-            const { data: rpcData } = await supabase.rpc('contar_estudiantes_por_aula_fecha', {
+            if (esMesAnterior) {
+              const { data: rpcData } = await supabase.rpc('contar_estudiantes_por_aula_fecha', {
+                p_aula_ids: aulaIdsMes,
+                p_fecha_inicio: mesInicioStr,
+                p_fecha_fin: mesFinStr,
+              })
+              ;(rpcData || []).forEach((row: { aula_id: string; fecha: string; total: number }) => {
+                const fechaStr = typeof row.fecha === 'string' ? row.fecha.split('T')[0] : row.fecha
+                totalPorAulaFechaFCP.set(`${row.aula_id}|${fechaStr}`, Number(row.total) || 0)
+              })
+            }
+
+            const { data: rpcDiasIncompletos } = await supabase.rpc('dias_incompletos_por_aula', {
               p_aula_ids: aulaIdsMes,
               p_fecha_inicio: mesInicioStr,
               p_fecha_fin: mesFinStr,
+              p_fcp_id: fcp.id,
             })
-            ;(rpcData || []).forEach((row: { aula_id: string; fecha: string; total: number }) => {
-              const fechaStr = typeof row.fecha === 'string' ? row.fecha.split('T')[0] : row.fecha
-              totalPorAulaFechaFCP.set(`${row.aula_id}|${fechaStr}`, Number(row.total) || 0)
-            })
+            ;(rpcDiasIncompletos || []).forEach(
+              (row: { aula_id: string; aula_nombre: string; fecha: string; marcados: number; total: number }) => {
+                const fechaStr = typeof row.fecha === 'string' ? row.fecha.split('T')[0] : row.fecha
+                const [y, m, d] = fechaStr.split('-').map(Number)
+                const fechaDate = new Date(y, m - 1, d)
+                diasIncompletosGlobales.push({
+                  fecha: fechaStr,
+                  fechaFormateada: fechaDate.toLocaleDateString('es-PE', {
+                    day: 'numeric',
+                    month: 'long',
+                    timeZone: 'America/Lima',
+                  }),
+                  nivel: row.aula_nombre || 'Sin aula',
+                  aulaId: row.aula_id,
+                  fcpId: fcp.id,
+                  marcados: Number(row.marcados) || 0,
+                  total: Number(row.total) || 0,
+                })
+              }
+            )
           }
 
           // Obtener estudiantes según el mes consultado
@@ -444,16 +485,6 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
                 diasDeClases++
                 oportunidadesAula += registradosEnFecha
                 fechasDiasCompletos.add(fechaStr)
-              } else if (marcados > 0 && marcados < registradosEnFecha && registradosEnFecha > 0) {
-                const fechaDate = new Date(selectedYear, mes, dia)
-                diasIncompletosGlobales.push({
-                  fecha: fechaStr,
-                  fechaFormateada: fechaDate.toLocaleDateString('es-PE', { day: 'numeric', month: 'long', timeZone: 'America/Lima' }),
-                  nivel: aula.nombre,
-                  aulaId: aula.id,
-                  marcados,
-                  total: registradosEnFecha,
-                })
               }
             }
 
@@ -1031,10 +1062,10 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
                     const fechaDate = new Date(year, month - 1, day)
                     const yearForUrl = fechaDate.getFullYear()
                     const monthForUrl = fechaDate.getMonth()
-                    const asistenciasUrl = `/asistencias?fcpId=${selectedRole?.fcpId || selectedFCP || ''}&aulaId=${dia.aulaId}&month=${monthForUrl}&year=${yearForUrl}&date=${dia.fecha}`
+                    const asistenciasUrl = `/asistencias?fcpId=${dia.fcpId || selectedRole?.fcpId || selectedFCP || ''}&aulaId=${dia.aulaId}&month=${monthForUrl}&year=${yearForUrl}&date=${dia.fecha}`
                     
                     return (
-                      <li key={`${dia.fecha}-${dia.nivel}-${index}`} className="flex items-center justify-between gap-3 p-2 rounded-md bg-warning/30 border border-warning/60">
+                      <li key={`${dia.fcpId}-${dia.aulaId}-${dia.fecha}-${index}`} className="flex items-center justify-between gap-3 p-2 rounded-md bg-warning/30 border border-warning/60">
                         <span className="flex-1">
                           • <strong>{dia.fechaFormateada}</strong> - Nivel: <strong>{dia.nivel}</strong> - Marcados: {dia.marcados}/{dia.total} estudiantes
                         </span>
