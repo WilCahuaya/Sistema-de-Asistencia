@@ -56,6 +56,9 @@ interface Asistencia {
   fecha: string
   estado: 'presente' | 'falto' | 'permiso'
   aula_id?: string
+  /** Nombre del salón al registrar (persistido; no depende del catálogo actual). */
+  aula_nombre_snapshot?: string | null
+  aula_codigo_snapshot?: string | null
   observaciones?: string
   fcp_id?: string
   created_by?: string | null
@@ -754,6 +757,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
           estado, 
           observaciones,
           aula_id,
+          aula_nombre_snapshot,
+          aula_codigo_snapshot,
           fcp_id,
           created_by,
           updated_by,
@@ -2307,7 +2312,17 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
             nombre_completo: estudiantes.find(e => e.id === selectedAsistenciaForHistorial.estudiante_id)?.nombre_completo || '',
           },
           aula: selectedAsistenciaForHistorial.aula_id
-            ? { id: selectedAsistenciaForHistorial.aula_id, nombre: aulas.find(a => a.id === selectedAsistenciaForHistorial.aula_id)?.nombre || 'Sin aula' }
+            ? {
+                id: selectedAsistenciaForHistorial.aula_id,
+                nombre:
+                  (selectedAsistenciaForHistorial.aula_nombre_snapshot &&
+                    selectedAsistenciaForHistorial.aula_nombre_snapshot.trim()) ||
+                  aulas.find((a) => a.id === selectedAsistenciaForHistorial.aula_id)?.nombre ||
+                  'Sin aula',
+                codigo_aula:
+                  selectedAsistenciaForHistorial.aula_codigo_snapshot ??
+                  aulas.find((a) => a.id === selectedAsistenciaForHistorial.aula_id)?.codigo_aula,
+              }
             : undefined,
         } : null}
         fcpId={fcpId}

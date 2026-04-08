@@ -39,12 +39,23 @@ import {
 } from '@/components/ui/select'
 import { Building2 } from 'lucide-react'
 
+/** Salón tal como quedó registrado en la asistencia (snapshot), con respaldo al aula actual del estudiante. */
+function etiquetaAulaAsistencia(a: Asistencia): string {
+  const snap = a.aula_nombre_snapshot?.trim()
+  if (snap) {
+    return a.aula_codigo_snapshot ? `${snap} · ${a.aula_codigo_snapshot}` : snap
+  }
+  return a.estudiante?.aula?.nombre || '—'
+}
+
 interface Asistencia {
   id: string
   fecha: string
   estado: 'presente' | 'falto' | 'permiso'
   observaciones?: string
   estudiante_id: string
+  aula_nombre_snapshot?: string | null
+  aula_codigo_snapshot?: string | null
   estudiante?: {
     codigo: string
     nombre_completo: string
@@ -489,7 +500,7 @@ export function AsistenciaList() {
                         {isExpanded && (
                           <div className="mt-3 pt-3 border-t space-y-2" onClick={(e) => e.stopPropagation()}>
                             <p className="text-sm text-muted-foreground">
-                              <span className="font-medium text-foreground">Aula:</span> {asistencia.estudiante?.aula?.nombre || '-'}
+                              <span className="font-medium text-foreground">Aula:</span> {etiquetaAulaAsistencia(asistencia)}
                             </p>
                             <p className="text-sm text-muted-foreground">
                               <span className="font-medium text-foreground">Observaciones:</span> {asistencia.observaciones || '-'}
@@ -529,7 +540,7 @@ export function AsistenciaList() {
                         <TableRow key={asistencia.id}>
                           <TableCell className="font-mono">{asistencia.estudiante?.codigo}</TableCell>
                           <TableCell>{asistencia.estudiante?.nombre_completo}</TableCell>
-                          <TableCell>{asistencia.estudiante?.aula?.nombre}</TableCell>
+                          <TableCell>{etiquetaAulaAsistencia(asistencia)}</TableCell>
                           <TableCell>{getEstadoBadge(asistencia.estado)}</TableCell>
                           <TableCell className="max-w-xs truncate">{asistencia.observaciones || '-'}</TableCell>
                           <TableCell>

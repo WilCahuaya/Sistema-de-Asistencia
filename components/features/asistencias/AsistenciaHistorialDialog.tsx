@@ -35,7 +35,8 @@ interface AsistenciaHistorial {
   updated_by_rol?: string | null
   registro_tardio?: boolean
   fcp_id?: string
-  aula?: { id: string; nombre: string }
+  /** id sigue siendo el aula_id guardado; nombre/codigo reflejan el snapshot histórico si el padre los pasa. */
+  aula?: { id: string; nombre: string; codigo_aula?: string | null }
   // Campos legacy (para compatibilidad)
   creador?: {
     email?: string
@@ -155,9 +156,14 @@ export function AsistenciaHistorialDialog({
                     <div>
                       <div className="flex items-center gap-2 mb-1">
                         <BookOpen className="h-4 w-4 text-muted-foreground" />
-                        <p className="text-sm font-medium text-muted-foreground">Aula</p>
+                        <p className="text-sm font-medium text-muted-foreground">Aula (al registrar)</p>
                       </div>
-                      <p className="text-base font-semibold">{asistencia.aula.nombre}</p>
+                      <p className="text-base font-semibold">
+                        {asistencia.aula.nombre}
+                        {asistencia.aula.codigo_aula ? (
+                          <span className="text-muted-foreground font-normal"> · {asistencia.aula.codigo_aula}</span>
+                        ) : null}
+                      </p>
                     </div>
                   )}
                   {tutorNombre !== null && (
