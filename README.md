@@ -42,12 +42,12 @@ cd Asistencia
 npm install
 ```
 
-3. Configurar variables de entorno:
+3. Configurar variables de entorno (la app Next.js vive en `apps/web`):
 ```bash
-cp .env.example .env.local
+cp apps/web/.env.example apps/web/.env.local
 ```
 
-Editar `.env.local` y agregar tus credenciales de Supabase:
+Editar `apps/web/.env.local` y agregar tus credenciales de Supabase:
 ```env
 NEXT_PUBLIC_SUPABASE_URL=tu_url_de_supabase
 NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_anon_key
@@ -68,27 +68,24 @@ npm run dev
 
 Abrir [http://localhost:3000](http://localhost:3000) en el navegador.
 
-## Estructura del Proyecto
+## Estructura del Proyecto (monorepo)
 
 ```
 Asistencia/
-├── app/                    # Next.js App Router
-│   ├── (auth)/            # Rutas de autenticación
-│   ├── (dashboard)/       # Rutas del dashboard (protegidas)
-│   ├── api/               # API routes
-│   └── globals.css        # Estilos globales
-├── components/            # Componentes React
-│   ├── features/         # Componentes por funcionalidad
-│   ├── layout/           # Componentes de layout
-│   └── ui/               # Componentes UI (shadcn/ui)
-├── contexts/             # Contextos de React
-├── lib/                  # Utilidades y helpers
-│   └── supabase/         # Clientes de Supabase
+├── apps/
+│   └── web/                 # Next.js 14 (App Router) — aplicación web
+│       ├── app/
+│       ├── components/
+│       ├── lib/
+│       └── ...
+├── packages/
+│   └── shared/              # Código compartido (tipos, utils) para web y futura app móvil
 ├── supabase/
-│   └── migrations/       # Migraciones SQL
-└── docs/                 # Documentación
-
+│   └── migrations/          # Migraciones SQL
+└── docs/                    # Documentación
 ```
+
+Los comandos `npm run dev|build|start` se ejecutan desde la **raíz** del repo y delegan en `apps/web`.
 
 ## Roles y Permisos
 
@@ -143,11 +140,13 @@ Ver `docs/INSTRUCCIONES_MIGRACIONES.md` para más detalles.
 ### Scripts Disponibles
 
 ```bash
-npm run dev      # Servidor de desarrollo
-npm run build    # Construcción para producción
-npm run start    # Servidor de producción
-npm run lint     # Linting con ESLint
+npm run dev      # next dev en apps/web
+npm run build    # next build en apps/web
+npm run start    # next start en apps/web
+npm run lint     # eslint en apps/web
 ```
+
+**Deploy (Vercel u otro):** directorio raíz del build debe ser **`apps/web`** (o `rootDirectory: apps/web`), y `npm install` en la raíz del monorepo.
 
 ## Seguridad
 
