@@ -239,9 +239,11 @@ export function EstudianteMoverExcelDialog({
 
   const downloadTemplate = () => {
     const headerData = [['Código', 'Aula Destino']]
+    const a0 = aulas[0]
+    const a1 = aulas[1]
     const ejemplo = [
-      ['E001', aulas[0]?.nombre ?? 'Nivel I'],
-      ['E002', aulas[1]?.nombre ?? 'Nivel II'],
+      ['E001', a0 ? (a0.codigo_aula ? `${a0.nombre} | ${a0.codigo_aula}` : a0.nombre) : 'Nivel I'],
+      ['E002', a1 ? (a1.codigo_aula ? `${a1.nombre} | ${a1.codigo_aula}` : a1.nombre) : 'Nivel II'],
     ]
     const workbook = XLSX.utils.book_new()
     const worksheet = XLSX.utils.aoa_to_sheet([...headerData, ...ejemplo])
@@ -304,7 +306,7 @@ export function EstudianteMoverExcelDialog({
               {file && <FileSpreadsheet className="h-5 w-5 shrink-0 text-green-500" />}
             </div>
             <p className="text-xs text-muted-foreground">
-              Encabezados: <strong>Código</strong>, <strong>Aula Destino</strong> (nombre del salón).
+              Encabezados: <strong>Código</strong>, <strong>Aula Destino</strong>. Puedes poner el <strong>nombre</strong>, el <strong>código</strong> (A01…) o <strong>Nombre | A01</strong> si hay salones duplicados.
               {file && previewCount !== null && (
                 <span className="ml-1 text-green-600 dark:text-green-400">
                   • {previewCount} fila(s) válida(s)

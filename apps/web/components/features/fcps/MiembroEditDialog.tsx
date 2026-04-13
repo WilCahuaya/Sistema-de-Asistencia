@@ -69,18 +69,25 @@ export function MiembroEditDialog({
   const supabase = createClient()
   const { isSecretario, isDirector, isFacilitador } = useUserRole(miembro.fcp_id)
   
-  // El director NO puede modificar ni eliminar el rol de director de ningún usuario (incluido él mismo).
-  // PERO SÍ puede agregar otros roles (secretario, tutor) a un director.
-  // El secretario solo puede editar miembros con rol tutor.
-  const canEditThisMember = isFacilitador || isDirector || (isSecretario && miembro.rol === 'tutor')
-  
   // Director/secretario NO pueden ponerse inactivos a sí mismos.
   const isEditingSelf = Boolean(currentUserId && miembro.usuario_id === currentUserId)
+  /** Secretario (sin director) editando su propio registro de secretario: puede añadir también rol tutor. */
+  const canSecretarioGestionarPropioTutor =
+    isSecretario && !isDirector && !isFacilitador && isEditingSelf && miembro.rol === 'secretario'
+
+  // El director NO puede modificar ni eliminar el rol de director de ningún usuario (incluido él mismo).
+  // PERO SÍ puede agregar otros roles (secretario, tutor) a un director.
+  // El secretario puede editar tutores, o a sí mismo como secretario para sumar el rol tutor.
+  const canEditThisMember =
+    isFacilitador ||
+    isDirector ||
+    (isSecretario && miembro.rol === 'tutor') ||
+    canSecretarioGestionarPropioTutor
+  
   const cannotSetInactive = (isDirector && !isFacilitador && isEditingSelf) || (isSecretario && isEditingSelf)
   
-  // Si es director (pero no facilitador), permitir asignar múltiples roles
-  // IMPORTANTE: Un director puede tener también el rol de tutor, pero debe poder gestionar todas las aulas
-  const canAssignMultipleRoles = isDirector && !isFacilitador
+  // Director: roles secretario/tutor adicionales. Secretario solo: su fila secretario + opción tutor.
+  const canAssignMultipleRoles = (isDirector && !isFacilitador) || canSecretarioGestionarPropioTutor
   
   // Obtener usuario actual para reglas (director/secretario no pueden inactivarse a sí mismos)
   useEffect(() => {
@@ -109,9 +116,8 @@ export function MiembroEditDialog({
       setRol(miembro.rol)
       setNombreDisplay(miembro.nombre_display ?? '')
       
-      // Si el usuario es secretario y el miembro no es tutor, mostrar error
-      if (isSecretario && miembro.rol !== 'tutor') {
-        setError('Como secretario, solo puedes editar miembros con rol tutor.')
+      if (isSecretario && miembro.rol !== 'tutor' && !canSecretarioGestionarPropioTutor) {
+        setError('Como secretario, solo puedes editar miembros con rol tutor o tu propia cuenta para sumar tutor.')
       } else {
         setError(null)
       }
@@ -121,7 +127,7 @@ export function MiembroEditDialog({
         loadExistingRoles()
       }
     }
-  }, [miembro, isSecretario, canAssignMultipleRoles])
+  }, [miembro, isSecretario, canAssignMultipleRoles, canSecretarioGestionarPropioTutor])
   
   const loadExistingRoles = async () => {
     if (!miembro?.usuario_id) return
@@ -331,9 +337,8 @@ export function MiembroEditDialog({
       setLoading(true)
       setError(null)
 
-      // Validar permisos: secretarios solo pueden editar tutores
-      if (isSecretario && miembro.rol !== 'tutor') {
-        setError('Como secretario, solo puedes editar miembros con rol tutor.')
+      if (isSecretario && miembro.rol !== 'tutor' && !canSecretarioGestionarPropioTutor) {
+        setError('Como secretario, solo puedes editar miembros con rol tutor o tu propia cuenta para sumar tutor.')
         setLoading(false)
         return
       }
@@ -450,8 +455,8 @@ export function MiembroEditDialog({
 
       if (updateError) {
         if (updateError.code === '42501') {
-          if (isSecretario && miembro.rol !== 'tutor') {
-            setError('Como secretario, solo puedes editar miembros con rol tutor.')
+          if (isSecretario && miembro.rol !== 'tutor' && !canSecretarioGestionarPropioTutor) {
+            setError('Como secretario, solo puedes editar miembros con rol tutor o tu propia cuenta para sumar tutor.')
           } else {
           setError('No tienes permisos para actualizar miembros. Solo los facilitadores, directores y secretarios pueden hacerlo.')
           }
@@ -876,10 +881,10 @@ export function MiembroEditDialog({
             <p className="text-sm">{error}</p>
           </div>
         )}
-        {!canEditThisMember && isSecretario && miembro.rol !== 'tutor' && (
+        {!canEditThisMember && isSecretario && miembro.rol !== 'tutor' && !canSecretarioGestionarPropioTutor && (
           <div className="mb-4 rounded-md bg-amber-50 p-4 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
             <p className="text-sm">
-              Como secretario, solo puedes editar miembros con rol tutor.
+              Como secretario, solo puedes editar miembros con rol tutor o tu propia cuenta para sumar tutor.
             </p>
           </div>
         )}
@@ -915,36 +920,51 @@ export function MiembroEditDialog({
             <div className="grid gap-2">
               <Label>Roles *</Label>
               <div className="space-y-3 border rounded-md p-4">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="rol-secretario"
-                    checked={selectedRoles.includes('secretario')}
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        setSelectedRoles([...selectedRoles, 'secretario'])
-                      } else {
-                        setSelectedRoles(selectedRoles.filter(r => r !== 'secretario'))
-                      }
-                    }}
-                    disabled={!activo || !canEditThisMember}
-                  />
-                  <label
-                    htmlFor="rol-secretario"
-                    className={`text-sm font-medium leading-none ${!activo || !canEditThisMember ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
-                  >
-                    {getRolDisplayName('secretario')}
-                  </label>
-                </div>
+                {canSecretarioGestionarPropioTutor ? (
+                  <p className="text-sm text-muted-foreground">
+                    Conservas el rol de <strong>{getRolDisplayName('secretario')}</strong>. Marca abajo si también impartes un salón como tutor.
+                  </p>
+                ) : (
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="rol-secretario"
+                      checked={selectedRoles.includes('secretario')}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setSelectedRoles([...selectedRoles, 'secretario'])
+                        } else {
+                          setSelectedRoles(selectedRoles.filter(r => r !== 'secretario'))
+                        }
+                      }}
+                      disabled={!activo || !canEditThisMember}
+                    />
+                    <label
+                      htmlFor="rol-secretario"
+                      className={`text-sm font-medium leading-none ${!activo || !canEditThisMember ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                    >
+                      {getRolDisplayName('secretario')}
+                    </label>
+                  </div>
+                )}
                 <div className="flex items-center space-x-2">
                   <Checkbox
                     id="rol-tutor"
                     checked={selectedRoles.includes('tutor')}
                     onCheckedChange={(checked) => {
+                      if (canSecretarioGestionarPropioTutor) {
+                        const base = ['secretario'] as Array<'secretario' | 'tutor'>
+                        if (checked) setSelectedRoles([...base, 'tutor'])
+                        else {
+                          setSelectedRoles(base)
+                          setSelectedAulas([])
+                        }
+                        return
+                      }
                       if (checked) {
                         setSelectedRoles([...selectedRoles, 'tutor'])
                       } else {
                         setSelectedRoles(selectedRoles.filter(r => r !== 'tutor'))
-                        setSelectedAulas([]) // Limpiar aulas si se desmarca tutor
+                        setSelectedAulas([])
                       }
                     }}
                     disabled={!activo || !canEditThisMember}
@@ -957,7 +977,7 @@ export function MiembroEditDialog({
                   </label>
                 </div>
               </div>
-              {selectedRoles.length === 0 && activo && (
+              {selectedRoles.length === 0 && activo && !canSecretarioGestionarPropioTutor && (
                 <p className="text-xs text-muted-foreground">
                   {miembro.rol === 'director' 
                     ? 'Si no seleccionas ningún rol adicional, el director mantendrá solo el rol de director.'
@@ -971,9 +991,11 @@ export function MiembroEditDialog({
               )}
               {activo && (
                 <p className="text-xs text-muted-foreground">
-                  {miembro.rol === 'director' 
-                    ? 'Puedes agregar roles adicionales (secretario y/o tutor) a este director. El rol de director se mantendrá.'
-                    : 'Como director, puedes asignar uno o ambos roles al miembro.'}
+                  {canSecretarioGestionarPropioTutor
+                    ? 'Al marcar tutor debes elegir al menos un salón. Puedes desmarcar tutor si ya no dictas ningún nivel.'
+                    : miembro.rol === 'director' 
+                      ? 'Puedes agregar roles adicionales (secretario y/o tutor) a este director. El rol de director se mantendrá.'
+                      : 'Como director, puedes asignar uno o ambos roles al miembro.'}
                 </p>
               )}
             </div>

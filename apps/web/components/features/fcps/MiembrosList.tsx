@@ -64,12 +64,31 @@ interface MiembrosListProps {
   fcpId: string
 }
 
+/** Fila que se pasa a MiembroEditDialog: prioriza tutor si existe; si no, el registro de secretario (p. ej. secretario editándose a sí mismo). */
+function miembroParaEditarDesdeAgrupado(m: Miembro): Miembro {
+  const roles = m.roles?.length
+    ? m.roles
+    : [{ id: m.id, rol: m.rol, activo: m.activo, fecha_asignacion: m.fecha_asignacion }]
+  const activos = roles.filter((r) => r.activo)
+  const tutor = activos.find((r) => r.rol === 'tutor')
+  if (tutor) {
+    return { ...m, id: tutor.id, rol: 'tutor', activo: tutor.activo, fecha_asignacion: tutor.fecha_asignacion }
+  }
+  const sec = activos.find((r) => r.rol === 'secretario')
+  if (sec) {
+    return { ...m, id: sec.id, rol: 'secretario', activo: sec.activo, fecha_asignacion: sec.fecha_asignacion }
+  }
+  const first = activos[0] ?? roles[0]
+  return { ...m, id: first.id, rol: first.rol as Miembro['rol'], activo: first.activo, fecha_asignacion: first.fecha_asignacion }
+}
+
 export function MiembrosList({ fcpId }: MiembrosListProps) {
   const [miembros, setMiembros] = useState<Miembro[]>([])
   const [loading, setLoading] = useState(true)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [selectedMiembro, setSelectedMiembro] = useState<Miembro | null>(null)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [fcpNombre, setFcpNombre] = useState<string>('')
   const [searchTerm, setSearchTerm] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
@@ -85,6 +104,11 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
       loadFCPNombre()
     }
   }, [fcpId])
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data: { user } }) => setCurrentUserId(user?.id ?? null))
+  }, [])
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 640)
@@ -475,7 +499,12 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                       const nombre = miembro.nombre_display || miembro.usuario?.nombre_completo || 'Sin nombre'
                       const rolesActivos = miembro.roles?.filter((r: any) => r.activo) || []
                       const tieneRolesActivos = rolesActivos.length > 0
-                      const miembroParaEditar = miembro.roles && miembro.roles.length > 0 ? { ...miembro, id: miembro.roles[0].id, rol: miembro.roles[0].rol, activo: miembro.roles[0].activo } : miembro
+                      const miembroParaEditar = miembroParaEditarDesdeAgrupado(miembro)
+                      const secretarioPuedeEditarse =
+                        isSecretario &&
+                        !!currentUserId &&
+                        miembro.usuario_id === currentUserId &&
+                        rolesActivos.some((r: any) => r.rol === 'secretario')
                       const cardKey = miembro.usuario_id || miembro.email_pendiente || miembro.id
                       const isExpanded = expandedCardId === cardKey
                       return (
@@ -511,7 +540,7 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                                     {miembro.aulas.map((a) => <Badge key={a.id} variant="outline" className="text-xs">{a.nombre}</Badge>)}
                                   </div>
                                 )}
-                                {isSecretario ? rolesActivos.some((r: any) => r.rol === 'tutor') && (
+                                {isSecretario ? (rolesActivos.some((r: any) => r.rol === 'tutor') || secretarioPuedeEditarse) && (
                                   <Button variant="outline" size="sm" onClick={() => handleEditMiembro(miembroParaEditar)}><Edit className="h-4 w-4 mr-1" />Editar</Button>
                                 ) : (
                                   <RoleGuard fcpId={fcpId} allowedRoles={['director', 'secretario']}>
@@ -549,7 +578,12 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                           const nombre = miembro.nombre_display || miembro.usuario?.nombre_completo || 'Sin nombre'
                           const rolesActivos = miembro.roles?.filter((r: any) => r.activo) || []
                           const tieneRolesActivos = rolesActivos.length > 0
-                          const miembroParaEditar = miembro.roles && miembro.roles.length > 0 ? { ...miembro, id: miembro.roles[0].id, rol: miembro.roles[0].rol, activo: miembro.roles[0].activo } : miembro
+                          const miembroParaEditar = miembroParaEditarDesdeAgrupado(miembro)
+                          const secretarioPuedeEditarse =
+                            isSecretario &&
+                            !!currentUserId &&
+                            miembro.usuario_id === currentUserId &&
+                            rolesActivos.some((r: any) => r.rol === 'secretario')
                           return (
                             <TableRow key={miembro.usuario_id || miembro.email_pendiente || miembro.id}>
                               <TableCell>{nombre}</TableCell>
@@ -576,7 +610,7 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                                 ) : <span className="text-xs text-muted-foreground">-</span>}
                               </TableCell>
                               <TableCell>
-                                {isSecretario ? rolesActivos.some((r: any) => r.rol === 'tutor') && <Button variant="ghost" size="sm" onClick={() => handleEditMiembro(miembroParaEditar)}><Edit className="h-4 w-4" /></Button> : (
+                                {isSecretario ? (rolesActivos.some((r: any) => r.rol === 'tutor') || secretarioPuedeEditarse) && <Button variant="ghost" size="sm" onClick={() => handleEditMiembro(miembroParaEditar)}><Edit className="h-4 w-4" /></Button> : (
                                   <RoleGuard fcpId={fcpId} allowedRoles={['director', 'secretario']}>
                                     <Button variant="ghost" size="sm" onClick={() => handleEditMiembro(miembroParaEditar)}><Edit className="h-4 w-4" /></Button>
                                   </RoleGuard>

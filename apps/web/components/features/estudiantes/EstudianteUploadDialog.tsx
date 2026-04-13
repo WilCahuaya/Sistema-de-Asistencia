@@ -22,13 +22,83 @@ interface EstudianteUploadDialogProps {
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
   fcpId: string
-  aulas: Array<{ id: string; nombre: string }>
+  aulas: Array<{ id: string; nombre: string; codigo_aula?: string | null }>
 }
 
 interface EstudianteRow {
   codigo: string
   nombre_completo: string
   aula: string
+  /** Columna opcional del Excel para desambiguar salones con el mismo nombre */
+  codigo_aula?: string
+}
+
+function isHeaderCodigoAula(h: string) {
+  const x = h.toLowerCase().trim()
+  if (x === 'codigo_aula' || x === 'código_aula') return true
+  return (
+    (x.includes('codigo') || x.includes('código')) &&
+    x.includes('aula') &&
+    !x.includes('estudiante') &&
+    !x.includes('alumno')
+  )
+}
+
+function isHeaderAulaNombre(h: string) {
+  const x = h.toLowerCase().trim()
+  if (isHeaderCodigoAula(x)) return false
+  return (
+    x === 'aula' ||
+    x.includes('aula') ||
+    x.includes('salón') ||
+    x.includes('salon') ||
+    x.includes('nivel')
+  )
+}
+
+/** Resuelve aula_id: prioriza código; admite "Nombre | A01" en una sola celda. */
+function buildAulaResolver(aulas: Array<{ id: string; nombre: string; codigo_aula?: string | null }>) {
+  const byCodigo = new Map<string, string>()
+  const nombreToIds = new Map<string, string[]>()
+
+  for (const a of aulas) {
+    const nk = a.nombre.toLowerCase().trim()
+    const list = nombreToIds.get(nk) ?? []
+    list.push(a.id)
+    nombreToIds.set(nk, list)
+    if (a.codigo_aula) {
+      byCodigo.set(String(a.codigo_aula).toLowerCase().trim(), a.id)
+    }
+  }
+
+  const resolve = (
+    nombreCelda: string,
+    codigoCelda?: string
+  ): { id: string | null; ambiguoPorNombre?: boolean } => {
+    const codExtra = (codigoCelda ?? '').trim()
+    if (codExtra) {
+      const id = byCodigo.get(codExtra.toLowerCase())
+      return id ? { id } : { id: null }
+    }
+
+    const raw = nombreCelda.trim()
+    if (!raw) return { id: null }
+
+    const lower = raw.toLowerCase()
+    if (byCodigo.has(lower)) return { id: byCodigo.get(lower)! }
+
+    if (lower.includes('|')) {
+      const last = lower.split('|').pop()!.trim()
+      if (last && byCodigo.has(last)) return { id: byCodigo.get(last)! }
+    }
+
+    const ids = nombreToIds.get(lower) ?? []
+    if (ids.length === 1) return { id: ids[0] }
+    if (ids.length > 1) return { id: null, ambiguoPorNombre: true }
+    return { id: null }
+  }
+
+  return { resolve, byCodigo, nombreToIds }
 }
 
 export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, aulas }: EstudianteUploadDialogProps) {
@@ -74,13 +144,25 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
           }
 
           // Esperar encabezados: Código, Nombre Completo, Aula
-          const headers = jsonData[0].map((h: any) => String(h || '').toLowerCase().trim())
-          const codigoIndex = headers.findIndex((h: string) => h.includes('código') || h.includes('codigo'))
+          const headersRaw = jsonData[0].map((h: any) => String(h || '').trim())
+          const headers = headersRaw.map((h: string) => h.toLowerCase().trim())
+          const codigoIndex = headers.findIndex(
+            (h: string) =>
+              (h.includes('código') || h.includes('codigo')) &&
+              !h.includes('aula') &&
+              !h.includes('salón') &&
+              !h.includes('salon')
+          )
           const nombreIndex = headers.findIndex((h: string) => h.includes('nombre'))
-          const aulaIndex = headers.findIndex((h: string) => h.includes('aula'))
+          const aulaIndex = headersRaw.findIndex((h: string) => isHeaderAulaNombre(h))
+          const codigoAulaColIndex = headersRaw.findIndex((h: string) => isHeaderCodigoAula(h))
 
           if (codigoIndex === -1 || nombreIndex === -1 || aulaIndex === -1) {
-            reject(new Error('El archivo debe tener columnas: Código, Nombre Completo (o Nombre), Aula'))
+            reject(
+              new Error(
+                'El archivo debe tener columnas: Código (alumno), Nombre Completo (o Nombre), Aula (o Salón/Nivel). Opcional: Código aula (ej. A01) si hay salones con el mismo nombre.'
+              )
+            )
             return
           }
 
@@ -90,9 +172,11 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
             const codigo = String(row[codigoIndex] || '').trim()
             const nombre_completo = String(row[nombreIndex] || '').trim()
             const aula = String(row[aulaIndex] || '').trim()
+            const codigo_aula =
+              codigoAulaColIndex >= 0 ? String(row[codigoAulaColIndex] ?? '').trim() : undefined
 
             if (codigo && nombre_completo && aula) {
-              estudiantes.push({ codigo, nombre_completo, aula })
+              estudiantes.push({ codigo, nombre_completo, aula, codigo_aula })
             }
           }
 
@@ -131,17 +215,26 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('No autenticado')
 
-      // Crear un mapa de nombres de aulas a IDs
-      const aulaMap = new Map(aulas.map(a => [a.nombre.toLowerCase().trim(), a.id]))
+      const { resolve } = buildAulaResolver(aulas)
 
       const errors: string[] = []
       let successCount = 0
 
       // Validar aulas primero
       for (const estudiante of estudiantes) {
-        const aulaId = aulaMap.get(estudiante.aula.toLowerCase().trim())
+        const { id: aulaId, ambiguoPorNombre } = resolve(estudiante.aula, estudiante.codigo_aula)
         if (!aulaId) {
-          errors.push(`Aula "${estudiante.aula}" no encontrada para estudiante ${estudiante.codigo}`)
+          if (ambiguoPorNombre) {
+            errors.push(
+              `Aula "${estudiante.aula}" está repetida en la FCP; en la columna "Código aula" pon A01, A02… o escribe "Nombre | A01" en Aula (${estudiante.codigo}).`
+            )
+          } else if (estudiante.codigo_aula) {
+            errors.push(
+              `Código de aula "${estudiante.codigo_aula}" no coincide con ningún salón para ${estudiante.codigo}.`
+            )
+          } else {
+            errors.push(`Aula "${estudiante.aula}" no encontrada para estudiante ${estudiante.codigo}`)
+          }
         }
       }
 
@@ -155,7 +248,7 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
       // Preparar estudiantes válidos
       const estudiantesToInsert: any[] = []
       for (const estudiante of estudiantes) {
-        const aulaId = aulaMap.get(estudiante.aula.toLowerCase().trim())
+        const { id: aulaId } = resolve(estudiante.aula, estudiante.codigo_aula)
         if (aulaId) {
           estudiantesToInsert.push({
             codigo: estudiante.codigo,
@@ -258,20 +351,27 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
   }
 
   const downloadTemplate = () => {
-    // Crear solo los encabezados (formato vacío)
-    const headerData = [
-      ['Código', 'Nombre Completo', 'Aula'],
-    ]
+    const headerData = [['Código', 'Nombre Completo', 'Aula', 'Código aula (opcional)']]
+    const ejemplo =
+      aulas.length > 0
+        ? [
+            [
+              'E001',
+              'Ejemplo Alumno',
+              aulas[0].nombre,
+              aulas[0].codigo_aula ?? '',
+            ],
+          ]
+        : []
 
-    // Crear workbook
     const workbook = XLSX.utils.book_new()
-    const worksheet = XLSX.utils.aoa_to_sheet(headerData)
+    const worksheet = XLSX.utils.aoa_to_sheet([...headerData, ...ejemplo])
 
-    // Ajustar ancho de columnas
     worksheet['!cols'] = [
-      { wch: 15 }, // Código
-      { wch: 30 }, // Nombre Completo
-      { wch: 20 }, // Aula
+      { wch: 15 },
+      { wch: 30 },
+      { wch: 28 },
+      { wch: 22 },
     ]
 
     // Agregar hoja al workbook
@@ -293,7 +393,8 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
         <DialogHeader>
           <DialogTitle>Cargar Estudiantes desde Excel</DialogTitle>
           <DialogDescription>
-            Sube un archivo Excel con las columnas: <strong>Código</strong>, <strong>Nombre Completo</strong> (o <strong>Nombre</strong>), y <strong>Aula</strong>
+            Columnas: <strong>Código</strong> (alumno), <strong>Nombre Completo</strong> (o Nombre), <strong>Aula</strong> (nombre del salón).
+            Si hay varios salones con el mismo nombre, usa la columna opcional <strong>Código aula</strong> (A01, A02…) o escribe en Aula: <strong>Nombre | A01</strong>.
           </DialogDescription>
         </DialogHeader>
 
@@ -335,7 +436,7 @@ export function EstudianteUploadDialog({ open, onOpenChange, onSuccess, fcpId, a
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              El archivo debe tener un encabezado con: Código, Nombre Completo (o Nombre), Aula.
+              Encabezados: Código, Nombre Completo (o Nombre), Aula. Opcional: «Código aula» para desambiguar.
               {aulas.length === 0 && (
                 <span className="block mt-1 text-amber-600 dark:text-amber-400">
                   ⚠️ Primero debes crear aulas para poder descargar el formato.
