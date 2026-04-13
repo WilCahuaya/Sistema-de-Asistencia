@@ -39,6 +39,7 @@ export function HabilitarCorreccionDialog({
 }: HabilitarCorreccionDialogProps) {
   const [dias, setDias] = useState<3 | 5 | 7>(5)
   const [loading, setLoading] = useState(false)
+  const [loadingAnual, setLoadingAnual] = useState(false)
 
   const handleSubmit = async () => {
     try {
@@ -63,6 +64,33 @@ export function HabilitarCorreccionDialog({
       toast.error('Error al habilitar corrección', e instanceof Error ? e.message : 'Intenta nuevamente.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handlePermisoAnual = async () => {
+    try {
+      setLoadingAnual(true)
+      const supabase = createClient()
+      const { data, error } = await supabase.rpc('habilitar_permiso_tardio_anual', {
+        p_fcp_id: fcpId,
+        p_dias: 15,
+      })
+      if (error) throw error
+      const result = data as { ok?: boolean; error?: string; fecha_limite?: string }
+      if (!result?.ok && result?.error) {
+        throw new Error(result.error)
+      }
+      toast.success(
+        'Permiso anual habilitado',
+        `Ventana anual activada. Fecha límite: ${result?.fecha_limite ?? 'N/A'}.`
+      )
+      await onSuccess()
+      onOpenChange(false)
+    } catch (e: unknown) {
+      console.error('Error habilitando permiso anual:', e)
+      toast.error('Error al habilitar permiso anual', e instanceof Error ? e.message : 'Intenta nuevamente.')
+    } finally {
+      setLoadingAnual(false)
     }
   }
 
@@ -97,12 +125,22 @@ export function HabilitarCorreccionDialog({
               ))}
             </RadioGroup>
           </div>
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+            <p className="font-medium">Permiso anual único</p>
+            <p>
+              Si la FCP empezó tarde, puedes habilitar una ventana excepcional para registro/corrección
+              de meses pasados por 15 días. Solo se puede usar una vez por año.
+            </p>
+          </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading || loadingAnual}>
             Cancelar
           </Button>
-          <Button onClick={handleSubmit} disabled={loading}>
+          <Button variant="outline" onClick={handlePermisoAnual} disabled={loading || loadingAnual}>
+            {loadingAnual ? 'Habilitando anual...' : 'Habilitar permiso anual'}
+          </Button>
+          <Button onClick={handleSubmit} disabled={loading || loadingAnual}>
             {loading ? 'Habilitando…' : 'Habilitar corrección'}
           </Button>
         </DialogFooter>

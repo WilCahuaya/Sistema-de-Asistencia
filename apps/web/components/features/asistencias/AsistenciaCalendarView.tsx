@@ -27,6 +27,7 @@ import { MonthPicker } from '@/components/ui/month-picker'
 import { AsistenciaHistorialDialog } from './AsistenciaHistorialDialog'
 import { AsistenciaCalendarioModal } from './AsistenciaCalendarioModal'
 import { useCorreccionMes, esMesPasado } from '@/hooks/useCorreccionMes'
+import { usePermisoTardioAnual } from '@/hooks/usePermisoTardioAnual'
 import { CorreccionMesBanner } from './CorreccionMesBanner'
 import { HabilitarCorreccionDialog } from './HabilitarCorreccionDialog'
 import { Badge } from '@/components/ui/badge'
@@ -253,6 +254,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const { puedeRegistrar: tutorPuedeRegistrar } = useTutorPuedeRegistrarAula(fcpId, selectedAula)
   const mesNum = selectedMonth + 1
   const { data: correccionMes, loading: correccionLoading, refetch: refetchCorreccion } = useCorreccionMes(fcpId, selectedYear, mesNum)
+  const { activo: permisoAnualActivo, refetch: refetchPermisoAnual } = usePermisoTardioAnual(fcpId)
   const esMesPasadoVista = esMesPasado(selectedYear, mesNum)
   const correccionHabilitada = correccionMes?.estado === 'correccion_habilitada'
   /** Semana de gracia después del cierre del mes: aún se puede registrar sin corrección del facilitador */
@@ -270,8 +272,12 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         if (role === 'tutor' && tutorPuedeRegistrar) return true
         return false
       }
-      // Mes pasado fuera de gracia: director/secretario solo con corrección habilitada por el facilitador
-      if (vista < actual && correccionHabilitada && (role === 'secretario' || role === 'director')) return true
+      // Mes pasado fuera de gracia: director/secretario con corrección mensual o permiso anual único
+      if (
+        vista < actual &&
+        (correccionHabilitada || permisoAnualActivo) &&
+        (role === 'secretario' || role === 'director')
+      ) return true
       return false
     })()
   const showHabilitarCorreccion =
@@ -282,7 +288,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
 
   const showAgregarEstudianteMes =
     esMesPasadoVista &&
-    (correccionHabilitada || enGraciaRegistro) &&
+    (correccionHabilitada || permisoAnualActivo || enGraciaRegistro) &&
     (role === 'director' || role === 'secretario') &&
     !!selectedAula
 
@@ -1718,6 +1724,12 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
             className="mb-4"
           />
         )}
+        {esMesPasadoVista && permisoAnualActivo && (
+          <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-200">
+            <strong>Permiso anual activo:</strong> director y secretario pueden registrar/corregir asistencias
+            de meses pasados durante esta ventana excepcional.
+          </div>
+        )}
         {loading && estudiantes.length === 0 ? (
           <div className="text-center py-8">Cargando estudiantes...</div>
         ) : !loading && estudiantes.length === 0 ? (
@@ -2334,6 +2346,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         onOpenChange={setHabilitarCorreccionOpen}
         onSuccess={async () => {
           await refetchCorreccion()
+          await refetchPermisoAnual()
           loadAsistenciasMes()
         }}
         fcpId={fcpId}
