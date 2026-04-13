@@ -24,7 +24,6 @@ import { EstudianteMoverExcelDialog } from './EstudianteMoverExcelDialog'
 import { EstudianteRetirarDialog } from './EstudianteRetirarDialog'
 import { EstudianteReactivarDialog } from './EstudianteReactivarDialog'
 import { useUserRole } from '@/hooks/useUserRole'
-import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import {
   Pagination,
@@ -120,7 +119,19 @@ export function EstudianteList() {
   // Usar el fcpId del rol seleccionado si está disponible
   const fcpIdFromRole = selectedRole?.fcpId
   
-  const { canEdit } = useUserRole(selectedFCP || fcpIdFromRole)
+  const {
+    loading: userRoleLoading,
+    membershipsLoading,
+    rolesInFcp,
+    role: roleInFcp,
+  } = useUserRole(selectedFCP || fcpIdFromRole)
+
+  /** Un solo criterio para toda la lista (evita N×RoleGuard + estados desincronizados por fila). */
+  const canManageEstudiantes =
+    !userRoleLoading &&
+    !membershipsLoading &&
+    ((roleInFcp !== null && (roleInFcp === 'director' || roleInFcp === 'secretario')) ||
+      rolesInFcp.some((r) => r === 'director' || r === 'secretario'))
   const cardRef = useRef<HTMLDivElement>(null)
   const defaultWidthRef = useRef<number | null>(null) // Ancho por defecto del contenedor
 
@@ -1026,7 +1037,7 @@ export function EstudianteList() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {(isDirector || isSecretario) && (
+            {canManageEstudiantes && (
               <>
                 {selectedIds.size > 0 && (
                   <Button
@@ -1090,7 +1101,7 @@ export function EstudianteList() {
             <p className="text-muted-foreground mb-4">
               {searchTerm ? 'No se encontraron estudiantes con ese criterio' : 'No hay estudiantes registrados'}
             </p>
-            <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
+            {canManageEstudiantes && (
               <div className="flex gap-2">
                 <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedFCP || aulas.length === 0}>
                   <Plus className="mr-2 h-4 w-4" />
@@ -1103,7 +1114,7 @@ export function EstudianteList() {
                   </Button>
                 )}
               </div>
-            </RoleGuard>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -1182,7 +1193,7 @@ export function EstudianteList() {
                           onClick={() => setExpandedCardId(isExpanded ? null : estudiante.id)}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']} fallback={null}>
+                            {canManageEstudiantes ? (
                               <div onClick={(e) => e.stopPropagation()} className="shrink-0 pt-0.5">
                                 <Checkbox
                                   checked={selectedIds.has(estudiante.id)}
@@ -1196,7 +1207,7 @@ export function EstudianteList() {
                                   aria-label={`Seleccionar ${estudiante.nombre_completo}`}
                                 />
                               </div>
-                            </RoleGuard>
+                            ) : null}
                             <div className="min-w-0 flex-1">
                               <p className="font-mono text-sm text-muted-foreground">{estudiante.codigo}</p>
                               <p className="font-medium truncate">{estudiante.nombre_completo}</p>
@@ -1222,7 +1233,7 @@ export function EstudianteList() {
                               <p className="text-sm text-muted-foreground">
                                 <span className="font-medium text-foreground">Tutor:</span> {estudiante.tutor || 'Sin tutor'}
                               </p>
-                              <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']} fallback={null}>
+                              {canManageEstudiantes && (
                                 <div className="flex gap-2 pt-2">
                                   <Button variant="outline" size="sm" className="flex-1" onClick={() => { setSelectedEstudianteForEdit(estudiante); setIsEditDialogOpen(true) }}>
                                     <Edit className="h-4 w-4 mr-1" />
@@ -1241,7 +1252,7 @@ export function EstudianteList() {
                                     <ArrowRight className="h-4 w-4" />
                                   </Button>
                                 </div>
-                              </RoleGuard>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1258,7 +1269,7 @@ export function EstudianteList() {
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-10">
-                          <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']} fallback={null}>
+                          {canManageEstudiantes ? (
                             <Checkbox
                               checked={displayEstudiantes.length > 0 && displayEstudiantes.every((e) => selectedIds.has(e.id))}
                               onCheckedChange={(v) => {
@@ -1270,7 +1281,7 @@ export function EstudianteList() {
                               }}
                               aria-label="Seleccionar todos"
                             />
-                          </RoleGuard>
+                          ) : null}
                         </TableHead>
                         <TableHead>Código</TableHead>
                         <TableHead>Nombre Completo</TableHead>
@@ -1291,7 +1302,7 @@ export function EstudianteList() {
                         displayEstudiantes.map((estudiante) => (
                           <TableRow key={estudiante.id}>
                             <TableCell className="w-10">
-                              <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']} fallback={<span />}>
+                              {canManageEstudiantes ? (
                                 <Checkbox
                                   checked={selectedIds.has(estudiante.id)}
                                   onCheckedChange={(v) => {
@@ -1303,7 +1314,9 @@ export function EstudianteList() {
                                   disabled={!estudiante.activo}
                                   aria-label={`Seleccionar ${estudiante.nombre_completo}`}
                                 />
-                              </RoleGuard>
+                              ) : (
+                                <span className="inline-block w-4" aria-hidden />
+                              )}
                             </TableCell>
                             <TableCell className="font-mono">{estudiante.codigo}</TableCell>
                             <TableCell>{estudiante.nombre_completo}</TableCell>
@@ -1321,11 +1334,7 @@ export function EstudianteList() {
                               </span>
                             </TableCell>
                             <TableCell>
-                              <RoleGuard
-                                fcpId={selectedFCP}
-                                allowedRoles={['director', 'secretario']}
-                                fallback={<span className="text-sm text-muted-foreground">Solo lectura</span>}
-                              >
+                              {canManageEstudiantes ? (
                                 <div className="flex items-center gap-1">
                                   <Button variant="ghost" size="sm" onClick={() => { setSelectedEstudianteForEdit(estudiante); setIsEditDialogOpen(true) }} title="Editar datos del estudiante">
                                     <Edit className="h-4 w-4" />
@@ -1343,7 +1352,9 @@ export function EstudianteList() {
                                     <ArrowRight className="h-4 w-4" />
                                   </Button>
                                 </div>
-                              </RoleGuard>
+                              ) : (
+                                <span className="text-sm text-muted-foreground">Solo lectura</span>
+                              )}
                             </TableCell>
                           </TableRow>
                         ))
