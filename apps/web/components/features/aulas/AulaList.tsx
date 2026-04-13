@@ -58,6 +58,20 @@ function ordenNumerico(orden: unknown): number {
   return 0
 }
 
+/** Salones de una FCP en el mismo orden que usa el listado (orden → nombre → id). */
+function aulasDeFcpOrdenadas(list: Aula[], fcpId: string): Aula[] {
+  return list
+    .filter((a) => a.fcp_id === fcpId)
+    .sort((a, b) => {
+      const oa = ordenNumerico(a.orden)
+      const ob = ordenNumerico(b.orden)
+      if (oa !== ob) return oa - ob
+      const na = (a.nombre || '').localeCompare(b.nombre || '')
+      if (na !== 0) return na
+      return a.id.localeCompare(b.id)
+    })
+}
+
 interface Aula {
   id: string
   nombre: string
@@ -470,11 +484,9 @@ export function AulaList() {
     setIsTutorDialogOpen(true)
   }
 
-  /** Reordenar salones con el mismo nombre en la FCP (intercambia orden y recalcula códigos en BD) */
+  /** Reordenar salones dentro de la FCP (intercambia `orden` con el vecino en el listado; recalcula códigos en BD). */
   const handleMoveOrden = async (aula: Aula, dir: 'up' | 'down') => {
-    const siblings = aulas
-      .filter((a) => a.fcp_id === aula.fcp_id && a.nombre === aula.nombre)
-      .sort((a, b) => ordenNumerico(a.orden) - ordenNumerico(b.orden))
+    const siblings = aulasDeFcpOrdenadas(aulas, aula.fcp_id)
     if (siblings.length <= 1) return
     const idx = siblings.findIndex((a) => a.id === aula.id)
     const j = dir === 'up' ? idx - 1 : idx + 1
@@ -776,9 +788,7 @@ export function AulaList() {
                           {canManageAulas && (
                             <div className="flex flex-wrap items-center gap-2 pt-1">
                               {(() => {
-                                const siblings = aulas
-                                  .filter((a) => a.fcp_id === aula.fcp_id && a.nombre === aula.nombre)
-                                  .sort((a, b) => ordenNumerico(a.orden) - ordenNumerico(b.orden))
+                                const siblings = aulasDeFcpOrdenadas(aulas, aula.fcp_id)
                                 if (siblings.length <= 1) return null
                                 const idx = siblings.findIndex((a) => a.id === aula.id)
                                 return (
@@ -788,7 +798,7 @@ export function AulaList() {
                                       variant="outline"
                                       size="sm"
                                       className="h-8 w-8 p-0"
-                                      title="Subir en el listado (mismo nombre)"
+                                      title="Subir en el listado de la FCP"
                                       disabled={idx === 0 || reordenandoId !== null}
                                       onClick={(e) => {
                                         e.stopPropagation()
@@ -802,7 +812,7 @@ export function AulaList() {
                                       variant="outline"
                                       size="sm"
                                       className="h-8 w-8 p-0"
-                                      title="Bajar en el listado (mismo nombre)"
+                                      title="Bajar en el listado de la FCP"
                                       disabled={idx >= siblings.length - 1 || reordenandoId !== null}
                                       onClick={(e) => {
                                         e.stopPropagation()
