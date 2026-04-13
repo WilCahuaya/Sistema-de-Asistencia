@@ -17,6 +17,9 @@ interface UseUserRoleResult {
   isTutor: boolean
   canEdit: boolean // Facilitador, Director o Secretario
   canViewReports: boolean // Facilitador, Director o Secretario
+  /** Roles activos en fcp_miembros (independiente del rol seleccionado en la UI) */
+  hasDirectorMembership: boolean
+  hasSecretarioMembership: boolean
 }
 
 /**
@@ -31,7 +34,42 @@ export function useUserRole(fcpId: string | null | undefined): UseUserRoleResult
   const [role, setRole] = useState<RolType>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
+  const [memberRolesInFcp, setMemberRolesInFcp] = useState<RolType[]>([])
   const { selectedRole, loading: roleContextLoading } = useSelectedRole()
+
+  /** Todos los roles en la FCP (p. ej. secretario+tutor) sin depender del rol elegido en el menú */
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      if (!resolvedFcpId || roleContextLoading) {
+        setMemberRolesInFcp([])
+        return
+      }
+      const supabase = createClient()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user || cancelled) {
+        setMemberRolesInFcp([])
+        return
+      }
+      const { data, error: qErr } = await supabase
+        .from('fcp_miembros')
+        .select('rol')
+        .eq('usuario_id', user.id)
+        .eq('fcp_id', resolvedFcpId)
+        .eq('activo', true)
+      if (cancelled) return
+      if (qErr) {
+        setMemberRolesInFcp([])
+        return
+      }
+      setMemberRolesInFcp((data ?? []).map((r: { rol: string }) => r.rol as RolType))
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [resolvedFcpId, roleContextLoading])
 
   useEffect(() => {
     let cancelled = false
@@ -211,6 +249,8 @@ export function useUserRole(fcpId: string | null | undefined): UseUserRoleResult
   // Facilitadores NO pueden editar (solo ver)
   const canEdit = isDirector || isSecretario
   const canViewReports = isFacilitador || isDirector || isSecretario
+  const hasDirectorMembership = memberRolesInFcp.includes('director')
+  const hasSecretarioMembership = memberRolesInFcp.includes('secretario')
 
   return {
     role,
@@ -222,6 +262,8 @@ export function useUserRole(fcpId: string | null | undefined): UseUserRoleResult
     isTutor,
     canEdit,
     canViewReports,
+    hasDirectorMembership,
+    hasSecretarioMembership,
   }
 }
 

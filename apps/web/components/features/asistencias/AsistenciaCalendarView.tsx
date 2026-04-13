@@ -246,7 +246,12 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const longPressTimerRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
   const prevAulaRef = useRef<string | null>(null) // Para detectar cambios de aula
   const { selectedRole } = useSelectedRole()
-  const { canEdit, role: roleFromHook } = useUserRole(fcpId)
+  const {
+    canEdit,
+    role: roleFromHook,
+    hasDirectorMembership,
+    hasSecretarioMembership,
+  } = useUserRole(fcpId)
   // Priorizar el rol seleccionado explícitamente para evitar mezcla de roles (ej: tutor viendo todos los salones)
   const role = (selectedRole && selectedRole.fcpId === fcpId)
     ? selectedRole.role
@@ -254,11 +259,17 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const { puedeRegistrar: tutorPuedeRegistrar } = useTutorPuedeRegistrarAula(fcpId, selectedAula)
   const mesNum = selectedMonth + 1
   const { data: correccionMes, loading: correccionLoading, refetch: refetchCorreccion } = useCorreccionMes(fcpId, selectedYear, mesNum)
-  const { activo: permisoAnualActivo, refetch: refetchPermisoAnual } = usePermisoTardioAnual(fcpId)
+  const {
+    activo: permisoAnualActivo,
+    fechaLimite: permisoAnualFechaLimite,
+    refetch: refetchPermisoAnual,
+  } = usePermisoTardioAnual(fcpId)
   const esMesPasadoVista = esMesPasado(selectedYear, mesNum)
   const correccionHabilitada = correccionMes?.estado === 'correccion_habilitada'
   /** Semana de gracia después del cierre del mes: aún se puede registrar sin corrección del facilitador */
   const enGraciaRegistro = mesPermiteRegistroSinCorreccionFacilitador(selectedYear, selectedMonth)
+  /** Puede registrar/corregir como director o secretario aunque en el menú esté seleccionado otro rol (p. ej. tutor). */
+  const esDirectorOSecretarioEnFcp = hasDirectorMembership || hasSecretarioMembership
   const puedeEditarMes =
     (() => {
       const { year: cy, month: cm0 } = getCurrentMonthYearInAppTimezone()
@@ -268,15 +279,15 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       if (vista > actual) return canEdit && (role === 'director' || role === 'secretario')
       // Mes actual o mes pasado dentro de 7 días naturales tras el último día del mes
       if (enGraciaRegistro) {
-        if (canEdit && (role === 'director' || role === 'secretario')) return true
+        if (esDirectorOSecretarioEnFcp) return true
         if (role === 'tutor' && tutorPuedeRegistrar) return true
         return false
       }
-      // Mes pasado fuera de gracia: director/secretario con corrección mensual o permiso anual único
+      // Mes pasado fuera de gracia: director/secretario (membresía real) con corrección mensual o permiso anual único
       if (
         vista < actual &&
         (correccionHabilitada || permisoAnualActivo) &&
-        (role === 'secretario' || role === 'director')
+        esDirectorOSecretarioEnFcp
       ) return true
       return false
     })()
@@ -289,7 +300,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const showAgregarEstudianteMes =
     esMesPasadoVista &&
     (correccionHabilitada || permisoAnualActivo || enGraciaRegistro) &&
-    (role === 'director' || role === 'secretario') &&
+    esDirectorOSecretarioEnFcp &&
     !!selectedAula
 
   const showQuitarEstudianteMes = showAgregarEstudianteMes
@@ -1714,7 +1725,11 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
             </span>
           </div>
         )}
-        {esMesPasadoVista && !enGraciaRegistro && correccionMes && !correccionLoading && (
+        {esMesPasadoVista &&
+          !enGraciaRegistro &&
+          correccionMes &&
+          !correccionLoading &&
+          !(correccionMes.estado === 'cerrado' && puedeEditarMes) && (
           <CorreccionMesBanner
             estado={correccionMes.estado}
             habilitadoPorNombre={correccionMes.habilitadoPorNombre}
@@ -1726,8 +1741,23 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
         )}
         {esMesPasadoVista && permisoAnualActivo && (
           <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-200">
-            <strong>Permiso anual activo:</strong> director y secretario pueden registrar/corregir asistencias
-            de meses pasados durante esta ventana excepcional.
+            <strong>Permiso anual activo:</strong> director y secretario pueden registrar o corregir asistencias de
+            meses pasados durante esta ventana.
+            {permisoAnualFechaLimite && (
+              <>
+                {' '}
+                <span className="font-medium">
+                  Cierra el{' '}
+                  {new Date(permisoAnualFechaLimite + 'T12:00:00').toLocaleDateString('es-PE', {
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                    timeZone: 'America/Lima',
+                  })}
+                </span>{' '}
+                (inclusive).
+              </>
+            )}
           </div>
         )}
         {loading && estudiantes.length === 0 ? (

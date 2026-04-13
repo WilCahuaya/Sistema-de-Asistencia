@@ -5,11 +5,14 @@ import { createClient } from '@/lib/supabase/client'
 
 export function usePermisoTardioAnual(fcpId: string | null) {
   const [activo, setActivo] = useState(false)
+  /** Fecha inclusive hasta la que aplica el permiso anual (solo si activo) */
+  const [fechaLimite, setFechaLimite] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   const refetch = useCallback(async () => {
     if (!fcpId) {
       setActivo(false)
+      setFechaLimite(null)
       setLoading(false)
       return
     }
@@ -21,9 +24,20 @@ export function usePermisoTardioAnual(fcpId: string | null) {
         p_fcp_id: fcpId,
       })
       if (error) throw error
-      setActivo(Boolean(data))
+      const ok = Boolean(data)
+      setActivo(ok)
+      if (ok) {
+        const { data: fl, error: e2 } = await supabase.rpc('permiso_tardio_anual_fecha_limite', {
+          p_fcp_id: fcpId,
+        })
+        if (!e2 && fl) setFechaLimite(String(fl))
+        else setFechaLimite(null)
+      } else {
+        setFechaLimite(null)
+      }
     } catch {
       setActivo(false)
+      setFechaLimite(null)
     } finally {
       setLoading(false)
     }
@@ -33,6 +47,6 @@ export function usePermisoTardioAnual(fcpId: string | null) {
     refetch()
   }, [refetch])
 
-  return { activo, loading, refetch }
+  return { activo, fechaLimite, loading, refetch }
 }
 
