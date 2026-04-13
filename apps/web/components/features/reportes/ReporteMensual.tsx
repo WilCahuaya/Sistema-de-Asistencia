@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button'
 import { MonthPicker } from '@/components/ui/month-picker'
 import { FileSpreadsheet, FileText, Calendar } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
-import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useRouter } from 'next/navigation'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import { useSearchParams } from 'next/navigation'
@@ -37,6 +36,8 @@ import { getAvailableTableWidth, getProportionalColumnStyles, type PDFTableColum
 
 interface ReporteMensualProps {
   fcpId: string | null
+  /** Solo estas aulas (p. ej. salones del tutor); no listar ni calcular el resto de la FCP. */
+  soloAulasIds?: string[] | null
 }
 
 interface NivelData {
@@ -67,7 +68,7 @@ interface ReporteData {
   diasIncompletos: DiaIncompleto[]
 }
 
-export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
+export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null }: ReporteMensualProps) {
   const searchParams = useSearchParams()
   const autoGenerate = searchParams.get('auto') === 'true'
   const yearParam = searchParams.get('year')
@@ -91,6 +92,9 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
   const [mobileSearch, setMobileSearch] = useState('')
   const [mobilePage, setMobilePage] = useState(1)
   const { canViewReports, loading: roleLoading, role } = useUserRole(selectedFCP)
+  const puedeVerEsteReporte =
+    canViewReports ||
+    (role === 'tutor' && Array.isArray(soloAulasIds) && soloAulasIds.length > 0)
   const router = useRouter()
   const { selectedRole } = useSelectedRole()
 
@@ -368,13 +372,22 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         throw todasAsistenciasError
       }
 
+      let asistenciasDelMes: any[] = todasAsistenciasData || []
+      if (soloAulasIds && soloAulasIds.length > 0) {
+        const permitidas = new Set(soloAulasIds)
+        asistenciasDelMes = asistenciasDelMes.filter((asist: any) => {
+          const aid = asist.aula_id || asist.estudiante?.aula_id
+          return aid && permitidas.has(aid)
+        })
+      }
+
       // Obtener estudiantes según el mes consultado
       let estudiantesData: any[] = []
 
       if (esMesAnterior) {
         // Para meses anteriores, obtener estudiantes únicos de las asistencias
         const estudiantesMap = new Map<string, any>()
-        todasAsistenciasData?.forEach((asist: any) => {
+        asistenciasDelMes.forEach((asist: any) => {
           if (asist.estudiante && !estudiantesMap.has(asist.estudiante_id)) {
             estudiantesMap.set(asist.estudiante_id, {
               id: asist.estudiante.id,
@@ -402,6 +415,10 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         }
 
         estudiantesData = estudiantesDataQuery || []
+        if (soloAulasIds && soloAulasIds.length > 0) {
+          const permitidas = new Set(soloAulasIds)
+          estudiantesData = estudiantesData.filter((e: any) => e.aula_id && permitidas.has(e.aula_id))
+        }
         
         console.log('📊 [ReporteMensual] Estudiantes cargados (mes actual/futuro):', {
           total: estudiantesData.length
@@ -415,7 +432,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         // Para meses anteriores, obtener aulas únicas de las asistencias
         // Usar aula_id de la asistencia con fallback al del estudiante
         const aulasMap = new Map<string, any>()
-        todasAsistenciasData?.forEach((asist: any) => {
+        asistenciasDelMes.forEach((asist: any) => {
           const aulaId = asist.aula_id || asist.estudiante?.aula_id
           if (aulaId && !aulasMap.has(aulaId)) {
             aulasMap.set(aulaId, {
@@ -450,9 +467,9 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         })
       }
 
-      if (todasAsistenciasError) {
-        console.error('❌ [ReporteMensual] Error obteniendo asistencias:', todasAsistenciasError)
-        throw todasAsistenciasError
+      if (soloAulasIds && soloAulasIds.length > 0) {
+        const permitidas = new Set(soloAulasIds)
+        aulasData = aulasData.filter((a: any) => permitidas.has(a.id))
       }
 
       // Cargar tutores de las aulas para el reporte
@@ -482,7 +499,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
       }
 
       // Obtener asistencias "presente" para el cálculo del reporte
-      const asistenciasPresente = todasAsistenciasData?.filter(a => a.estado === 'presente') || []
+      const asistenciasPresente = asistenciasDelMes.filter((a: any) => a.estado === 'presente')
 
       // Para meses anteriores: usar RPC (SECURITY DEFINER) para evitar problemas de RLS con facilitadores
       const totalPorAulaYFecha = new Map<string, number>() // key: `${aulaId}|${fechaStr}` -> total
@@ -559,7 +576,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         
         // MISMA LÓGICA que vista Asistencias: contar por (estudiante_id, fecha) sin filtrar por aula_id
         const asistenciasPorFecha = new Map<string, Set<string>>()
-        todasAsistenciasData?.forEach((asistencia: any) => {
+        asistenciasDelMes.forEach((asistencia: any) => {
           if (!estudiantesAulaIds.has(asistencia.estudiante_id)) return
           const fecha = asistencia.fecha
           if (!asistenciasPorFecha.has(fecha)) asistenciasPorFecha.set(fecha, new Set())
@@ -586,7 +603,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
         let totalAsistenciasPresente = 0
         let oportunidadesAulaSum = 0 // Suma de registradosEnFecha por cada día completo (cuando usamos períodos)
         const todasAsistenciasPorEstudianteFecha: { [key: string]: string } = {}
-        todasAsistenciasData?.forEach((asistencia: any) => {
+        asistenciasDelMes.forEach((asistencia: any) => {
           if (estudiantesAulaIds.has(asistencia.estudiante_id)) {
             const key = `${asistencia.estudiante_id}-${asistencia.fecha}`
             todasAsistenciasPorEstudianteFecha[key] = asistencia.estado
@@ -985,13 +1002,13 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
     )
   }
 
-  if (!roleLoading && !canViewReports) {
+  if (!roleLoading && !puedeVerEsteReporte) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
           <Calendar className="h-12 w-12 text-muted-foreground mb-4" />
           <p className="text-muted-foreground mb-4">
-            No tienes permisos para ver reportes. Solo los facilitadores, directores y secretarios pueden acceder a esta funcionalidad.
+            No tienes permisos para ver este reporte.
           </p>
         </CardContent>
       </Card>
@@ -1067,7 +1084,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
             </div>
           </div>
 
-          <RoleGuard fcpId={selectedFCP} allowedRoles={['facilitador', 'director', 'secretario']}>
+          {puedeVerEsteReporte && (
             <div className="mt-4">
               <Button onClick={generarReporte} disabled={loading || !selectedFCP}>
                 {loading ? (
@@ -1088,7 +1105,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
                 </p>
               )}
             </div>
-          </RoleGuard>
+          )}
         </CardContent>
       </Card>
 
@@ -1097,7 +1114,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
           <CardHeader>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <CardTitle className="min-w-0 flex-1">Reporte Mensual Generado</CardTitle>
-              <RoleGuard fcpId={selectedFCP} allowedRoles={['facilitador', 'director', 'secretario']}>
+              {puedeVerEsteReporte && (
                 <div className="flex flex-shrink-0 flex-wrap gap-2">
                   <Button variant="outline" onClick={exportarExcel}>
                     <FileSpreadsheet className="mr-2 h-4 w-4" />
@@ -1108,7 +1125,7 @@ export function ReporteMensual({ fcpId: fcpIdProp }: ReporteMensualProps) {
                     PDF
                   </Button>
                 </div>
-              </RoleGuard>
+              )}
             </div>
           </CardHeader>
           <CardContent>

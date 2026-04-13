@@ -48,10 +48,7 @@ export function DashboardNav() {
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  const isTutor = selectedRole?.role === 'tutor'
-  const navigation = (!roleLoading && isTutor)
-    ? allNavigation.filter(item => item.name !== 'Reportes')
-    : allNavigation
+  const navigation = allNavigation
 
   const NavLinks = () => (
     <>

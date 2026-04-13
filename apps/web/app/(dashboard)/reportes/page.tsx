@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { ReporteList } from '@/components/features/reportes/ReporteList'
 import { ReporteAsistenciaPorNivel } from '@/components/features/reportes/ReporteAsistenciaPorNivel'
 import { ReporteMensual } from '@/components/features/reportes/ReporteMensual'
@@ -11,6 +11,7 @@ import { useUserRole } from '@/hooks/useUserRole'
 import { useSearchParams } from 'next/navigation'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import { BarChart3 } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 
 function ReportesPageContent() {
   const searchParams = useSearchParams()
@@ -26,19 +27,82 @@ function ReportesPageContent() {
   )
   
   const { isFacilitador, isDirector, isSecretario, isTutor } = useUserRole(fcpIdParaReporte || null)
+  const [tutorAulaIds, setTutorAulaIds] = useState<string[] | null>(null)
 
-  // Si es tutor, mostrar mensaje de acceso denegado
+  useEffect(() => {
+    if (!isTutor || !fcpIdParaReporte) {
+      setTutorAulaIds(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user || cancelled) return
+      const { data: miembros } = await supabase
+        .from('fcp_miembros')
+        .select('id')
+        .eq('usuario_id', user.id)
+        .eq('fcp_id', fcpIdParaReporte)
+        .eq('rol', 'tutor')
+        .eq('activo', true)
+      const mids = miembros?.map((m) => m.id) ?? []
+      if (mids.length === 0) {
+        if (!cancelled) setTutorAulaIds([])
+        return
+      }
+      const { data: ta } = await supabase
+        .from('tutor_aula')
+        .select('aula_id')
+        .in('fcp_miembro_id', mids)
+        .eq('activo', true)
+      if (cancelled) return
+      const ids = [...new Set((ta ?? []).map((t) => t.aula_id).filter(Boolean) as string[])]
+      setTutorAulaIds(ids)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isTutor, fcpIdParaReporte])
+
   if (isTutor) {
+    if (tutorAulaIds === null) {
+      return (
+        <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-8 lg:px-8">
+          <div className="text-center py-12 text-muted-foreground">Cargando reportes de tu salón…</div>
+        </div>
+      )
+    }
+    if (tutorAulaIds.length === 0) {
+      return (
+        <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-8 lg:px-8">
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-12">
+              <BarChart3 className="h-12 w-12 text-muted-foreground mb-4" />
+              <p className="text-muted-foreground text-center max-w-md">
+                No tienes un salón asignado como tutor en este proyecto, o la asignación está inactiva. Cuando te asignen un salón, aquí verás el reporte de asistencia de ese salón.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )
+    }
     return (
       <div className="mx-auto max-w-7xl px-3 py-6 sm:px-6 sm:py-8 lg:px-8">
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <BarChart3 className="h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground mb-4 text-center">
-              No tienes permisos para ver reportes. Solo los facilitadores, directores y secretarios pueden acceder a esta funcionalidad.
+        <div className="mb-4 sm:mb-8">
+          <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Reportes de mi salón</h1>
+          <p className="text-sm text-muted-foreground mt-2">
+            Asistencia del o los salones donde eres tutor en esta FCP (reporte mensual).
+          </p>
+        </div>
+        {selectedRole?.fcp && (
+          <div className="mb-4 p-3 bg-muted border border-border rounded-md">
+            <p className="text-sm font-medium text-foreground">
+              <strong>PROYECTO:</strong> {selectedRole.fcp.numero_identificacion || ''} {selectedRole.fcp.razon_social || 'FCP'}
             </p>
-          </CardContent>
-        </Card>
+          </div>
+        )}
+        <ReporteMensual fcpId={fcpIdParaReporte ?? null} soloAulasIds={tutorAulaIds} />
       </div>
     )
   }
