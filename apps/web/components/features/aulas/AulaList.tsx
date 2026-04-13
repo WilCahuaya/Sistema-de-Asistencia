@@ -38,7 +38,6 @@ import {
 import { useRouter } from 'next/navigation'
 import { useUserRole } from '@/hooks/useUserRole'
 import { toast } from '@/lib/toast'
-import { RoleGuard } from '@/components/auth/RoleGuard'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 
 interface TutorInfo {
@@ -109,8 +108,23 @@ export function AulaList() {
   
   // Usar el fcpId del rol seleccionado si está disponible
   const fcpIdFromRole = selectedRole?.fcpId
-  
-  const { isTutor, isFacilitador: isFacilitadorFromHook } = useUserRole(selectedFCP || fcpIdFromRole)
+  const fcpIdForRole = selectedFCP || fcpIdFromRole
+
+  const {
+    isTutor,
+    isFacilitador: isFacilitadorFromHook,
+    role: roleInFcp,
+    loading: userRoleLoading,
+    membershipsLoading,
+    rolesInFcp,
+  } = useUserRole(fcpIdForRole)
+
+  /** Un solo criterio para toda la lista (evita N×RoleGuard + N×useUserRole con estados desincronizados). */
+  const canManageAulas =
+    !userRoleLoading &&
+    !membershipsLoading &&
+    ((roleInFcp !== null && (roleInFcp === 'director' || roleInFcp === 'secretario')) ||
+      rolesInFcp.some((r) => r === 'director' || r === 'secretario'))
 
   useEffect(() => {
     loadUserFCPs()
@@ -606,7 +620,7 @@ export function AulaList() {
         
         <div className="flex items-center gap-4">
           {/* Toggle para mostrar aulas inactivas - solo para directores y secretarios */}
-          <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
+          {canManageAulas && (
             <button
               onClick={() => setShowInactive(!showInactive)}
               className={`group inline-flex items-center gap-2 px-4 py-2 rounded-full 
@@ -626,14 +640,14 @@ export function AulaList() {
                 {showInactive ? 'Ocultando inactivas' : 'Mostrar inactivas'}
               </span>
             </button>
-          </RoleGuard>
+          )}
           
-          <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
+          {canManageAulas && (
             <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedFCP}>
               <Plus className="mr-2 h-4 w-4" />
               Crear Aula
             </Button>
-          </RoleGuard>
+          )}
         </div>
       </div>
 
@@ -646,12 +660,12 @@ export function AulaList() {
                 ? 'No tienes aulas asignadas. Contacta a un facilitador para que te asigne las aulas que debes gestionar.'
                 : 'No hay aulas registradas para esta FCP.'}
             </p>
-            <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
+            {canManageAulas && (
               <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedFCP}>
                 <Plus className="mr-2 h-4 w-4" />
                 Crear primera aula
               </Button>
-            </RoleGuard>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -723,8 +737,9 @@ export function AulaList() {
                           {aula.descripcion && (
                             <p className="text-sm text-muted-foreground">{aula.descripcion}</p>
                           )}
-                          <RoleGuard fcpId={selectedFCP} allowedRoles={['director', 'secretario']}>
-                            {aula.tutor && aula.tutorAulaId && (
+                          {canManageAulas &&
+                            aula.tutor &&
+                            aula.tutorAulaId && (
                               <div
                                 onClick={(ev) => ev.stopPropagation()}
                                 className="flex items-center gap-2"
@@ -743,7 +758,6 @@ export function AulaList() {
                                 </Label>
                               </div>
                             )}
-                          </RoleGuard>
                           {aula.tutorPuedeRegistrarAsistencia && (
                             <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1.5">
                               <ClipboardCheck className="h-3.5 w-3.5 shrink-0" />
@@ -759,7 +773,7 @@ export function AulaList() {
                               <span className="font-medium">FCP:</span> {aula.fcp.razon_social}
                             </p>
                           )}
-                          <RoleGuard fcpId={aula.fcp_id || selectedFCP} allowedRoles={['director', 'secretario']}>
+                          {canManageAulas && (
                             <div className="flex flex-wrap items-center gap-2 pt-1">
                               {(() => {
                                 const siblings = aulas
@@ -824,7 +838,7 @@ export function AulaList() {
                                 <Edit className="mr-1.5 h-3.5 w-3.5" />
                                 Editar
                               </Button>
-                              <DropdownMenu>
+                              <DropdownMenu modal={false}>
                                 <DropdownMenuTrigger asChild>
                                   <Button
                                     type="button"
@@ -860,7 +874,7 @@ export function AulaList() {
                                 </DropdownMenuContent>
                               </DropdownMenu>
                             </div>
-                          </RoleGuard>
+                          )}
                         </div>
                       </CardContent>
                     </div>
