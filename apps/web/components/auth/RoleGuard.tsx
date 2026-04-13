@@ -9,6 +9,13 @@ interface RoleGuardProps {
   allowedRoles: RolType[]
   fallback?: ReactNode
   children: ReactNode
+  /**
+   * Si es true (por defecto), cuenta los roles reales en `fcp_miembros` para esta FCP,
+   * no solo el rol elegido en el menú. Así un usuario secretario+tutor sigue viendo
+   * acciones de director/secretario aunque tenga seleccionado «tutor».
+   * Desactiva solo si necesitas depender exclusivamente del rol mostrado.
+   */
+  matchMembership?: boolean
 }
 
 /**
@@ -38,16 +45,25 @@ export function RoleGuard({
   fcpId, 
   allowedRoles, 
   fallback = null, 
-  children 
+  children,
+  matchMembership = true,
 }: RoleGuardProps) {
-  const { role, loading } = useUserRole(fcpId)
+  const { role, loading, rolesInFcp, membershipsLoading } = useUserRole(fcpId)
 
   if (loading) {
-    // Mientras carga, no mostrar nada (evita parpadeo)
     return null
   }
 
-  if (!role || !allowedRoles.includes(role)) {
+  if (fcpId && matchMembership && membershipsLoading) {
+    return null
+  }
+
+  const bySelectedRole = role !== null && allowedRoles.includes(role)
+  const byMembership =
+    matchMembership &&
+    rolesInFcp.some((r) => r !== null && allowedRoles.includes(r))
+
+  if (!bySelectedRole && !byMembership) {
     return <>{fallback}</>
   }
 

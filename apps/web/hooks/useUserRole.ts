@@ -15,11 +15,15 @@ interface UseUserRoleResult {
   isDirector: boolean
   isSecretario: boolean
   isTutor: boolean
-  canEdit: boolean // Facilitador, Director o Secretario
+  canEdit: boolean // Director o Secretario (por membresía o rol mostrado)
   canViewReports: boolean // Facilitador, Director o Secretario
   /** Roles activos en fcp_miembros (independiente del rol seleccionado en la UI) */
   hasDirectorMembership: boolean
   hasSecretarioMembership: boolean
+  /** Lista de roles activos en esta FCP (misma fuente que las membresías anteriores) */
+  rolesInFcp: RolType[]
+  /** True hasta terminar la consulta de roles en fcp_miembros para esta FCP */
+  membershipsLoading: boolean
 }
 
 /**
@@ -35,22 +39,29 @@ export function useUserRole(fcpId: string | null | undefined): UseUserRoleResult
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
   const [memberRolesInFcp, setMemberRolesInFcp] = useState<RolType[]>([])
+  const [membershipsLoading, setMembershipsLoading] = useState(true)
   const { selectedRole, loading: roleContextLoading } = useSelectedRole()
 
   /** Todos los roles en la FCP (p. ej. secretario+tutor) sin depender del rol elegido en el menú */
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      if (!resolvedFcpId || roleContextLoading) {
+      if (!resolvedFcpId) {
         setMemberRolesInFcp([])
+        setMembershipsLoading(false)
         return
       }
+      if (roleContextLoading) {
+        return
+      }
+      setMembershipsLoading(true)
       const supabase = createClient()
       const {
         data: { user },
       } = await supabase.auth.getUser()
       if (!user || cancelled) {
         setMemberRolesInFcp([])
+        setMembershipsLoading(false)
         return
       }
       const { data, error: qErr } = await supabase
@@ -62,9 +73,11 @@ export function useUserRole(fcpId: string | null | undefined): UseUserRoleResult
       if (cancelled) return
       if (qErr) {
         setMemberRolesInFcp([])
+        setMembershipsLoading(false)
         return
       }
       setMemberRolesInFcp((data ?? []).map((r: { rol: string }) => r.rol as RolType))
+      setMembershipsLoading(false)
     })()
     return () => {
       cancelled = true
@@ -246,11 +259,13 @@ export function useUserRole(fcpId: string | null | undefined): UseUserRoleResult
   const isDirector = role === 'director'
   const isSecretario = role === 'secretario'
   const isTutor = role === 'tutor'
-  // Facilitadores NO pueden editar (solo ver)
-  const canEdit = isDirector || isSecretario
-  const canViewReports = isFacilitador || isDirector || isSecretario
+  // Facilitadores NO pueden editar (solo ver). Incluye membresía real para quien tiene varios roles
+  // pero en el menú eligió otro (p. ej. secretario+tutor con «tutor» seleccionado).
   const hasDirectorMembership = memberRolesInFcp.includes('director')
   const hasSecretarioMembership = memberRolesInFcp.includes('secretario')
+  const canEdit =
+    hasDirectorMembership || hasSecretarioMembership || isDirector || isSecretario
+  const canViewReports = isFacilitador || isDirector || isSecretario
 
   return {
     role,
@@ -264,6 +279,8 @@ export function useUserRole(fcpId: string | null | undefined): UseUserRoleResult
     canViewReports,
     hasDirectorMembership,
     hasSecretarioMembership,
+    rolesInFcp: memberRolesInFcp,
+    membershipsLoading,
   }
 }
 
