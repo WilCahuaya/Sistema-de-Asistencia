@@ -266,6 +266,14 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   } = usePermisoTardioAnual(fcpId)
   const esMesPasadoVista = esMesPasado(selectedYear, mesNum)
   const correccionHabilitada = correccionMes?.estado === 'correccion_habilitada'
+  /**
+   * Gracia de 7 días, corrección mensual del facilitador o permiso anual.
+   * Debe coincidir con la lógica de puedeEditarMes + trigger en BD.
+   */
+  const ventanaEdicionParaFechaMes = (fy: number, mesNum1a12: number) =>
+    mesPermiteRegistroSinCorreccionFacilitador(fy, mesNum1a12 - 1) ||
+    correccionHabilitada ||
+    permisoAnualActivo
   /** Semana de gracia después del cierre del mes: aún se puede registrar sin corrección del facilitador */
   const enGraciaRegistro = mesPermiteRegistroSinCorreccionFacilitador(selectedYear, selectedMonth)
   /** Puede registrar/corregir como director o secretario aunque en el menú esté seleccionado otro rol (p. ej. tutor). */
@@ -908,9 +916,11 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     if (!puedeEditarMes) return
 
     const [fy, fm] = fechaStr.split('-').map(Number)
-    const puedeSinCorreccion = mesPermiteRegistroSinCorreccionFacilitador(fy, fm - 1)
-    if (!puedeSinCorreccion && !correccionHabilitada) {
-      toast.warning('Corrección no habilitada', 'El facilitador debe habilitar la corrección para poder editar.')
+    if (!ventanaEdicionParaFechaMes(fy, fm)) {
+      toast.warning(
+        'No se puede editar esta fecha',
+        'Fuera del plazo de gracia y sin ventana de corrección ni permiso anual activo para esta FCP.'
+      )
       return
     }
 
@@ -1055,8 +1065,11 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     if (!puedeEditarMes) return
 
     const [fyDel, fmDel] = fechaStr.split('-').map(Number)
-    if (!mesPermiteRegistroSinCorreccionFacilitador(fyDel, fmDel - 1) && !correccionHabilitada) {
-      toast.warning('Corrección no habilitada', 'El facilitador debe habilitar la corrección para poder editar.')
+    if (!ventanaEdicionParaFechaMes(fyDel, fmDel)) {
+      toast.warning(
+        'No se puede editar esta fecha',
+        'Fuera del plazo de gracia y sin ventana de corrección ni permiso anual activo para esta FCP.'
+      )
       return
     }
 
@@ -1199,8 +1212,11 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     if (!puedeEditarMes || !selectedAula) return
 
     const [fyM, fmM] = fechaStr.split('-').map(Number)
-    if (!mesPermiteRegistroSinCorreccionFacilitador(fyM, fmM - 1) && !correccionHabilitada) {
-      toast.warning('Corrección no habilitada', 'El facilitador debe habilitar la corrección para poder editar.')
+    if (!ventanaEdicionParaFechaMes(fyM, fmM)) {
+      toast.warning(
+        'No se puede editar esta fecha',
+        'Fuera del plazo de gracia y sin ventana de corrección ni permiso anual activo para esta FCP.'
+      )
       return
     }
 
@@ -1455,8 +1471,11 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     if (!puedeEditarMes || !selectedAula) return
 
     const [fyE, fmE] = fechaStr.split('-').map(Number)
-    if (!mesPermiteRegistroSinCorreccionFacilitador(fyE, fmE - 1) && !correccionHabilitada) {
-      toast.warning('Corrección no habilitada', 'El facilitador debe habilitar la corrección para poder editar.')
+    if (!ventanaEdicionParaFechaMes(fyE, fmE)) {
+      toast.warning(
+        'No se puede editar esta fecha',
+        'Fuera del plazo de gracia y sin ventana de corrección ni permiso anual activo para esta FCP.'
+      )
       return
     }
 

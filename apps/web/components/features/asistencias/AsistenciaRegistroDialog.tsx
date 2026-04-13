@@ -18,6 +18,7 @@ import { Calendar, CheckCircle2 } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useTutorPuedeRegistrarAula } from '@/hooks/useTutorPuedeRegistrarAula'
 import { useCorreccionMes } from '@/hooks/useCorreccionMes'
+import { usePermisoTardioAnual } from '@/hooks/usePermisoTardioAnual'
 import { toast } from '@/lib/toast'
 import { getCurrentMonthYearInAppTimezone, mesPermiteRegistroSinCorreccionFacilitador } from '@/lib/utils/dateUtils'
 
@@ -54,7 +55,14 @@ export function AsistenciaRegistroDialog({
   const [estudiantes, setEstudiantes] = useState<Estudiante[]>([])
   const [asistencias, setAsistencias] = useState<Map<string, AsistenciaFormData>>(new Map())
   const [savedCount, setSavedCount] = useState(0)
-  const { canEdit, role } = useUserRole(fcpId)
+  const {
+    canEdit,
+    role,
+    hasDirectorMembership,
+    hasSecretarioMembership,
+  } = useUserRole(fcpId)
+  const { activo: permisoAnualActivo } = usePermisoTardioAnual(fcpId)
+  const esDirectorOSecretarioEnFcp = hasDirectorMembership || hasSecretarioMembership
   const { puedeRegistrar: tutorPuedeRegistrar } = useTutorPuedeRegistrarAula(fcpId, aulaId)
   const [y, m] = (() => {
     const d = new Date(fecha + 'T12:00:00')
@@ -74,7 +82,13 @@ export function AsistenciaRegistroDialog({
       if (role === 'tutor' && tutorPuedeRegistrar) return true
       return false
     }
-    if (vista < actual && correccionHabilitada && (role === 'secretario' || role === 'director')) return true
+    if (
+      vista < actual &&
+      (correccionHabilitada || permisoAnualActivo) &&
+      esDirectorOSecretarioEnFcp
+    ) {
+      return true
+    }
     return false
   })()
 
@@ -188,8 +202,15 @@ export function AsistenciaRegistroDialog({
       return
     }
 
-    if (!mesPermiteRegistroSinCorreccionFacilitador(y, month0Fecha) && !correccionHabilitada) {
-      toast.warning('Corrección no habilitada', 'El facilitador debe habilitar la corrección para ese mes o el plazo de registro ya venció.')
+    if (
+      !mesPermiteRegistroSinCorreccionFacilitador(y, month0Fecha) &&
+      !correccionHabilitada &&
+      !permisoAnualActivo
+    ) {
+      toast.warning(
+        'No se puede registrar en esta fecha',
+        'Fuera del plazo de gracia y sin corrección del facilitador ni permiso anual activo.'
+      )
       return
     }
 
