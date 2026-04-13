@@ -1725,40 +1725,71 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
             </span>
           </div>
         )}
-        {esMesPasadoVista &&
-          !enGraciaRegistro &&
-          correccionMes &&
-          !correccionLoading &&
-          !(correccionMes.estado === 'cerrado' && puedeEditarMes) && (
-          <CorreccionMesBanner
-            estado={correccionMes.estado}
-            habilitadoPorNombre={correccionMes.habilitadoPorNombre}
-            fechaLimite={correccionMes.fechaLimite}
-            mesLabel={formatMonthYear(selectedMonth, selectedYear)}
-            esFacilitador={role === 'facilitador'}
-            className="mb-4"
-          />
-        )}
-        {esMesPasadoVista && permisoAnualActivo && (
-          <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-200">
-            <strong>Permiso anual activo:</strong> director y secretario pueden registrar o corregir asistencias de
-            meses pasados durante esta ventana.
-            {permisoAnualFechaLimite && (
-              <>
-                {' '}
-                <span className="font-medium">
-                  Cierra el{' '}
-                  {new Date(permisoAnualFechaLimite + 'T12:00:00').toLocaleDateString('es-PE', {
-                    day: 'numeric',
-                    month: 'long',
-                    year: 'numeric',
-                    timeZone: 'America/Lima',
-                  })}
-                </span>{' '}
-                (inclusive).
-              </>
-            )}
-          </div>
+        {esMesPasadoVista && !enGraciaRegistro && !correccionLoading && (
+          <>
+            {puedeEditarMes && correccionHabilitada && correccionMes ? (
+              <CorreccionMesBanner
+                estado="correccion_habilitada"
+                habilitadoPorNombre={correccionMes.habilitadoPorNombre}
+                fechaLimite={correccionMes.fechaLimite}
+                mesLabel={formatMonthYear(selectedMonth, selectedYear)}
+                esFacilitador={role === 'facilitador'}
+                className="mb-4"
+              />
+            ) : puedeEditarMes && permisoAnualActivo && esDirectorOSecretarioEnFcp ? (
+              <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-200">
+                <strong>Puedes registrar o corregir asistencias de {formatMonthYear(selectedMonth, selectedYear)}</strong>{' '}
+                por el <strong>permiso anual</strong> de la FCP.
+                {permisoAnualFechaLimite && (
+                  <>
+                    {' '}
+                    La ventana cierra el{' '}
+                    <span className="font-medium">
+                      {new Date(permisoAnualFechaLimite + 'T12:00:00').toLocaleDateString('es-PE', {
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric',
+                        timeZone: 'America/Lima',
+                      })}
+                    </span>{' '}
+                    (inclusive).
+                  </>
+                )}
+              </div>
+            ) : permisoAnualActivo && !esDirectorOSecretarioEnFcp ? (
+              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+                <strong>Mes en solo lectura para tu rol.</strong> Hay un permiso anual activo en la FCP: solo{' '}
+                <strong>director y secretario</strong> pueden registrar o corregir asistencias de meses pasados
+                {permisoAnualFechaLimite && (
+                  <>
+                    {' '}
+                    hasta el{' '}
+                    <span className="font-medium">
+                      {new Date(permisoAnualFechaLimite + 'T12:00:00').toLocaleDateString('es-PE', {
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric',
+                        timeZone: 'America/Lima',
+                      })}
+                    </span>{' '}
+                    (inclusive)
+                  </>
+                )}
+                .
+              </div>
+            ) : correccionMes &&
+              !puedeEditarMes &&
+              (correccionMes.estado === 'cerrado' || correccionMes.estado === 'bloqueado') ? (
+              <CorreccionMesBanner
+                estado={correccionMes.estado}
+                habilitadoPorNombre={correccionMes.habilitadoPorNombre}
+                fechaLimite={correccionMes.fechaLimite}
+                mesLabel={formatMonthYear(selectedMonth, selectedYear)}
+                esFacilitador={role === 'facilitador'}
+                className="mb-4"
+              />
+            ) : null}
+          </>
         )}
         {loading && estudiantes.length === 0 ? (
           <div className="text-center py-8">Cargando estudiantes...</div>
