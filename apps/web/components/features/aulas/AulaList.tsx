@@ -49,6 +49,16 @@ interface TutorInfo {
   displayName?: string
 }
 
+/** Valor numérico de `aulas.orden` desde la API (p. ej. string en algunos clientes) */
+function ordenNumerico(orden: unknown): number {
+  if (typeof orden === 'number' && Number.isFinite(orden)) return orden
+  if (typeof orden === 'string' && orden.trim() !== '') {
+    const n = Number(orden)
+    if (Number.isFinite(n)) return n
+  }
+  return 0
+}
+
 interface Aula {
   id: string
   nombre: string
@@ -268,8 +278,8 @@ export function AulaList() {
             .map((ta: any) => ta.aula)
             .filter((aula: any) => aula && aula.activa)
             .sort((a: any, b: any) => {
-              const oa = a.orden ?? 0
-              const ob = b.orden ?? 0
+              const oa = ordenNumerico(a.orden)
+              const ob = ordenNumerico(b.orden)
               if (oa !== ob) return oa - ob
               return a.nombre.localeCompare(b.nombre)
             })
@@ -311,8 +321,8 @@ export function AulaList() {
 
         const raw = aulasData || []
         data = [...raw].sort((a: any, b: any) => {
-          const oa = typeof a.orden === 'number' ? a.orden : 0
-          const ob = typeof b.orden === 'number' ? b.orden : 0
+          const oa = ordenNumerico(a.orden)
+          const ob = ordenNumerico(b.orden)
           if (oa !== ob) return oa - ob
           return (a.nombre || '').localeCompare(b.nombre || '')
         })
@@ -448,23 +458,20 @@ export function AulaList() {
 
   /** Reordenar salones con el mismo nombre en la FCP (intercambia orden y recalcula códigos en BD) */
   const handleMoveOrden = async (aula: Aula, dir: 'up' | 'down') => {
-    if (!aulas.some((a) => typeof a.orden === 'number')) {
-      toast.error(
-        'Orden no disponible',
-        'Ejecuta la migración de base de datos (columna orden en aulas) o contacta al administrador.',
-      )
-      return
-    }
     const siblings = aulas
       .filter((a) => a.fcp_id === aula.fcp_id && a.nombre === aula.nombre)
-      .sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
+      .sort((a, b) => ordenNumerico(a.orden) - ordenNumerico(b.orden))
     if (siblings.length <= 1) return
     const idx = siblings.findIndex((a) => a.id === aula.id)
     const j = dir === 'up' ? idx - 1 : idx + 1
     if (j < 0 || j >= siblings.length) return
     const other = siblings[j]
-    const ordA = aula.orden ?? 0
-    const ordB = other.orden ?? 0
+    let ordA = ordenNumerico(aula.orden)
+    let ordB = ordenNumerico(other.orden)
+    if (ordA === ordB) {
+      ordA = idx
+      ordB = j
+    }
     try {
       setReordenandoId(aula.id)
       const supabase = createClient()
@@ -755,10 +762,9 @@ export function AulaList() {
                           <RoleGuard fcpId={aula.fcp_id || selectedFCP} allowedRoles={['director', 'secretario']}>
                             <div className="flex flex-wrap items-center gap-2 pt-1">
                               {(() => {
-                                if (!aulas.some((a) => typeof a.orden === 'number')) return null
                                 const siblings = aulas
                                   .filter((a) => a.fcp_id === aula.fcp_id && a.nombre === aula.nombre)
-                                  .sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
+                                  .sort((a, b) => ordenNumerico(a.orden) - ordenNumerico(b.orden))
                                 if (siblings.length <= 1) return null
                                 const idx = siblings.findIndex((a) => a.id === aula.id)
                                 return (
