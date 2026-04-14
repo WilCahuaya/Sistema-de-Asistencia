@@ -27,9 +27,11 @@ import { UserPlus } from 'lucide-react'
 
 interface Tutor {
   usuario_fcp_id: string
-  usuario_id: string
+  usuario_id: string | null
   email: string
   nombre_completo?: string
+  /** Invitación pendiente (sin fila en usuarios aún) */
+  esInvitacionPendiente?: boolean
 }
 
 interface AulaTutorDialogProps {
@@ -110,12 +112,16 @@ export function AulaTutorDialog({
 
   const loadTutores = async () => {
     try {
+      // Sin !inner: incluye tutores con invitación pendiente (usuario_id null, email_pendiente).
+      // Con usuarios!inner esos registros no aparecían en el desplegable.
       const { data, error } = await supabase
         .from('fcp_miembros')
         .select(`
           id,
           usuario_id,
-          usuario:usuarios!inner(id, email, nombre_completo)
+          email_pendiente,
+          nombre_display,
+          usuario:usuarios(id, email, nombre_completo)
         `)
         .eq('fcp_id', fcpId)
         .eq('rol', 'tutor')
@@ -124,17 +130,26 @@ export function AulaTutorDialog({
       if (error) throw error
 
       const tutoresList = (data || [])
-        .map((item: any) => ({
-          usuario_fcp_id: item.id,
-          usuario_id: item.usuario_id,
-          email: item.usuario?.email || '',
-          nombre_completo: item.usuario?.nombre_completo || '',
-        }))
-        // Ordenar por nombre_completo o email (en el cliente ya que PostgREST no soporta ordenar por relaciones anidadas fácilmente)
+        .map((item: any) => {
+          const u = item.usuario
+          const emailPend = (item.email_pendiente as string | null)?.trim() || ''
+          const nombreDisplay = (item.nombre_display as string | null)?.trim() || ''
+          const tieneUsuario = !!item.usuario_id && !!u
+          return {
+            usuario_fcp_id: item.id,
+            usuario_id: item.usuario_id ?? null,
+            email: (u?.email as string) || emailPend || '',
+            nombre_completo:
+              nombreDisplay ||
+              (u?.nombre_completo as string | undefined) ||
+              (tieneUsuario ? '' : emailPend || '(Invitación pendiente)'),
+            esInvitacionPendiente: !tieneUsuario && !!emailPend,
+          }
+        })
         .sort((a, b) => {
-          const nombreA = a.nombre_completo || a.email || ''
-          const nombreB = b.nombre_completo || b.email || ''
-          return nombreA.localeCompare(nombreB)
+          const labelA = a.nombre_completo || a.email || ''
+          const labelB = b.nombre_completo || b.email || ''
+          return labelA.localeCompare(labelB)
         })
 
       setTutores(tutoresList)
@@ -381,11 +396,15 @@ export function AulaTutorDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">Sin tutor asignado</SelectItem>
-                  {tutores.map((tutor) => (
-                    <SelectItem key={tutor.usuario_fcp_id} value={tutor.usuario_fcp_id}>
-                      {tutor.nombre_completo || tutor.email}
-                    </SelectItem>
-                  ))}
+                  {tutores.map((tutor) => {
+                    const base = tutor.nombre_completo || tutor.email || 'Sin nombre'
+                    const texto = tutor.esInvitacionPendiente ? `${base} (pendiente de registro)` : base
+                    return (
+                      <SelectItem key={tutor.usuario_fcp_id} value={tutor.usuario_fcp_id}>
+                        {texto}
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
               {tutores.length === 0 && (
