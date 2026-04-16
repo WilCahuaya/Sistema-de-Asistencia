@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { CheckCircle2, XCircle, Clock, CheckCheck, X, Info, Calendar, Search, MoreVertical, CircleSlash } from 'lucide-react'
+import { CheckCircle2, XCircle, Clock, CheckCheck, X, Info, Calendar, Search, MoreVertical, CircleSlash, Printer } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import { useTutorPuedeRegistrarAula } from '@/hooks/useTutorPuedeRegistrarAula'
@@ -16,6 +16,10 @@ import {
   mesPermiteRegistroSinCorreccionFacilitador,
 } from '@/lib/utils/dateUtils'
 import { sortByNombreCompleto } from '@/lib/utils/sortEstudiantes'
+import {
+  downloadRegistroAsistenciaMensualPdf,
+  collectFechasAtendidasMes,
+} from '@/lib/utils/registroAsistenciaMensualPdf'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import {
   Select,
@@ -108,6 +112,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
   const [selectedAula, setSelectedAula] = useState<string | null>(aulaId || null)
   const [aulas, setAulas] = useState<Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null }>>([])
   const [tutorNombre, setTutorNombre] = useState<string | null>(null)
+  const [fcpPdfMeta, setFcpPdfMeta] = useState<{ numero_identificacion: string; razon_social: string } | null>(null)
+  const [exportingPdf, setExportingPdf] = useState(false)
   const [saving, setSaving] = useState<Set<string>>(new Set())
   const [savingDates, setSavingDates] = useState<Set<string>>(new Set()) // Para rastrear qué fechas están guardándose
   const [zoomLevel, setZoomLevel] = useState(1) // Nivel de zoom para la tabla
@@ -339,6 +345,26 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       loadAulas()
     }
   }, [fcpId, role])
+
+  useEffect(() => {
+    if (!fcpId) {
+      setFcpPdfMeta(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('fcps')
+        .select('numero_identificacion, razon_social')
+        .eq('id', fcpId)
+        .maybeSingle()
+      if (!cancelled && !error && data) setFcpPdfMeta(data)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [fcpId])
 
   // Actualizar aula seleccionada cuando cambia el prop aulaId
   useEffect(() => {
@@ -1585,6 +1611,55 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     }
   }
 
+  const handleExportRegistroPdf = async () => {
+    if (!selectedAula || !fcpId || estudiantes.length === 0) {
+      toast.warning('Sin datos', 'Selecciona un aula con estudiantes.')
+      return
+    }
+    const fechasAtendidas = collectFechasAtendidasMes(asistencias.keys(), selectedYear, selectedMonth)
+    if (fechasAtendidas.length === 0) {
+      toast.warning(
+        'Sin fechas registradas',
+        'No hay días con asistencia registrada en este mes. El PDF solo incluye fechas en las que hubo al menos un registro.'
+      )
+      return
+    }
+    const aulaSel = aulas.find((a) => a.id === selectedAula)
+    try {
+      setExportingPdf(true)
+      let meta = fcpPdfMeta
+      if (!meta) {
+        const supabase = createClient()
+        const { data } = await supabase
+          .from('fcps')
+          .select('numero_identificacion, razon_social')
+          .eq('id', fcpId)
+          .maybeSingle()
+        if (data) meta = data
+      }
+      await downloadRegistroAsistenciaMensualPdf({
+        fcpNumero: meta?.numero_identificacion ?? '',
+        fcpNombre: meta?.razon_social ?? '',
+        year: selectedYear,
+        monthIndex0: selectedMonth,
+        aulaNombre: aulaSel?.nombre ?? 'Aula',
+        aulaCodigo: aulaSel?.codigo_aula ?? null,
+        tutorNombre: aulaSel?.tutor_display ?? tutorNombre,
+        nivel: null,
+        turno: null,
+        estudiantes,
+        fechasAtendidas,
+        getEstado: (estudianteId, fecha) => getAsistenciaEstado(estudianteId, fecha),
+      })
+      toast.success('PDF descargado', 'Registro de asistencia mensual generado.')
+    } catch (e) {
+      console.error(e)
+      toast.error('Error al generar PDF', e instanceof Error ? e.message : 'Intenta de nuevo.')
+    } finally {
+      setExportingPdf(false)
+    }
+  }
+
   const formatMonthYear = (month: number, year: number) => {
     const monthNames = [
       'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -1719,6 +1794,18 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
               }}
               disableFuture
             />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-2 shrink-0"
+              disabled={!selectedAula || estudiantes.length === 0 || exportingPdf}
+              onClick={() => void handleExportRegistroPdf()}
+              title="PDF en formato registro mensual (solo columnas de días con al menos un registro de asistencia)"
+            >
+              <Printer className="h-4 w-4" />
+              {exportingPdf ? 'Generando…' : 'PDF registro'}
+            </Button>
             {showHabilitarCorreccion && (
               <Button
                 variant="outline"
