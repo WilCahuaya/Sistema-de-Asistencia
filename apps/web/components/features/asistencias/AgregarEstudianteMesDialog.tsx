@@ -18,6 +18,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Search, UserPlus } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { useForm } from 'react-hook-form'
+import { sortByNombreCompleto } from '@/lib/utils/sortEstudiantes'
 
 interface Estudiante {
   id: string
@@ -186,7 +187,7 @@ export function AgregarEstudianteMesDialog({
 
       if (errPer) throw errPer
       const idsConPeriodo = new Set((periodosData || []).map((p: { estudiante_id: string }) => p.estudiante_id))
-      const candidatos = deOtros.filter((e) => !idsConPeriodo.has(e.id))
+      const candidatos = sortByNombreCompleto(deOtros.filter((e) => !idsConPeriodo.has(e.id)))
       setEstudiantesOtrosSalones(candidatos)
     } catch (e) {
       console.error(e)
@@ -207,10 +208,10 @@ export function AgregarEstudianteMesDialog({
       )
     : estudiantesDelSalon
   const idsDelSalon = new Set(delSalonFiltrados.map((e) => e.id))
-  const estudiantesFiltrados = [
+  const estudiantesFiltrados = sortByNombreCompleto([
     ...delSalonFiltrados,
     ...estudiantesOtrosSalones.filter((e) => !idsDelSalon.has(e.id)),
-  ]
+  ])
 
   const toggleSeleccion = (id: string) => {
     setSeleccionados((prev) => {

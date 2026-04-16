@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, type MouseEvent } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { CheckCircle2, XCircle, Clock, CheckCheck, X, Info, Calendar, Search, MoreVertical } from 'lucide-react'
+import { CheckCircle2, XCircle, Clock, CheckCheck, X, Info, Calendar, Search, MoreVertical, CircleSlash } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import { useTutorPuedeRegistrarAula } from '@/hooks/useTutorPuedeRegistrarAula'
@@ -15,6 +15,7 @@ import {
   getCurrentMonthYearInAppTimezone,
   mesPermiteRegistroSinCorreccionFacilitador,
 } from '@/lib/utils/dateUtils'
+import { sortByNombreCompleto } from '@/lib/utils/sortEstudiantes'
 import { RoleGuard } from '@/components/auth/RoleGuard'
 import {
   Select,
@@ -1119,6 +1120,22 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     }
   }
 
+  /** Clic en botones del panel rápido (escritorio): elige estado sin ciclar. */
+  const handleCeldaEstadoRapido = (
+    e: MouseEvent,
+    estudianteId: string,
+    fechaStr: string,
+    nuevo: 'presente' | 'falto' | 'permiso' | null
+  ) => {
+    e.stopPropagation()
+    e.preventDefault()
+    if (nuevo === null) {
+      void deleteAsistencia(estudianteId, fechaStr)
+    } else {
+      void saveAsistencia(estudianteId, fechaStr, nuevo)
+    }
+  }
+
   const handleMobileStatusTap = (estudianteId: string, fechaStr: string, estado: 'presente' | 'permiso' | 'falto') => {
     const key = `${estudianteId}_${fechaStr}_${estado}`
     const now = Date.now()
@@ -1840,13 +1857,15 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
               return `${parseInt(day, 10)} - ${monthName} - ${y}`
             }
 
-            const filteredEstudiantes = mobileSearch.trim()
-              ? estudiantes.filter(
-                  (e) =>
-                    e.nombre_completo.toLowerCase().includes(mobileSearch.toLowerCase()) ||
-                    e.codigo.toLowerCase().includes(mobileSearch.toLowerCase())
-                )
-              : estudiantes
+            const filteredEstudiantes = sortByNombreCompleto(
+              mobileSearch.trim()
+                ? estudiantes.filter(
+                    (e) =>
+                      e.nombre_completo.toLowerCase().includes(mobileSearch.toLowerCase()) ||
+                      e.codigo.toLowerCase().includes(mobileSearch.toLowerCase())
+                  )
+                : estudiantes
+            )
 
             const getIniciales = (nombre: string) => {
               const parts = nombre.trim().split(/\s+/)
@@ -2315,6 +2334,9 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                       const estado = getAsistenciaEstado(estudiante.id, fechaStr)
                       const key = `${estudiante.id}_${fechaStr}`
                       const isSaving = saving.has(key)
+                      const [fyCell, fmCell] = fechaStr.split('-').map(Number)
+                      const puedeEditarEstaCelda =
+                        puedeEditarMes && ventanaEdicionParaFechaMes(fyCell, fmCell)
                       
                       // Log de depuración para las primeras celdas (solo una vez)
                       if (estudiante.id === estudiantes[0]?.id && day <= 5 && asistencias.size > 0) {
@@ -2335,8 +2357,8 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                       return (
                         <td
                           key={day}
-                          className={`border border-border p-1 text-center transition-colors ${
-                            puedeEditarMes
+                          className={`border border-border p-1 text-center transition-colors group/celda-asist ${
+                            puedeEditarEstaCelda
                               ? 'cursor-pointer hover:bg-accent/50'
                               : 'cursor-not-allowed opacity-60'
                           }`}
@@ -2347,16 +2369,84 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                           onMouseUp={() => handleCellMouseUp(estudiante.id, fechaStr)}
                           onMouseLeave={() => handleCellMouseLeave(estudiante.id, fechaStr)}
                           title={
-                            puedeEditarMes
-                              ? 'Click: Presente → Faltó → Permiso → Blanco | Doble click: Faltó | Mantén: Permiso'
+                            puedeEditarEstaCelda
+                              ? 'Clic: avanza estado · Pasa el mouse para elegir Presente, Faltó, Permiso o desmarcar · Doble clic: Faltó · Mantener: Permiso'
                               : 'Solo lectura'
                           }
                         >
-                          <div className="flex flex-col items-center justify-center gap-0.5 relative group">
-                            <div className="flex items-center gap-1">
+                          <div className="flex flex-col items-center justify-center gap-0.5 relative min-h-[2.75rem] w-full">
+                            {puedeEditarEstaCelda && (
+                              <div
+                                className="absolute inset-0 z-20 grid grid-cols-2 grid-rows-2 place-items-center gap-px rounded border border-border/70 bg-background/98 p-0.5 shadow-sm opacity-0 invisible pointer-events-none transition-opacity duration-150 group-hover/celda-asist:opacity-100 group-hover/celda-asist:visible group-hover/celda-asist:pointer-events-auto"
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onMouseUp={(e) => e.stopPropagation()}
+                                onDoubleClick={(e) => e.stopPropagation()}
+                                role="group"
+                                aria-label="Elegir estado de asistencia"
+                              >
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 shrink-0 p-0 hover:bg-green-100 dark:hover:bg-green-950"
+                                  title="Presente"
+                                  disabled={isSaving}
+                                  onClick={(e) =>
+                                    handleCeldaEstadoRapido(e, estudiante.id, fechaStr, 'presente')
+                                  }
+                                >
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 shrink-0 p-0 hover:bg-red-100 dark:hover:bg-red-950"
+                                  title="Faltó"
+                                  disabled={isSaving}
+                                  onClick={(e) =>
+                                    handleCeldaEstadoRapido(e, estudiante.id, fechaStr, 'falto')
+                                  }
+                                >
+                                  <XCircle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 shrink-0 p-0 hover:bg-amber-100 dark:hover:bg-amber-950"
+                                  title="Permiso"
+                                  disabled={isSaving}
+                                  onClick={(e) =>
+                                    handleCeldaEstadoRapido(e, estudiante.id, fechaStr, 'permiso')
+                                  }
+                                >
+                                  <Clock className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 shrink-0 p-0 hover:bg-muted"
+                                  title="Sin marcar (quitar registro)"
+                                  disabled={isSaving}
+                                  onClick={(e) =>
+                                    handleCeldaEstadoRapido(e, estudiante.id, fechaStr, null)
+                                  }
+                                >
+                                  <CircleSlash className="h-3.5 w-3.5 text-muted-foreground" />
+                                </Button>
+                              </div>
+                            )}
+                            <div
+                              className={`flex items-center gap-1 ${
+                                puedeEditarEstaCelda ? 'group-hover/celda-asist:opacity-25' : ''
+                              }`}
+                            >
                               {getEstadoIcon(estado, isSaving)}
                               {estado !== null && (
                                 <button
+                                  type="button"
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     const asistencia = asistencias.get(key)
@@ -2365,7 +2455,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
                                       setHistorialDialogOpen(true)
                                     }
                                   }}
-                                  className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent z-10"
+                                  className="opacity-0 group-hover/celda-asist:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent z-10"
                                   title="Ver historial de esta asistencia"
                                   onMouseEnter={(e) => e.stopPropagation()}
                                   onMouseLeave={(e) => e.stopPropagation()}

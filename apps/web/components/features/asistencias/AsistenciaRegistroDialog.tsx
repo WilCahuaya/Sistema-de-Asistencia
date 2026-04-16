@@ -21,6 +21,7 @@ import { useCorreccionMes } from '@/hooks/useCorreccionMes'
 import { usePermisoTardioAnual } from '@/hooks/usePermisoTardioAnual'
 import { toast } from '@/lib/toast'
 import { getCurrentMonthYearInAppTimezone, mesPermiteRegistroSinCorreccionFacilitador } from '@/lib/utils/dateUtils'
+import { sortByNombreCompleto } from '@/lib/utils/sortEstudiantes'
 
 interface Estudiante {
   id: string
@@ -112,7 +113,9 @@ export function AsistenciaRegistroDialog({
 
       if (error) throw error
 
-      const estudiantesData = Array.isArray(data) ? data : (data ? [data] : [])
+      const estudiantesData = sortByNombreCompleto(
+        Array.isArray(data) ? data : (data ? [data] : []),
+      )
       setEstudiantes(estudiantesData)
       
       // Inicializar todas las asistencias como "presente" por defecto

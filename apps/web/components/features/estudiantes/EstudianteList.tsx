@@ -45,6 +45,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Building2 } from 'lucide-react'
 import { toast } from '@/lib/toast'
+import { sortByNombreCompleto } from '@/lib/utils/sortEstudiantes'
 
 interface Estudiante {
   id: string
@@ -803,6 +804,8 @@ export function EstudianteList() {
         ...est,
         tutor: tutorMap.get(est.aula_id) || 'Sin tutor',
       }))
+
+      estudiantesCargados = sortByNombreCompleto(estudiantesCargados)
 
       // Guardar TODOS los estudiantes cargados (sin filtro de búsqueda ni paginación)
       setEstudiantesCompletos(estudiantesCargados)

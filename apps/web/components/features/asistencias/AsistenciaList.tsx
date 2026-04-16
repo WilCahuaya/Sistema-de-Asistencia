@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { getTodayInAppTimezone } from '@/lib/utils/dateUtils'
+import { sortByEstudianteNombre } from '@/lib/utils/sortEstudiantes'
 import {
   Pagination,
   PaginationContent,
@@ -280,7 +281,7 @@ export function AsistenciaList() {
 
       if (error) throw error
 
-      setAsistencias(data || [])
+      setAsistencias(sortByEstudianteNombre(data || []))
     } catch (error) {
       console.error('Error loading asistencias:', error)
     } finally {
