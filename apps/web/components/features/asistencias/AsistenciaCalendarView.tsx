@@ -99,11 +99,22 @@ interface AsistenciaCalendarViewProps {
   initialYear?: number | null
   /** Fecha YYYY-MM-DD para móvil: ir directamente al día que falta corregir */
   initialDate?: string | null
+  /** Número y nombre del proyecto (p. ej. desde la lista de FCPs del usuario). Evita depender de RLS en `fcps` para el PDF; todos los roles pueden exportar. */
+  fcpNumero?: string
+  fcpNombre?: string
 }
 
 type AsistenciaEstado = 'presente' | 'falto' | 'permiso' | null
 
-export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYear, initialDate }: AsistenciaCalendarViewProps) {
+export function AsistenciaCalendarView({
+  fcpId,
+  aulaId,
+  initialMonth,
+  initialYear,
+  initialDate,
+  fcpNumero: fcpNumeroProp,
+  fcpNombre: fcpNombreProp,
+}: AsistenciaCalendarViewProps) {
   const [estudiantes, setEstudiantes] = useState<Estudiante[]>([])
   const [asistencias, setAsistencias] = useState<Map<string, Asistencia>>(new Map())
   const [loading, setLoading] = useState(false)
@@ -351,6 +362,14 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
       setFcpPdfMeta(null)
       return
     }
+    // Preferir datos enviados por la página (misma fuente para director, secretario, tutor, facilitador…)
+    if (fcpNumeroProp !== undefined && fcpNombreProp !== undefined) {
+      setFcpPdfMeta({
+        numero_identificacion: fcpNumeroProp,
+        razon_social: fcpNombreProp,
+      })
+      return
+    }
     let cancelled = false
     ;(async () => {
       const supabase = createClient()
@@ -364,7 +383,7 @@ export function AsistenciaCalendarView({ fcpId, aulaId, initialMonth, initialYea
     return () => {
       cancelled = true
     }
-  }, [fcpId])
+  }, [fcpId, fcpNumeroProp, fcpNombreProp])
 
   // Actualizar aula seleccionada cuando cambia el prop aulaId
   useEffect(() => {

@@ -206,15 +206,20 @@ export function AsistenciasPageContent() {
         )
       })()}
 
-      {selectedFCP && (
-        <AsistenciaCalendarView
-          fcpId={selectedFCP}
-          aulaId={selectedAula || aulaIdFromUrl}
-          initialMonth={initialMonth}
-          initialYear={initialYear}
-          initialDate={dateFromUrl}
-        />
-      )}
+      {selectedFCP && (() => {
+        const fcpSel = userFCPs.find((f) => f.id === selectedFCP)
+        return (
+          <AsistenciaCalendarView
+            fcpId={selectedFCP}
+            fcpNumero={fcpSel?.numero_identificacion ?? ''}
+            fcpNombre={fcpSel?.razon_social ?? ''}
+            aulaId={selectedAula || aulaIdFromUrl}
+            initialMonth={initialMonth}
+            initialYear={initialYear}
+            initialDate={dateFromUrl}
+          />
+        )
+      })()}
     </div>
   )
 }
