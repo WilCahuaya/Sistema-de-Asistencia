@@ -8,6 +8,7 @@ import {
   getFontSizeForColumns,
   getLandscapePageDimensions,
 } from '@/lib/utils/pdfTableUtils'
+import { sortByNombreCompleto } from '@/lib/utils/sortEstudiantes'
 
 /** Extrae fechas YYYY-MM-DD únicas del mes a partir de claves `estudianteId_fecha`. */
 export function collectFechasAtendidasMes(
@@ -37,12 +38,11 @@ export interface RegistroAsistenciaMensualPdfParams {
   year: number
   /** 0-11 */
   monthIndex0: number
+  /** Solo para nombre de archivo al guardar */
   aulaNombre: string
-  aulaCodigo?: string | null
   tutorNombre: string | null
   /** Si no hay en BD, se muestra "—" */
   nivel?: string | null
-  turno?: string | null
   estudiantes: Array<{ id: string; codigo: string; nombre_completo: string }>
   /** YYYY-MM-DD ordenadas (solo días con ≥1 asistencia registrada) */
   fechasAtendidas: string[]
@@ -82,14 +82,14 @@ export async function downloadRegistroAsistenciaMensualPdf(
     year,
     monthIndex0,
     aulaNombre,
-    aulaCodigo,
     tutorNombre,
     nivel,
-    turno,
     estudiantes,
     fechasAtendidas,
     getEstado,
   } = params
+
+  const estudiantesOrdenados = sortByNombreCompleto(estudiantes)
 
   const jsPDF = (await import('jspdf')).default
   const autotableModule = await import('jspdf-autotable')
@@ -109,68 +109,60 @@ export async function downloadRegistroAsistenciaMensualPdf(
 
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
   const { pageWidth } = getLandscapePageDimensions(doc)
-  const margin = 12
+  const margin = 10
   const mesNombre = MONTHS[monthIndex0] ?? ''
+  const metaLine = 2.35
 
-  let y = 10
+  let y = 9
 
-  doc.setFontSize(11)
+  doc.setFontSize(10)
   doc.setFont('helvetica', 'bold')
   doc.text(`REGISTRO DE ASISTENCIA MENSUAL POR AULA ${year}`, margin, y)
 
-  doc.setFontSize(8)
+  doc.setFontSize(7)
   doc.setFont('helvetica', 'normal')
   const rightX = pageWidth - margin
   let ry = y
-  doc.text(`Número del proyecto: ${fcpNumero || '—'}`, rightX, ry, { align: 'right' })
-  ry += 3.5
-  doc.text(`Año: ${year}`, rightX, ry, { align: 'right' })
-  ry += 3.5
-  doc.text(`Mes: ${mesNombre}`, rightX, ry, { align: 'right' })
-  ry += 3.5
-  doc.text(`Nombre del proyecto: ${fcpNombre || '—'}`, rightX, ry, { align: 'right' })
-  ry += 3.5
-  doc.text(`Nivel: ${nivel?.trim() || '—'}`, rightX, ry, { align: 'right' })
-  ry += 3.5
-  doc.text(`Tutor: ${tutorNombre?.trim() || '—'}`, rightX, ry, { align: 'right' })
-  ry += 3.5
-  doc.text(`Turno: ${turno?.trim() || '—'}`, rightX, ry, { align: 'right' })
-  ry += 3.5
+  doc.text(`N.º proyecto: ${fcpNumero || '—'}`, rightX, ry, { align: 'right' })
+  ry += metaLine
+  doc.text(`Año: ${year}  ·  Mes: ${mesNombre}`, rightX, ry, { align: 'right' })
+  ry += metaLine
+  const nombreProyecto = (fcpNombre || '—').trim()
   doc.text(
-    `Aula: ${aulaCodigo ? `${aulaNombre} (${aulaCodigo})` : aulaNombre}`,
+    nombreProyecto.length > 52
+      ? `Proyecto: ${nombreProyecto.slice(0, 49)}…`
+      : `Proyecto: ${nombreProyecto}`,
     rightX,
     ry,
-    { align: 'right' }
+    { align: 'right', maxWidth: pageWidth - margin * 2 - 40 }
   )
+  ry += metaLine
+  doc.text(`Nivel: ${nivel?.trim() || '—'}`, rightX, ry, { align: 'right' })
+  ry += metaLine
+  doc.text(`Tutor: ${(tutorNombre?.trim() || '—').slice(0, 55)}`, rightX, ry, { align: 'right', maxWidth: pageWidth - margin * 2 - 40 })
 
-  y = Math.max(y + 6, ry + 4)
+  y = Math.max(y + 5, ry + 3)
 
-  doc.setFontSize(7)
-  doc.setTextColor(80, 80, 80)
-  doc.text('P = Presente   F = Faltó   M = Permiso   (vacío = sin registro)', margin, y)
+  doc.setFontSize(6.5)
+  doc.setTextColor(75, 75, 75)
+  doc.text('P = Presente · F = Faltó · M = Permiso · vacío = sin registro', margin, y)
   doc.setTextColor(0, 0, 0)
-  y += 5
+  y += 4
 
   const head1: string[] = [
     'N°',
-    'APELLIDOS Y NOMBRES DEL NIÑO',
-    'CÓDIGO',
+    'APELLIDOS Y NOMBRES',
+    'COD.',
     ...fechasAtendidas.map(dayFromFecha),
-    'Serv. transporte',
-    'Currículo',
-    'Visita hogar',
-    'Control salud',
+    'OBSERVACIONES',
   ]
 
-  const body: string[][] = estudiantes.map((est, i) => {
+  const body: string[][] = estudiantesOrdenados.map((est, i) => {
     const row: string[] = [
       String(i + 1),
       nombreParaFormulario(est.nombre_completo),
       est.codigo,
       ...fechasAtendidas.map((f) => estadoCelda(getEstado(est.id, f))),
-      '',
-      '',
-      '',
       '',
     ]
     return row
@@ -178,22 +170,25 @@ export async function downloadRegistroAsistenciaMensualPdf(
 
   const numCols = head1.length
   const availableWidth = getAvailableTableWidth(doc, margin)
-  const fontSize = getFontSizeForColumns(numCols)
+  const fontSize = Math.min(6.5, getFontSizeForColumns(numCols))
 
+  const lastCol = numCols - 1
+  const idxFinFechas = 3 + fechasAtendidas.length
   const columnStyles: Record<number, { cellWidth: number; halign: 'left' | 'center' | 'right' }> = {}
   const weights: number[] = []
   for (let c = 0; c < numCols; c++) {
-    if (c === 0) weights.push(0.35)
-    else if (c === 1) weights.push(2.2)
-    else if (c === 2) weights.push(0.45)
-    else if (c >= 3 && c < 3 + fechasAtendidas.length) weights.push(0.28)
-    else weights.push(0.5)
+    if (c === 0) weights.push(0.28)
+    else if (c === 1) weights.push(2.15)
+    else if (c === 2) weights.push(0.38)
+    else if (c >= 3 && c < idxFinFechas) weights.push(0.18)
+    else if (c === lastCol) weights.push(1.55)
+    else weights.push(0.2)
   }
   const tw = weights.reduce((a, b) => a + b, 0)
   weights.forEach((w, c) => {
     columnStyles[c] = {
       cellWidth: (w / tw) * availableWidth,
-      halign: c === 1 ? 'left' : 'center',
+      halign: c === 1 || c === lastCol ? 'left' : 'center',
     }
   })
 
@@ -205,19 +200,19 @@ export async function downloadRegistroAsistenciaMensualPdf(
     tableWidth: availableWidth,
     margin: { left: margin, right: margin },
     headStyles: {
-      fontSize: Math.min(fontSize, 7),
+      fontSize: Math.min(fontSize, 6),
       fontStyle: 'bold' as const,
       fillColor: [240, 240, 240],
       textColor: [0, 0, 0],
-      cellPadding: 1,
+      cellPadding: 0.45,
     },
     bodyStyles: {
-      fontSize: Math.max(5, fontSize - 0.5),
-      cellPadding: 1,
+      fontSize: Math.max(4.5, fontSize - 1),
+      cellPadding: 0.45,
     },
     styles: {
-      fontSize: Math.max(5, fontSize - 0.5),
-      cellPadding: 1,
+      fontSize: Math.max(4.5, fontSize - 1),
+      cellPadding: 0.45,
       overflow: 'linebreak' as const,
       valign: 'middle' as const,
     },
