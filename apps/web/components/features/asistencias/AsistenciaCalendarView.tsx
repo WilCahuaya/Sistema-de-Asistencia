@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { CheckCircle2, XCircle, Clock, CheckCheck, X, Info, Calendar, Search, MoreVertical, CircleSlash, Printer } from 'lucide-react'
+import { CheckCircle2, XCircle, Clock, CheckCheck, X, Info, Calendar, Search, MoreVertical, CircleSlash, Printer, ChevronDown } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import { useTutorPuedeRegistrarAula } from '@/hooks/useTutorPuedeRegistrarAula'
@@ -47,6 +47,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
@@ -261,7 +262,6 @@ export function AsistenciaCalendarView({
     }
   }, [isResizingTable, resizeStartX, resizeStartWidth])
   
-  const longPressTimerRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
   const prevAulaRef = useRef<string | null>(null) // Para detectar cambios de aula
   const { selectedRole } = useSelectedRole()
   const {
@@ -1165,19 +1165,24 @@ export function AsistenciaCalendarView({
     }
   }
 
-  /** Clic en botones del panel rápido (escritorio): elige estado sin ciclar. */
-  const handleCeldaEstadoRapido = (
-    e: MouseEvent,
+  /** Menú contextual escritorio: aplica estado sin ciclar por clic en la celda. */
+  const aplicarEstadoRapido = (
     estudianteId: string,
     fechaStr: string,
     nuevo: 'presente' | 'falto' | 'permiso' | null
   ) => {
-    e.stopPropagation()
-    e.preventDefault()
     if (nuevo === null) {
       void deleteAsistencia(estudianteId, fechaStr)
     } else {
       void saveAsistencia(estudianteId, fechaStr, nuevo)
+    }
+  }
+
+  const openHistorialPorClaveCelda = (claveMapa: string) => {
+    const asistencia = asistencias.get(claveMapa)
+    if (asistencia) {
+      setSelectedAsistenciaForHistorial(asistencia)
+      setHistorialDialogOpen(true)
     }
   }
 
@@ -1231,43 +1236,6 @@ export function AsistenciaCalendarView({
     }
 
     saveAsistencia(estudianteId, fechaStr, newEstado)
-  }
-
-  const handleCellMouseDown = (estudianteId: string, fechaStr: string) => {
-    if (!puedeEditarMes) return
-
-    // Limpiar timer previo si existe
-    const key = `${estudianteId}_${fechaStr}`
-    const existingTimer = longPressTimerRef.current.get(key)
-    if (existingTimer) {
-      clearTimeout(existingTimer)
-    }
-
-    // Configurar timer para click sostenido (permiso)
-    const timer = setTimeout(() => {
-      saveAsistencia(estudianteId, fechaStr, 'permiso')
-      longPressTimerRef.current.delete(key)
-    }, 500) // 500ms = medio segundo de presión
-
-    longPressTimerRef.current.set(key, timer)
-  }
-
-  const handleCellMouseUp = (estudianteId: string, fechaStr: string) => {
-    const key = `${estudianteId}_${fechaStr}`
-    const timer = longPressTimerRef.current.get(key)
-    if (timer) {
-      clearTimeout(timer)
-      longPressTimerRef.current.delete(key)
-    }
-  }
-
-  const handleCellMouseLeave = (estudianteId: string, fechaStr: string) => {
-    const key = `${estudianteId}_${fechaStr}`
-    const timer = longPressTimerRef.current.get(key)
-    if (timer) {
-      clearTimeout(timer)
-      longPressTimerRef.current.delete(key)
-    }
   }
 
   const handleMarkAllPresente = async (fechaStr: string) => {
@@ -2441,140 +2409,148 @@ export function AsistenciaCalendarView({
                       const [fyCell, fmCell] = fechaStr.split('-').map(Number)
                       const puedeEditarEstaCelda =
                         puedeEditarMes && ventanaEdicionParaFechaMes(fyCell, fmCell)
-                      
-                      // Log de depuración para las primeras celdas (solo una vez)
-                      if (estudiante.id === estudiantes[0]?.id && day <= 5 && asistencias.size > 0) {
-                        const existeEnMapa = asistencias.has(key)
-                        if (day === 1) {
-                          console.log('🔍 Renderizando celda:', {
-                            estudianteId: estudiante.id.substring(0, 8),
-                            fechaStr,
-                            key,
-                            existeEnMapa,
-                            estado,
-                            totalAsistencias: asistencias.size,
-                            muestraKeys: Array.from(asistencias.keys()).filter(k => k.includes(fechaStr)).slice(0, 3)
-                          })
-                        }
-                      }
 
                       return (
                         <td
                           key={day}
-                          className={`border border-border p-1 text-center transition-colors group/celda-asist ${
-                            puedeEditarEstaCelda
-                              ? 'cursor-pointer hover:bg-accent/50'
-                              : 'cursor-not-allowed opacity-60'
+                          className={`border border-border p-1 text-center transition-colors ${
+                            puedeEditarEstaCelda ? '' : 'cursor-not-allowed opacity-60'
                           }`}
                           style={{ width: '80px', minWidth: '80px' }}
-                          onClick={() => handleCellClick(estudiante.id, fechaStr, false)}
-                          onDoubleClick={() => handleCellClick(estudiante.id, fechaStr, true)}
-                          onMouseDown={() => handleCellMouseDown(estudiante.id, fechaStr)}
-                          onMouseUp={() => handleCellMouseUp(estudiante.id, fechaStr)}
-                          onMouseLeave={() => handleCellMouseLeave(estudiante.id, fechaStr)}
-                          title={puedeEditarEstaCelda ? 'Clic o panel al pasar el mouse · Doble clic: Faltó' : 'Solo lectura'}
+                          title={puedeEditarEstaCelda ? undefined : 'Solo lectura'}
                         >
-                          <div className="flex flex-col items-center justify-center gap-0.5 relative min-h-[2.75rem] w-full">
-                            {puedeEditarEstaCelda && (
-                              <div
-                                className="absolute inset-0 z-20 grid grid-cols-2 grid-rows-2 place-items-center gap-px rounded border border-border/70 bg-background/98 p-0.5 shadow-sm opacity-0 invisible pointer-events-none transition-opacity duration-150 group-hover/celda-asist:opacity-100 group-hover/celda-asist:visible group-hover/celda-asist:pointer-events-auto"
-                                onMouseDown={(e) => e.stopPropagation()}
-                                onMouseUp={(e) => e.stopPropagation()}
-                                onDoubleClick={(e) => e.stopPropagation()}
-                                role="group"
-                                aria-label="Elegir estado de asistencia"
-                              >
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 shrink-0 p-0 hover:bg-green-100 dark:hover:bg-green-950"
-                                  aria-label="Presente"
-                                  disabled={isSaving}
-                                  onClick={(e) =>
-                                    handleCeldaEstadoRapido(e, estudiante.id, fechaStr, 'presente')
-                                  }
-                                >
-                                  <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 shrink-0 p-0 hover:bg-red-100 dark:hover:bg-red-950"
-                                  aria-label="Faltó"
-                                  disabled={isSaving}
-                                  onClick={(e) =>
-                                    handleCeldaEstadoRapido(e, estudiante.id, fechaStr, 'falto')
-                                  }
-                                >
-                                  <XCircle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 shrink-0 p-0 hover:bg-amber-100 dark:hover:bg-amber-950"
-                                  aria-label="Permiso"
-                                  disabled={isSaving}
-                                  onClick={(e) =>
-                                    handleCeldaEstadoRapido(e, estudiante.id, fechaStr, 'permiso')
-                                  }
-                                >
-                                  <Clock className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 shrink-0 p-0 hover:bg-muted"
-                                  aria-label="Sin marcar, quitar registro"
-                                  disabled={isSaving}
-                                  onClick={(e) =>
-                                    handleCeldaEstadoRapido(e, estudiante.id, fechaStr, null)
-                                  }
-                                >
-                                  <CircleSlash className="h-3.5 w-3.5 text-muted-foreground" />
-                                </Button>
-                              </div>
-                            )}
-                            {/* z-30 por encima del panel rápido (z-20) para que el icono de historial sea clicable */}
-                            <div className="relative z-30 flex flex-col items-center gap-0.5 pointer-events-none">
-                              <div className="flex items-center gap-1 pointer-events-auto">
-                                <span
-                                  className={
-                                    puedeEditarEstaCelda
-                                      ? 'inline-flex group-hover/celda-asist:opacity-25'
-                                      : 'inline-flex'
-                                  }
-                                >
-                                  {getEstadoIcon(estado, isSaving)}
-                                </span>
+                          <div className="flex min-h-[2.75rem] w-full items-start justify-center gap-0.5">
+                            {puedeEditarEstaCelda ? (
+                              <>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <button
+                                      type="button"
+                                      disabled={isSaving}
+                                      className="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-sm px-0.5 py-1 outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
+                                      title="Clic para elegir presente, falta o permiso"
+                                      aria-label="Abrir menú de asistencia"
+                                    >
+                                      {getEstadoIcon(estado, isSaving)}
+                                      <ChevronDown
+                                        className="h-3 w-3 shrink-0 text-muted-foreground/70"
+                                        aria-hidden
+                                      />
+                                      {estado !== null &&
+                                        (asistencias.get(key) as Asistencia | undefined)?.registro_tardio && (
+                                          <Badge
+                                            variant="secondary"
+                                            className="text-[9px] px-1 py-0 font-normal bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 max-w-full text-center leading-tight"
+                                          >
+                                            Registro tardío
+                                          </Badge>
+                                        )}
+                                    </button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent
+                                    align="center"
+                                    className="w-52"
+                                    onCloseAutoFocus={(e) => e.preventDefault()}
+                                  >
+                                    <DropdownMenuItem
+                                      disabled={isSaving}
+                                      onSelect={() =>
+                                        aplicarEstadoRapido(estudiante.id, fechaStr, 'presente')
+                                      }
+                                    >
+                                      <CheckCircle2 className="mr-2 h-4 w-4 text-green-600 dark:text-green-400" />
+                                      Presente
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      disabled={isSaving}
+                                      onSelect={() =>
+                                        aplicarEstadoRapido(estudiante.id, fechaStr, 'falto')
+                                      }
+                                    >
+                                      <XCircle className="mr-2 h-4 w-4 text-red-600 dark:text-red-400" />
+                                      Faltó
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      disabled={isSaving}
+                                      onSelect={() =>
+                                        aplicarEstadoRapido(estudiante.id, fechaStr, 'permiso')
+                                      }
+                                    >
+                                      <Clock className="mr-2 h-4 w-4 text-amber-600 dark:text-amber-400" />
+                                      Permiso
+                                    </DropdownMenuItem>
+                                    {estado !== null && (
+                                      <>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem
+                                          disabled={isSaving}
+                                          onSelect={() =>
+                                            aplicarEstadoRapido(estudiante.id, fechaStr, null)
+                                          }
+                                        >
+                                          <CircleSlash className="mr-2 h-4 w-4 text-muted-foreground" />
+                                          Quitar registro
+                                        </DropdownMenuItem>
+                                      </>
+                                    )}
+                                    {estado !== null && (
+                                      <>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem
+                                          onSelect={() => openHistorialPorClaveCelda(key)}
+                                        >
+                                          <Info className="mr-2 h-4 w-4" />
+                                          Ver quién registró…
+                                        </DropdownMenuItem>
+                                      </>
+                                    )}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                                 {estado !== null && (
                                   <button
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation()
-                                      const asistencia = asistencias.get(key)
-                                      if (asistencia) {
-                                        setSelectedAsistenciaForHistorial(asistencia)
-                                        setHistorialDialogOpen(true)
-                                      }
+                                      openHistorialPorClaveCelda(key)
                                     }}
-                                    className="opacity-0 group-hover/celda-asist:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent shrink-0"
+                                    className="mt-0.5 shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                                     title="Ver quién registró esta asistencia"
                                     aria-label="Ver historial y registro de esta asistencia"
                                   >
-                                    <Info className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                                    <Info className="h-3.5 w-3.5" />
                                   </button>
                                 )}
+                              </>
+                            ) : (
+                              <div className="flex w-full flex-col items-center gap-0.5">
+                                <div className="flex items-center gap-1">
+                                  {getEstadoIcon(estado, isSaving)}
+                                  {estado !== null && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        openHistorialPorClaveCelda(key)
+                                      }}
+                                      className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                                      title="Ver quién registró esta asistencia"
+                                      aria-label="Ver historial y registro de esta asistencia"
+                                    >
+                                      <Info className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                                {estado !== null &&
+                                  (asistencias.get(key) as Asistencia | undefined)?.registro_tardio && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-[9px] px-1 py-0 font-normal bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 max-w-full text-center leading-tight"
+                                    >
+                                      Registro tardío
+                                    </Badge>
+                                  )}
                               </div>
-                              {estado !== null && (asistencias.get(key) as Asistencia | undefined)?.registro_tardio && (
-                                <Badge variant="secondary" className="text-[9px] px-1 py-0 font-normal bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 pointer-events-auto max-w-full text-center leading-tight">
-                                  Registro tardío
-                                </Badge>
-                              )}
-                            </div>
+                            )}
                           </div>
                         </td>
                       )
