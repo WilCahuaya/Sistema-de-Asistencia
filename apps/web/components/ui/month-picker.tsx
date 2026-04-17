@@ -72,12 +72,14 @@ export function MonthPicker({ value, onChange, className, placeholder = 'Selecci
   }
 
   return (
-    <div className={`flex gap-2 items-center ${className || ''}`}>
+    <div
+      className={`flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2 ${className || ''}`}
+    >
       <Select
         value={monthIndex.toString()}
         onValueChange={(val) => handleMonthChange(parseInt(val))}
       >
-        <SelectTrigger className="w-[140px]">
+        <SelectTrigger className="w-full sm:w-[140px]">
           <SelectValue>
             <div className="flex items-center gap-2">
               <Calendar className="h-4 w-4" />
@@ -102,7 +104,7 @@ export function MonthPicker({ value, onChange, className, placeholder = 'Selecci
         value={year.toString()}
         onValueChange={(val) => handleYearChange(parseInt(val))}
       >
-        <SelectTrigger className="w-[100px]">
+        <SelectTrigger className="w-full sm:w-[100px]">
           <SelectValue>{year}</SelectValue>
         </SelectTrigger>
         <SelectContent>

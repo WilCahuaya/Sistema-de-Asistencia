@@ -1754,115 +1754,133 @@ export function AsistenciaCalendarView({
         style={{ cursor: 'col-resize' }}
         title="Arrastra para expandir la tabla horizontalmente"
       />
-      <CardHeader>
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <CardTitle>Control de Asistencia - {formatMonthYear(selectedMonth, selectedYear)}</CardTitle>
-          <div className="flex flex-wrap gap-2 items-center w-full sm:w-auto">
-            {zoomLevel !== 1 && (
-              <span className="text-xs text-muted-foreground">
-                Zoom: {Math.round(zoomLevel * 100)}% | Ctrl+Scroll para ajustar
+      <CardHeader className="space-y-4 pb-4 sm:pb-6">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between xl:gap-8">
+          {/* Título y ayudas (ayudas desde sm: coincide con handle de resize) */}
+          <div className="min-w-0 flex-1 space-y-2">
+            <CardTitle className="text-lg font-semibold leading-snug tracking-tight sm:text-xl">
+              <span className="block sm:inline">Control de Asistencia</span>
+              <span className="mt-1 block text-base font-medium leading-snug text-muted-foreground sm:mt-0 sm:inline sm:text-xl sm:font-semibold sm:text-foreground">
+                <span className="hidden sm:inline"> — </span>
+                {formatMonthYear(selectedMonth, selectedYear)}
               </span>
-            )}
-            {tableWidth && (
-              <span className="text-xs text-muted-foreground">
-                Ancho tabla: {tableWidth}px | Arrastra el borde derecho para ajustar
-              </span>
-            )}
-            {!tableWidth && (
-              <span className="text-xs text-muted-foreground opacity-60">
-                Arrastra el borde derecho de la tarjeta para expandir la tabla
-              </span>
-            )}
-            {/* Selector de Aula */}
-            <Select
-              value={selectedAula || ''}
-              onValueChange={(value) => setSelectedAula(value || null)}
-            >
-              <SelectTrigger className="w-full sm:w-auto">
-                <SelectValue placeholder="Seleccionar aula">
-                  {selectedAula ? (
-                    (() => {
-                      const aula = aulas.find(a => a.id === selectedAula)
-                      if (!aula) return 'Seleccionar aula'
-                      const base = `${aula.nombre} | ${aula.tutor_display || 'Sin tutor'}`
-                      return aula.codigo_aula ? `${base} | ${aula.codigo_aula}` : base
-                    })()
-                  ) : (
-                    'Seleccionar aula'
-                  )}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {aulas.map((aula) => (
-                  <SelectItem key={aula.id} value={aula.id}>
-                    {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
-                    {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            </CardTitle>
+            <div className="hidden flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground sm:flex">
+              {zoomLevel !== 1 && (
+                <span>
+                  Zoom: {Math.round(zoomLevel * 100)}% · Ctrl+Scroll para ajustar
+                </span>
+              )}
+              {tableWidth ? (
+                <span>Ancho tabla: {tableWidth}px · arrastra el borde derecho para ajustar</span>
+              ) : (
+                <span className="opacity-70">
+                  Arrastra el borde derecho de la tarjeta para expandir la tabla
+                </span>
+              )}
+            </div>
+          </div>
 
-            {/* Selector de Mes */}
-            <MonthPicker
-              value={`${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`}
-              onChange={(value) => {
-                const [year, month] = value.split('-')
-                setSelectedYear(parseInt(year))
-                setSelectedMonth(parseInt(month) - 1)
-              }}
-              disableFuture
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-2 shrink-0"
-              disabled={!selectedAula || estudiantes.length === 0 || exportingPdf}
-              onClick={() => void handleExportRegistroPdf()}
-              title="PDF en formato registro mensual (solo columnas de días con al menos un registro de asistencia)"
-            >
-              <Printer className="h-4 w-4" />
-              {exportingPdf ? 'Generando…' : 'PDF registro'}
-            </Button>
-            {showHabilitarCorreccion && (
+          {/* Filtros y acciones: móvil en columna; tablet filas; escritorio agrupado */}
+          <div className="flex w-full min-w-0 flex-col gap-3 xl:max-w-[min(100%,42rem)] xl:flex-1 2xl:max-w-none">
+            <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-stretch md:gap-2 lg:items-center">
+              <Select
+                value={selectedAula || ''}
+                onValueChange={(value) => setSelectedAula(value || null)}
+              >
+                <SelectTrigger className="h-10 w-full min-w-0 md:flex-1 md:min-w-[min(100%,18rem)] lg:max-w-xl">
+                  <SelectValue placeholder="Seleccionar aula">
+                    {selectedAula ? (
+                      (() => {
+                        const aula = aulas.find(a => a.id === selectedAula)
+                        if (!aula) return 'Seleccionar aula'
+                        const base = `${aula.nombre} | ${aula.tutor_display || 'Sin tutor'}`
+                        return aula.codigo_aula ? `${base} | ${aula.codigo_aula}` : base
+                      })()
+                    ) : (
+                      'Seleccionar aula'
+                    )}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {aulas.map((aula) => (
+                    <SelectItem key={aula.id} value={aula.id}>
+                      {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
+                      {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <MonthPicker
+                className="w-full shrink-0 md:w-auto"
+                value={`${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`}
+                onChange={(value) => {
+                  const [year, month] = value.split('-')
+                  setSelectedYear(parseInt(year))
+                  setSelectedMonth(parseInt(month) - 1)
+                }}
+                disableFuture
+              />
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
               <Button
+                type="button"
                 variant="outline"
                 size="sm"
-                className="gap-2"
-                onClick={() => setHabilitarCorreccionOpen(true)}
+                className="h-10 w-full gap-2 sm:h-9 sm:w-auto"
+                disabled={!selectedAula || estudiantes.length === 0 || exportingPdf}
+                onClick={() => void handleExportRegistroPdf()}
+                title="PDF en formato registro mensual (solo columnas de días con al menos un registro de asistencia)"
               >
-                <Unlock className="h-4 w-4" />
-                Habilitar corrección
+                <Printer className="h-4 w-4 shrink-0" />
+                <span className="truncate">{exportingPdf ? 'Generando…' : 'PDF registro'}</span>
               </Button>
-            )}
-            {showAgregarEstudianteMes && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => setAgregarEstudianteMesOpen(true)}
-              >
-                <UserPlus className="h-4 w-4" />
-                Agregar estudiante a este mes
-              </Button>
-            )}
+              {showHabilitarCorreccion && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-10 w-full gap-2 sm:h-9 sm:w-auto"
+                  onClick={() => setHabilitarCorreccionOpen(true)}
+                >
+                  <Unlock className="h-4 w-4 shrink-0" />
+                  <span className="truncate">Habilitar corrección</span>
+                </Button>
+              )}
+              {showAgregarEstudianteMes && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-10 w-full gap-2 sm:h-9 sm:w-auto"
+                  onClick={() => setAgregarEstudianteMesOpen(true)}
+                >
+                  <UserPlus className="h-4 w-4 shrink-0" />
+                  <span className="truncate sm:max-w-[14rem] lg:max-w-none">
+                    Agregar estudiante a este mes
+                  </span>
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </CardHeader>
       <CardContent>
         {selectedAula && (
-          <div className="flex flex-wrap items-center gap-3 mb-4 py-3 px-4 rounded-lg bg-muted/50 border border-border/50">
+          <div className="mb-4 flex flex-col gap-2 rounded-lg border border-border/50 bg-muted/50 px-3 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-1 sm:px-4">
             <span className="text-sm font-medium text-foreground">
               Salón: <span className="font-semibold">{aulas.find(a => a.id === selectedAula)?.nombre || 'Aula'}</span>
             </span>
-            <span className="text-muted-foreground">·</span>
+            <span className="hidden text-muted-foreground sm:inline">·</span>
             <span className="text-sm text-muted-foreground">
               <span className="font-medium text-foreground">{estudiantes.length}</span> estudiante{estudiantes.length !== 1 ? 's' : ''}
             </span>
-            <span className="text-muted-foreground">·</span>
-            <span className="flex items-center gap-2 text-sm text-muted-foreground">
-              <User className="h-4 w-4" />
-              <span>Tutor: <span className="font-medium text-foreground">{tutorNombre || 'Sin tutor asignado'}</span></span>
+            <span className="hidden text-muted-foreground sm:inline">·</span>
+            <span className="flex items-start gap-2 text-sm text-muted-foreground sm:items-center">
+              <User className="mt-0.5 h-4 w-4 shrink-0 sm:mt-0" />
+              <span className="min-w-0 break-words">
+                Tutor: <span className="font-medium text-foreground">{tutorNombre || 'Sin tutor asignado'}</span>
+              </span>
             </span>
           </div>
         )}
@@ -2472,9 +2490,10 @@ export function AsistenciaCalendarView({
                                         (asistencias.get(key) as Asistencia | undefined)?.registro_tardio && (
                                           <Badge
                                             variant="secondary"
-                                            className="text-[9px] px-1 py-0 font-normal bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 max-w-full text-center leading-tight"
+                                            title="Registro tardío"
+                                            className="text-[8px] px-1 py-0 font-normal whitespace-nowrap leading-none bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200"
                                           >
-                                            Registro tardío
+                                            Reg. tardío
                                           </Badge>
                                         )}
                                     </button>
@@ -2482,7 +2501,7 @@ export function AsistenciaCalendarView({
                                   <HoverCardContent
                                     side="top"
                                     align="center"
-                                    sideOffset={2}
+                                    sideOffset={0}
                                     className="w-auto max-w-[min(100vw-1rem,280px)] border bg-popover px-1 py-0.5 shadow-lg pointer-events-auto leading-none"
                                   >
                                     <div
@@ -2590,9 +2609,10 @@ export function AsistenciaCalendarView({
                                   (asistencias.get(key) as Asistencia | undefined)?.registro_tardio && (
                                     <Badge
                                       variant="secondary"
-                                      className="text-[9px] px-1 py-0 font-normal bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 max-w-full text-center leading-tight"
+                                      title="Registro tardío"
+                                      className="text-[8px] px-1 py-0 font-normal whitespace-nowrap leading-none bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200"
                                     >
-                                      Registro tardío
+                                      Reg. tardío
                                     </Badge>
                                   )}
                               </div>
