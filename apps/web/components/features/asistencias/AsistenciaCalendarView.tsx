@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { CheckCircle2, XCircle, Clock, CheckCheck, X, Info, Calendar, Search, MoreVertical, CircleSlash, Printer, ChevronDown } from 'lucide-react'
+import { CheckCircle2, XCircle, Clock, CheckCheck, X, Info, Calendar, Search, MoreVertical, CircleSlash, Printer } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import { useTutorPuedeRegistrarAula } from '@/hooks/useTutorPuedeRegistrarAula'
@@ -47,9 +47,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 
 interface Estudiante {
   id: string
@@ -2421,21 +2421,16 @@ export function AsistenciaCalendarView({
                         >
                           <div className="flex min-h-[2.75rem] w-full items-start justify-center gap-0.5">
                             {puedeEditarEstaCelda ? (
-                              <>
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
+                                <HoverCard openDelay={150} closeDelay={280}>
+                                  <HoverCardTrigger asChild>
                                     <button
                                       type="button"
                                       disabled={isSaving}
                                       className="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-sm px-0.5 py-1 outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
-                                      title="Clic para elegir presente, falta o permiso"
-                                      aria-label="Abrir menú de asistencia"
+                                      title="Pasa el mouse para ver las opciones encima de la celda"
+                                      aria-label="Asistencia: abrir acciones rápidas"
                                     >
                                       {getEstadoIcon(estado, isSaving)}
-                                      <ChevronDown
-                                        className="h-3 w-3 shrink-0 text-muted-foreground/70"
-                                        aria-hidden
-                                      />
                                       {estado !== null &&
                                         (asistencias.get(key) as Asistencia | undefined)?.registro_tardio && (
                                           <Badge
@@ -2446,81 +2441,95 @@ export function AsistenciaCalendarView({
                                           </Badge>
                                         )}
                                     </button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent
+                                  </HoverCardTrigger>
+                                  <HoverCardContent
+                                    side="top"
                                     align="center"
-                                    className="w-52"
-                                    onCloseAutoFocus={(e) => e.preventDefault()}
+                                    sideOffset={10}
+                                    className="w-auto max-w-[min(100vw-1rem,280px)] border bg-popover p-1.5 shadow-lg pointer-events-auto"
                                   >
-                                    <DropdownMenuItem
-                                      disabled={isSaving}
-                                      onSelect={() =>
-                                        aplicarEstadoRapido(estudiante.id, fechaStr, 'presente')
-                                      }
+                                    <div
+                                      className="flex flex-wrap items-center justify-center gap-1"
+                                      role="group"
+                                      aria-label="Elegir estado de asistencia"
+                                      onPointerDown={(e) => e.stopPropagation()}
                                     >
-                                      <CheckCircle2 className="mr-2 h-4 w-4 text-green-600 dark:text-green-400" />
-                                      Presente
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      disabled={isSaving}
-                                      onSelect={() =>
-                                        aplicarEstadoRapido(estudiante.id, fechaStr, 'falto')
-                                      }
-                                    >
-                                      <XCircle className="mr-2 h-4 w-4 text-red-600 dark:text-red-400" />
-                                      Faltó
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      disabled={isSaving}
-                                      onSelect={() =>
-                                        aplicarEstadoRapido(estudiante.id, fechaStr, 'permiso')
-                                      }
-                                    >
-                                      <Clock className="mr-2 h-4 w-4 text-amber-600 dark:text-amber-400" />
-                                      Permiso
-                                    </DropdownMenuItem>
-                                    {estado !== null && (
-                                      <>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuItem
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 shrink-0 hover:bg-green-100 dark:hover:bg-green-950"
+                                        aria-label="Presente"
+                                        disabled={isSaving}
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          aplicarEstadoRapido(estudiante.id, fechaStr, 'presente')
+                                        }}
+                                      >
+                                        <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 shrink-0 hover:bg-red-100 dark:hover:bg-red-950"
+                                        aria-label="Faltó"
+                                        disabled={isSaving}
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          aplicarEstadoRapido(estudiante.id, fechaStr, 'falto')
+                                        }}
+                                      >
+                                        <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 shrink-0 hover:bg-amber-100 dark:hover:bg-amber-950"
+                                        aria-label="Permiso"
+                                        disabled={isSaving}
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          aplicarEstadoRapido(estudiante.id, fechaStr, 'permiso')
+                                        }}
+                                      >
+                                        <Clock className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                                      </Button>
+                                      {estado !== null && (
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-8 w-8 shrink-0 hover:bg-muted"
+                                          aria-label="Quitar registro"
                                           disabled={isSaving}
-                                          onSelect={() =>
+                                          onClick={(e) => {
+                                            e.stopPropagation()
                                             aplicarEstadoRapido(estudiante.id, fechaStr, null)
-                                          }
+                                          }}
                                         >
-                                          <CircleSlash className="mr-2 h-4 w-4 text-muted-foreground" />
-                                          Quitar registro
-                                        </DropdownMenuItem>
-                                      </>
-                                    )}
-                                    {estado !== null && (
-                                      <>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuItem
-                                          onSelect={() => openHistorialPorClaveCelda(key)}
+                                          <CircleSlash className="h-4 w-4 text-muted-foreground" />
+                                        </Button>
+                                      )}
+                                      {estado !== null && (
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-8 w-8 shrink-0 hover:bg-accent"
+                                          aria-label="Ver quién registró esta asistencia"
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            openHistorialPorClaveCelda(key)
+                                          }}
                                         >
-                                          <Info className="mr-2 h-4 w-4" />
-                                          Ver quién registró…
-                                        </DropdownMenuItem>
-                                      </>
-                                    )}
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                                {estado !== null && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      openHistorialPorClaveCelda(key)
-                                    }}
-                                    className="mt-0.5 shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                                    title="Ver quién registró esta asistencia"
-                                    aria-label="Ver historial y registro de esta asistencia"
-                                  >
-                                    <Info className="h-3.5 w-3.5" />
-                                  </button>
-                                )}
-                              </>
+                                          <Info className="h-4 w-4 text-muted-foreground" />
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </HoverCardContent>
+                                </HoverCard>
                             ) : (
                               <div className="flex w-full flex-col items-center gap-0.5">
                                 <div className="flex items-center gap-1">
