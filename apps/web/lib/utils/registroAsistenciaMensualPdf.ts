@@ -43,11 +43,11 @@ export interface RegistroAsistenciaMensualPdfParams {
   year: number
   /** 0-11 */
   monthIndex0: number
-  /** Solo para nombre de archivo al guardar */
+  /** Nombre del salón seleccionado (y archivo PDF) */
   aulaNombre: string
+  /** Código del salón (ej. A01), opcional */
+  aulaCodigo?: string | null
   tutorNombre: string | null
-  /** Si no hay en BD, se muestra "—" */
-  nivel?: string | null
   estudiantes: Array<{ id: string; codigo: string; nombre_completo: string }>
   /** YYYY-MM-DD ordenadas (solo días con ≥1 asistencia registrada) */
   fechasAtendidas: string[]
@@ -113,12 +113,20 @@ export async function downloadRegistroAsistenciaMensualPdf(
     year,
     monthIndex0,
     aulaNombre,
+    aulaCodigo,
     tutorNombre,
-    nivel,
     estudiantes,
     fechasAtendidas,
     getEstado,
   } = params
+
+  const aulaEncabezado = (() => {
+    const n = (aulaNombre || '').trim()
+    const c = (aulaCodigo || '').trim()
+    if (!n && !c) return '—'
+    if (n && c) return `${n} (${c})`
+    return n || c
+  })()
 
   const estudiantesOrdenados = sortByNombreCompleto(estudiantes)
 
@@ -168,15 +176,17 @@ export async function downloadRegistroAsistenciaMensualPdf(
     y += 4
   })
 
-  doc.text(`NIVEL: ${nivel?.trim() || '—'}`, col1, y)
+  const nivelLine = `NIVEL: ${aulaEncabezado}`
+  const nivelLines = doc.splitTextToSize(nivelLine, col2 - col1 - 6)
   const tutorFull = `TUTOR: ${tutorNombre?.trim() || '—'}`
   const tutorLines = doc.splitTextToSize(tutorFull, pageWidth - col2 - margin)
-  let ty = y
-  tutorLines.forEach((line) => {
-    doc.text(line, col2, ty)
-    ty += 4
-  })
-  y = Math.max(y + 4, ty)
+  const filasNivelTutor = Math.max(nivelLines.length, tutorLines.length)
+  const yNivelTutor = y
+  for (let i = 0; i < filasNivelTutor; i++) {
+    if (nivelLines[i]) doc.text(nivelLines[i], col1, yNivelTutor + i * 4)
+    if (tutorLines[i]) doc.text(tutorLines[i], col2, yNivelTutor + i * 4)
+  }
+  y = yNivelTutor + filasNivelTutor * 4
 
   doc.setFontSize(7)
   doc.setTextColor(85, 85, 85)

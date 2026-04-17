@@ -1662,8 +1662,8 @@ export function AsistenciaCalendarView({
         year: selectedYear,
         monthIndex0: selectedMonth,
         aulaNombre: aulaSel?.nombre ?? 'Aula',
+        aulaCodigo: aulaSel?.codigo_aula ?? null,
         tutorNombre: aulaSel?.tutor_display ?? tutorNombre,
-        nivel: null,
         estudiantes,
         fechasAtendidas,
         getEstado: (estudianteId, fecha) => getAsistenciaEstado(estudianteId, fecha),
@@ -2472,11 +2472,7 @@ export function AsistenciaCalendarView({
                           onMouseDown={() => handleCellMouseDown(estudiante.id, fechaStr)}
                           onMouseUp={() => handleCellMouseUp(estudiante.id, fechaStr)}
                           onMouseLeave={() => handleCellMouseLeave(estudiante.id, fechaStr)}
-                          title={
-                            puedeEditarEstaCelda
-                              ? 'Clic: avanza estado · Pasa el mouse para elegir Presente, Faltó, Permiso o desmarcar · Doble clic: Faltó · Mantener: Permiso'
-                              : 'Solo lectura'
-                          }
+                          title={puedeEditarEstaCelda ? 'Clic o panel al pasar el mouse · Doble clic: Faltó' : 'Solo lectura'}
                         >
                           <div className="flex flex-col items-center justify-center gap-0.5 relative min-h-[2.75rem] w-full">
                             {puedeEditarEstaCelda && (
@@ -2493,7 +2489,7 @@ export function AsistenciaCalendarView({
                                   variant="ghost"
                                   size="icon"
                                   className="h-6 w-6 shrink-0 p-0 hover:bg-green-100 dark:hover:bg-green-950"
-                                  title="Presente"
+                                  aria-label="Presente"
                                   disabled={isSaving}
                                   onClick={(e) =>
                                     handleCeldaEstadoRapido(e, estudiante.id, fechaStr, 'presente')
@@ -2506,7 +2502,7 @@ export function AsistenciaCalendarView({
                                   variant="ghost"
                                   size="icon"
                                   className="h-6 w-6 shrink-0 p-0 hover:bg-red-100 dark:hover:bg-red-950"
-                                  title="Faltó"
+                                  aria-label="Faltó"
                                   disabled={isSaving}
                                   onClick={(e) =>
                                     handleCeldaEstadoRapido(e, estudiante.id, fechaStr, 'falto')
@@ -2519,7 +2515,7 @@ export function AsistenciaCalendarView({
                                   variant="ghost"
                                   size="icon"
                                   className="h-6 w-6 shrink-0 p-0 hover:bg-amber-100 dark:hover:bg-amber-950"
-                                  title="Permiso"
+                                  aria-label="Permiso"
                                   disabled={isSaving}
                                   onClick={(e) =>
                                     handleCeldaEstadoRapido(e, estudiante.id, fechaStr, 'permiso')
@@ -2532,7 +2528,7 @@ export function AsistenciaCalendarView({
                                   variant="ghost"
                                   size="icon"
                                   className="h-6 w-6 shrink-0 p-0 hover:bg-muted"
-                                  title="Sin marcar (quitar registro)"
+                                  aria-label="Sin marcar, quitar registro"
                                   disabled={isSaving}
                                   onClick={(e) =>
                                     handleCeldaEstadoRapido(e, estudiante.id, fechaStr, null)
@@ -2542,37 +2538,43 @@ export function AsistenciaCalendarView({
                                 </Button>
                               </div>
                             )}
-                            <div
-                              className={`flex items-center gap-1 ${
-                                puedeEditarEstaCelda ? 'group-hover/celda-asist:opacity-25' : ''
-                              }`}
-                            >
-                              {getEstadoIcon(estado, isSaving)}
-                              {estado !== null && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    const asistencia = asistencias.get(key)
-                                    if (asistencia) {
-                                      setSelectedAsistenciaForHistorial(asistencia)
-                                      setHistorialDialogOpen(true)
-                                    }
-                                  }}
-                                  className="opacity-0 group-hover/celda-asist:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent z-10"
-                                  title="Ver historial de esta asistencia"
-                                  onMouseEnter={(e) => e.stopPropagation()}
-                                  onMouseLeave={(e) => e.stopPropagation()}
+                            {/* z-30 por encima del panel rápido (z-20) para que el icono de historial sea clicable */}
+                            <div className="relative z-30 flex flex-col items-center gap-0.5 pointer-events-none">
+                              <div className="flex items-center gap-1 pointer-events-auto">
+                                <span
+                                  className={
+                                    puedeEditarEstaCelda
+                                      ? 'inline-flex group-hover/celda-asist:opacity-25'
+                                      : 'inline-flex'
+                                  }
                                 >
-                                  <Info className="h-3 w-3 text-muted-foreground hover:text-foreground" />
-                                </button>
+                                  {getEstadoIcon(estado, isSaving)}
+                                </span>
+                                {estado !== null && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      const asistencia = asistencias.get(key)
+                                      if (asistencia) {
+                                        setSelectedAsistenciaForHistorial(asistencia)
+                                        setHistorialDialogOpen(true)
+                                      }
+                                    }}
+                                    className="opacity-0 group-hover/celda-asist:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent shrink-0"
+                                    title="Ver quién registró esta asistencia"
+                                    aria-label="Ver historial y registro de esta asistencia"
+                                  >
+                                    <Info className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                                  </button>
+                                )}
+                              </div>
+                              {estado !== null && (asistencias.get(key) as Asistencia | undefined)?.registro_tardio && (
+                                <Badge variant="secondary" className="text-[9px] px-1 py-0 font-normal bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 pointer-events-auto max-w-full text-center leading-tight">
+                                  Registro tardío
+                                </Badge>
                               )}
                             </div>
-                            {estado !== null && (asistencias.get(key) as Asistencia | undefined)?.registro_tardio && (
-                              <Badge variant="secondary" className="text-[9px] px-1 py-0 font-normal bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
-                                Registro tardío
-                              </Badge>
-                            )}
                           </div>
                         </td>
                       )
