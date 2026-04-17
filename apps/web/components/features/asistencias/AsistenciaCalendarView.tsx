@@ -2482,11 +2482,11 @@ export function AsistenciaCalendarView({
                                   <HoverCardContent
                                     side="top"
                                     align="center"
-                                    sideOffset={3}
-                                    className="w-auto max-w-[min(100vw-1rem,280px)] border bg-popover p-1.5 shadow-lg pointer-events-auto"
+                                    sideOffset={2}
+                                    className="w-auto max-w-[min(100vw-1rem,280px)] border bg-popover px-1 py-0.5 shadow-lg pointer-events-auto leading-none"
                                   >
                                     <div
-                                      className="flex flex-wrap items-center justify-center gap-1"
+                                      className="flex flex-wrap items-center justify-center gap-0.5"
                                       role="group"
                                       aria-label="Elegir estado de asistencia"
                                       onPointerDown={(e) => e.stopPropagation()}
@@ -2495,7 +2495,7 @@ export function AsistenciaCalendarView({
                                         type="button"
                                         variant="ghost"
                                         size="icon"
-                                        className="h-8 w-8 shrink-0 hover:bg-green-100 dark:hover:bg-green-950"
+                                        className="h-7 w-7 shrink-0 hover:bg-green-100 dark:hover:bg-green-950"
                                         aria-label="Presente"
                                         disabled={isSaving}
                                         onClick={(e) => {
@@ -2503,13 +2503,13 @@ export function AsistenciaCalendarView({
                                           aplicarEstadoRapido(estudiante.id, fechaStr, 'presente')
                                         }}
                                       >
-                                        <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                                        <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
                                       </Button>
                                       <Button
                                         type="button"
                                         variant="ghost"
                                         size="icon"
-                                        className="h-8 w-8 shrink-0 hover:bg-red-100 dark:hover:bg-red-950"
+                                        className="h-7 w-7 shrink-0 hover:bg-red-100 dark:hover:bg-red-950"
                                         aria-label="Faltó"
                                         disabled={isSaving}
                                         onClick={(e) => {
@@ -2517,13 +2517,13 @@ export function AsistenciaCalendarView({
                                           aplicarEstadoRapido(estudiante.id, fechaStr, 'falto')
                                         }}
                                       >
-                                        <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                                        <XCircle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
                                       </Button>
                                       <Button
                                         type="button"
                                         variant="ghost"
                                         size="icon"
-                                        className="h-8 w-8 shrink-0 hover:bg-amber-100 dark:hover:bg-amber-950"
+                                        className="h-7 w-7 shrink-0 hover:bg-amber-100 dark:hover:bg-amber-950"
                                         aria-label="Permiso"
                                         disabled={isSaving}
                                         onClick={(e) => {
@@ -2531,14 +2531,14 @@ export function AsistenciaCalendarView({
                                           aplicarEstadoRapido(estudiante.id, fechaStr, 'permiso')
                                         }}
                                       >
-                                        <Clock className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                                        <Clock className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
                                       </Button>
                                       {estado !== null && (
                                         <Button
                                           type="button"
                                           variant="ghost"
                                           size="icon"
-                                          className="h-8 w-8 shrink-0 hover:bg-muted"
+                                          className="h-7 w-7 shrink-0 hover:bg-muted"
                                           aria-label="Quitar registro"
                                           disabled={isSaving}
                                           onClick={(e) => {
@@ -2546,7 +2546,7 @@ export function AsistenciaCalendarView({
                                             aplicarEstadoRapido(estudiante.id, fechaStr, null)
                                           }}
                                         >
-                                          <CircleSlash className="h-4 w-4 text-muted-foreground" />
+                                          <CircleSlash className="h-3.5 w-3.5 text-muted-foreground" />
                                         </Button>
                                       )}
                                       {estado !== null && (
@@ -2554,14 +2554,14 @@ export function AsistenciaCalendarView({
                                           type="button"
                                           variant="ghost"
                                           size="icon"
-                                          className="h-8 w-8 shrink-0 hover:bg-accent"
+                                          className="h-7 w-7 shrink-0 hover:bg-accent"
                                           aria-label="Ver quién registró esta asistencia"
                                           onClick={(e) => {
                                             e.stopPropagation()
                                             openHistorialPorClaveCelda(key)
                                           }}
                                         >
-                                          <Info className="h-4 w-4 text-muted-foreground" />
+                                          <Info className="h-3.5 w-3.5 text-muted-foreground" />
                                         </Button>
                                       )}
                                     </div>
