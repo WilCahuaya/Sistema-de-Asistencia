@@ -1238,6 +1238,39 @@ export function AsistenciaCalendarView({
     saveAsistencia(estudianteId, fechaStr, newEstado)
   }
 
+  /** Evita que un doble clic dispare dos ciclos de clic simple en la tabla escritorio. */
+  const desktopCellClickTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+
+  const scheduleDesktopCeldaClicSimple = (estudianteId: string, fechaStr: string) => {
+    const k = `${estudianteId}_${fechaStr}`
+    const prev = desktopCellClickTimersRef.current.get(k)
+    if (prev) clearTimeout(prev)
+    const t = setTimeout(() => {
+      desktopCellClickTimersRef.current.delete(k)
+      handleCellClick(estudianteId, fechaStr, false)
+    }, 240)
+    desktopCellClickTimersRef.current.set(k, t)
+  }
+
+  const cancelDesktopCeldaClicSimple = (estudianteId: string, fechaStr: string) => {
+    const k = `${estudianteId}_${fechaStr}`
+    const prev = desktopCellClickTimersRef.current.get(k)
+    if (prev) {
+      clearTimeout(prev)
+      desktopCellClickTimersRef.current.delete(k)
+    }
+  }
+
+  const handleDesktopCeldaDobleClic = (
+    estudianteId: string,
+    fechaStr: string,
+    e: MouseEvent<HTMLButtonElement>
+  ) => {
+    e.preventDefault()
+    cancelDesktopCeldaClicSimple(estudianteId, fechaStr)
+    handleCellClick(estudianteId, fechaStr, true)
+  }
+
   const handleMarkAllPresente = async (fechaStr: string) => {
     if (!puedeEditarMes || !selectedAula) return
 
@@ -2426,9 +2459,13 @@ export function AsistenciaCalendarView({
                                     <button
                                       type="button"
                                       disabled={isSaving}
-                                      className="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-sm px-0.5 py-1 outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
-                                      title="Pasa el mouse para ver las opciones encima de la celda"
-                                      aria-label="Asistencia: abrir acciones rápidas"
+                                      className="flex min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-sm px-0.5 py-1 outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
+                                      title="Clic: ciclar estado · Doble clic: Faltó · Pasar el mouse: panel con iconos"
+                                      aria-label="Asistencia: ciclar con clic o panel al pasar el mouse"
+                                      onClick={() => scheduleDesktopCeldaClicSimple(estudiante.id, fechaStr)}
+                                      onDoubleClick={(e) =>
+                                        handleDesktopCeldaDobleClic(estudiante.id, fechaStr, e)
+                                      }
                                     >
                                       {getEstadoIcon(estado, isSaving)}
                                       {estado !== null &&
@@ -2445,7 +2482,7 @@ export function AsistenciaCalendarView({
                                   <HoverCardContent
                                     side="top"
                                     align="center"
-                                    sideOffset={10}
+                                    sideOffset={3}
                                     className="w-auto max-w-[min(100vw-1rem,280px)] border bg-popover p-1.5 shadow-lg pointer-events-auto"
                                   >
                                     <div
