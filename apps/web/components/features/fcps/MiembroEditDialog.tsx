@@ -34,6 +34,8 @@ interface Miembro {
   rol: 'facilitador' | 'director' | 'secretario' | 'tutor'
   activo: boolean
   nombre_display?: string | null
+  /** Invitación pendiente: correo antes de aceptar */
+  email_pendiente?: string | null
   usuario?: {
     email: string
     nombre_completo?: string
@@ -66,6 +68,7 @@ export function MiembroEditDialog({
   const [selectedRoles, setSelectedRoles] = useState<Array<'secretario' | 'tutor'>>([])
   const [existingRoles, setExistingRoles] = useState<Array<{ id: string; rol: string; activo: boolean }>>([])
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [emailEdit, setEmailEdit] = useState('')
   const supabase = createClient()
   const { isSecretario, isDirector, isFacilitador } = useUserRole(miembro.fcp_id)
   
@@ -112,6 +115,14 @@ export function MiembroEditDialog({
   }, [open, miembro, isDirector, isFacilitador, isSecretario, canAssignMultipleRoles])
 
   useEffect(() => {
+    if (open && miembro) {
+      setEmailEdit(
+        (miembro.usuario?.email || miembro.email_pendiente || '').trim()
+      )
+    }
+  }, [open, miembro])
+
+  useEffect(() => {
     if (miembro) {
       setRol(miembro.rol)
       setNombreDisplay(miembro.nombre_display ?? '')
@@ -128,6 +139,58 @@ export function MiembroEditDialog({
       }
     }
   }, [miembro, isSecretario, canAssignMultipleRoles, canSecretarioGestionarPropioTutor])
+
+  const persistMemberEmail = async () => {
+    if (!canEditThisMember) return
+    const next = emailEdit.trim().toLowerCase()
+    const prev = (
+      miembro.usuario?.email ||
+      miembro.email_pendiente ||
+      ''
+    ).trim().toLowerCase()
+    if (next === prev) return
+    if (!next) {
+      throw new Error('El correo no puede estar vacío.')
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(next)) {
+      throw new Error('Correo electrónico inválido.')
+    }
+    if (!miembro.usuario_id) {
+      const { error: pe } = await supabase
+        .from('fcp_miembros')
+        .update({ email_pendiente: next })
+        .eq('id', miembro.id)
+      if (pe) {
+        if (pe.code === '42501') {
+          throw new Error(
+            'No tienes permiso para cambiar el correo de esta invitación.'
+          )
+        }
+        throw new Error(pe.message)
+      }
+      return
+    }
+    const res = await fetch('/api/miembros/actualizar-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fcpId: miembro.fcp_id,
+        usuarioId: miembro.usuario_id,
+        email: next,
+      }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      throw new Error(
+        typeof data.error === 'string'
+          ? data.error
+          : 'Error al actualizar el correo.'
+      )
+    }
+    if (data.message && data.authUpdated === false) {
+      toast.info(String(data.message))
+    }
+  }
   
   const loadExistingRoles = async () => {
     if (!miembro?.usuario_id) return
@@ -336,6 +399,19 @@ export function MiembroEditDialog({
     try {
       setLoading(true)
       setError(null)
+
+      try {
+        await persistMemberEmail()
+      } catch (emailErr: unknown) {
+        const msg =
+          emailErr instanceof Error
+            ? emailErr.message
+            : 'Error al actualizar el correo.'
+        setError(msg)
+        toast.error('Correo', msg)
+        setLoading(false)
+        return
+      }
 
       if (isSecretario && miembro.rol !== 'tutor' && !canSecretarioGestionarPropioTutor) {
         setError('Como secretario, solo puedes editar miembros con rol tutor o tu propia cuenta para sumar tutor.')
@@ -910,9 +986,21 @@ export function MiembroEditDialog({
             </p>
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="email">Email</Label>
-            <p className="text-sm text-muted-foreground font-mono">
-              {miembro.usuario?.email || 'Sin email'}
+            <Label htmlFor="member-email">Correo electrónico</Label>
+            <Input
+              id="member-email"
+              type="email"
+              autoComplete="email"
+              value={emailEdit}
+              onChange={(e) => setEmailEdit(e.target.value)}
+              placeholder="correo@ejemplo.com"
+              disabled={!canEditThisMember}
+              className="font-mono"
+            />
+            <p className="text-xs text-muted-foreground">
+              {miembro.usuario_id
+                ? 'Debe coincidir con el correo con el que el usuario inicia sesión (Auth si está configurado en servidor).'
+                : 'Invitación pendiente: correo al que se envió la invitación.'}
             </p>
           </div>
           {/* Si es director (pero no facilitador), mostrar selector de múltiples roles */}
