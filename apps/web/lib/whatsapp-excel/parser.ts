@@ -107,6 +107,105 @@ function mergeHeaderRows(a: unknown[], b: unknown[]): unknown[] {
   return out
 }
 
+function mergeThreeHeaderRows(a: unknown[], b: unknown[], c: unknown[]): unknown[] {
+  return mergeHeaderRows(mergeHeaderRows(a, b), c)
+}
+
+function pareceIdBeneficiario(val: unknown): boolean {
+  const t = cellStr(val).trim()
+  if (!t || t.length > 36) return false
+  if (/^PE\d{6,14}$/i.test(t.replace(/\s/g, ''))) return true
+  if (/^[A-Z]{2,4}\d{6,16}$/i.test(t.replace(/\s/g, ''))) return true
+  if (/^\d{1,12}$/.test(t)) return true
+  return false
+}
+
+function pareceNombreCuenta(val: unknown): boolean {
+  const t = cellStr(val).trim()
+  if (t.length < 4 || t.length > 150) return false
+  if (/^\d+$/.test(t)) return false
+  if (/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(t)) return false
+  const letters = (t.match(/[a-zA-ZÀ-ÿ]/g) ?? []).length
+  return letters >= 3 && letters >= t.replace(/\s/g, '').length * 0.2
+}
+
+/**
+ * Si el encabezado no coincide con ningún patrón conocido, infiere columnas
+ * mirando las primeras filas de datos (misma lógica para distintos layouts).
+ */
+function inferirColumnasPorMuestra(
+  matrix: unknown[][],
+  dataStart: number,
+  col: Record<string, number>,
+  nombreArchivo: string,
+  advertencias: string[]
+): void {
+  const sampleEnd = Math.min(matrix.length, dataStart + 55)
+  let width = 0
+  for (let r = dataStart; r < sampleEnd; r++) {
+    const rw = matrix[r]
+    if (rw) width = Math.max(width, rw.length)
+  }
+  if (width === 0) return
+
+  const scoreId = new Array(width).fill(0)
+  const scoreNombre = new Array(width).fill(0)
+  let rowsUsed = 0
+
+  for (let r = dataStart; r < sampleEnd; r++) {
+    const row = matrix[r]
+    if (!row) continue
+    const line = textoFila(row)
+    if (line.includes('total general')) continue
+    if (line.includes('dash') && line.length < 100) continue
+    if (!row.some((c) => String(c ?? '').trim() !== '')) continue
+    rowsUsed++
+    for (let j = 0; j < width; j++) {
+      const v = row[j]
+      if (pareceIdBeneficiario(v)) scoreId[j]++
+      if (pareceNombreCuenta(v)) scoreNombre[j]++
+    }
+  }
+
+  const thr = Math.max(4, Math.ceil(rowsUsed * 0.22))
+
+  if (col['id_local'] === undefined) {
+    let bestJ = -1
+    let bestS = 0
+    for (let j = 0; j < width; j++) {
+      if (scoreId[j] > bestS) {
+        bestS = scoreId[j]
+        bestJ = j
+      }
+    }
+    if (bestJ >= 0 && bestS >= thr) {
+      col['id_local'] = bestJ
+      advertencias.push(
+        `${nombreArchivo}: encabezado de ID local no reconocido; se eligió la columna ${bestJ + 1} según el aspecto de los datos (${bestS} de ${rowsUsed} filas de muestra).`
+      )
+    }
+  }
+
+  if (col['nombre_cuenta'] === undefined) {
+    let bestJ = -1
+    let bestS = 0
+    const avoid = col['id_local']
+    for (let j = 0; j < width; j++) {
+      if (j === avoid) continue
+      if (scoreNombre[j] > bestS) {
+        bestS = scoreNombre[j]
+        bestJ = j
+      }
+    }
+    if (bestJ >= 0 && bestS >= thr) {
+      col['nombre_cuenta'] = bestJ
+      advertencias.push(
+        `${nombreArchivo}: encabezado de nombre de cuenta no reconocido; se eligió la columna ${bestJ + 1} según el aspecto de los datos (${bestS} de ${rowsUsed} filas de muestra).`
+      )
+    }
+  }
+}
+
 function matrixFromSheet(sheet: XLSX.WorkSheet): unknown[][] {
   return densify(XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true }) as unknown[][])
 }
@@ -145,13 +244,24 @@ function esFormatoFotos(col: Record<string, number>): boolean {
   return col['fecha_ultima'] !== undefined && col['estado_act'] !== undefined
 }
 
+/**
+ * Fragmentos de texto que pueden describir una misma columna cuando el Excel
+ * parte el encabezado en celdas adyacentes o en filas distintas (cada archivo en otra posición).
+ */
 function ventanasCabecera(cells: string[], i: number): string[] {
-  const a = cells[i] ?? ''
-  const b = cells[i + 1] ?? ''
-  const c = cells[i + 2] ?? ''
-  const ab = `${a} ${b}`.trim()
-  const abc = `${a} ${b} ${c}`.trim()
-  return [a, ab, abc].filter((s) => s.length > 0)
+  const seen = new Set<string>()
+  const push = (s: string) => {
+    const t = s.trim().replace(/\s+/g, ' ')
+    if (t.length > 0 && t.length < 220) seen.add(t)
+  }
+  const lo = Math.max(0, i - 4)
+  const hi = Math.min(cells.length - 1, i + 4)
+  for (let a = lo; a <= i; a++) {
+    for (let b = i; b <= hi; b++) {
+      push(cells.slice(a, b + 1).join(' '))
+    }
+  }
+  return [...seen]
 }
 
 function mapearIndicesCabecera(headerRow: unknown[]): Record<string, number> {
@@ -172,13 +282,18 @@ function mapearIndicesCabecera(headerRow: unknown[]): Record<string, number> {
     /** Código del beneficiario en el reporte (p. ej. «ID Local del Beneficiario»); es el valor que se cruza con `estudiantes.codigo`. */
     setCol('id_local', idx, (s) => {
       if (s.includes('nombre') && s.includes('cuenta')) return false
+      if (s.includes('global') && !s.includes('local')) return false
       return (
         (s.includes('id local') && (s.includes('benef') || s.includes('identif'))) ||
         (s.includes('identificador') && s.includes('local') && s.includes('benef')) ||
         (s.includes('codigo') && s.includes('local') && s.includes('benef')) ||
         (s.includes('id') && s.includes('local') && s.includes('benef')) ||
-        (s.includes('beneficiary') && s.includes('local') && s.includes('id')) ||
-        (s.includes('beneficiary') && s.includes('local') && s.includes('identifier'))
+        (s.includes('beneficiary') && s.includes('local') && (s.includes('id') || s.includes('identifier'))) ||
+        (s.includes('local') && s.includes('beneficiary') && s.includes('id')) ||
+        (s.includes('student') && s.includes('code')) ||
+        (s.includes('alumno') && s.includes('codigo')) ||
+        (s.includes('member') && s.includes('id') && s.includes('local')) ||
+        (s.includes('local') && s.includes('id') && s.includes('benef') && s.length < 120)
       )
     })
     setCol('nombre_cuenta', idx, (s) => {
@@ -186,7 +301,11 @@ function mapearIndicesCabecera(headerRow: unknown[]): Record<string, number> {
       if (s.includes('tutor')) return false
       return (
         (s.includes('nombre') && s.includes('cuenta')) ||
-        (s.includes('nombre') && (s.includes('beneficiario') || s.includes('estudiante') || s.includes('alumno')))
+        (s.includes('nombre') && (s.includes('beneficiario') || s.includes('estudiante') || s.includes('alumno'))) ||
+        (s.includes('account') && s.includes('name')) ||
+        (s.includes('display') && s.includes('name')) ||
+        (s.includes('nombre') && s.includes('completo')) ||
+        (s.includes('full') && s.includes('name'))
       )
     })
     setCol('tipo_com', idx, (s) => {
@@ -196,7 +315,9 @@ function mapearIndicesCabecera(headerRow: unknown[]): Record<string, number> {
         (s.includes('tipo') && s.includes('carta')) ||
         (s.includes('tipo') && s.includes('mensaje')) ||
         (s.includes('type') && s.includes('communication')) ||
-        (s.includes('communication') && s.includes('type'))
+        (s.includes('communication') && s.includes('type')) ||
+        (s.includes('category') && s.includes('communication')) ||
+        (s.includes('tipo') && s.includes('letter'))
       )
     })
     setCol('id_global', idx, (s) => {
@@ -205,7 +326,9 @@ function mapearIndicesCabecera(headerRow: unknown[]): Record<string, number> {
         (s.includes('communication') && s.includes('global')) ||
         (s.includes('id') && s.includes('global') && (s.includes('comunic') || s.length < 60)) ||
         (s.includes('referencia') && s.includes('global')) ||
-        (s.includes('global') && s.includes('reference'))
+        (s.includes('global') && s.includes('reference')) ||
+        (s.includes('external') && s.includes('id') && s.includes('comunic')) ||
+        (s.includes('record') && s.includes('id') && s.includes('comunic'))
       )
     })
     setCol('comentarios', idx, (s) => {
@@ -289,16 +412,24 @@ function scoreHeaderRow(row: unknown[]): number {
   if (cells.some((s) => s.includes('fecha') && s.includes('foto'))) score += 4
   if (cells.some((s) => s.includes('estado') && s.includes('actualiz'))) score += 2
 
+  if (
+    (joined.includes('student') && joined.includes('code')) ||
+    (joined.includes('alumno') && joined.includes('codigo'))
+  )
+    score += 5
+  if (joined.includes('account') && joined.includes('name')) score += 3
+
   if (nonEmpty >= 6) score += 1
   return score
 }
 
-/** Mejor fila de encabezado en las primeras filas; admite encabezado en dos filas consecutivas (celdas combinadas). */
+/** Mejor fila de encabezado en las primeras filas; admite 1–3 filas consecutivas (celdas combinadas o títulos partidos). */
 function findBestHeader(matrix: unknown[][]): { rowIndex: number; headerCells: unknown[]; dataStart: number } {
-  const limit = Math.min(matrix.length, 150)
+  const limit = Math.min(matrix.length, 280)
   let bestI = -1
   let bestScore = 0
   let bestMerged: unknown[] | null = null
+  let bestHeaderRows = 1
 
   for (let i = 0; i < limit; i++) {
     const row = matrix[i]
@@ -308,6 +439,7 @@ function findBestHeader(matrix: unknown[][]): { rowIndex: number; headerCells: u
       bestScore = s1
       bestI = i
       bestMerged = null
+      bestHeaderRows = 1
     }
     if (i + 1 < matrix.length) {
       const merged = mergeHeaderRows(row, matrix[i + 1])
@@ -316,6 +448,17 @@ function findBestHeader(matrix: unknown[][]): { rowIndex: number; headerCells: u
         bestScore = s2
         bestI = i
         bestMerged = merged
+        bestHeaderRows = 2
+      }
+    }
+    if (i + 2 < matrix.length) {
+      const merged3 = mergeThreeHeaderRows(row, matrix[i + 1], matrix[i + 2])
+      const s3 = scoreHeaderRow(merged3)
+      if (s3 > bestScore) {
+        bestScore = s3
+        bestI = i
+        bestMerged = merged3
+        bestHeaderRows = 3
       }
     }
   }
@@ -329,10 +472,12 @@ function findBestHeader(matrix: unknown[][]): { rowIndex: number; headerCells: u
   const tieneIdBenef =
     (joined.includes('local') && (joined.includes('benef') || joined.includes('identif'))) ||
     (joined.includes('codigo') && joined.includes('local') && joined.includes('benef')) ||
-    (joined.includes('local') && joined.includes('beneficiary'))
+    (joined.includes('local') && joined.includes('beneficiary')) ||
+    (joined.includes('student') && joined.includes('code')) ||
+    (joined.includes('alumno') && joined.includes('codigo'))
   const tieneNombreYCarta =
-    joined.includes('nombre') &&
-    joined.includes('cuenta') &&
+    ((joined.includes('nombre') && joined.includes('cuenta')) ||
+      (joined.includes('account') && joined.includes('name'))) &&
     ((joined.includes('tipo') &&
       (joined.includes('comunic') || joined.includes('carta') || joined.includes('mensaje'))) ||
       (joined.includes('communication') && joined.includes('type')))
@@ -343,7 +488,7 @@ function findBestHeader(matrix: unknown[][]): { rowIndex: number; headerCells: u
     return { rowIndex: -1, headerCells: [], dataStart: -1 }
   }
 
-  const dataStart = bestMerged != null ? bestI + 2 : bestI + 1
+  const dataStart = bestI + bestHeaderRows
   return { rowIndex: bestI, headerCells, dataStart }
 }
 
@@ -365,6 +510,7 @@ function parseSheet(
   advertencias: string[]
 ): { fotos: FilaFoto[]; cartas: FilaCarta[]; columnasDetectadas: Record<string, number> } {
   const col = mapearIndicesCabecera(headerCells)
+  inferirColumnasPorMuestra(matrix, dataStart, col, nombreArchivo, advertencias)
   const columnasDetectadas = { ...col }
 
   if (col['id_local'] === undefined || col['nombre_cuenta'] === undefined) {
