@@ -35,6 +35,13 @@ import {
   getProportionalColumnStyles,
   type PDFTableColumnConfig,
 } from '@/lib/utils/pdfTableUtils'
+import {
+  enrichAsistenciasParticipantes,
+  fetchAsistenciasRangoFlat,
+  fetchAulasMapByIds,
+  fetchEstudiantesActivosPorAulas,
+  fetchEstudiantesAulaOnlyMapByIds,
+} from '@/lib/reportes/asistenciasReporteQueries'
 import { toast } from '@/lib/toast'
 
 interface ReporteParticipantesPorMesProps {
@@ -264,35 +271,14 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
         const fechaInicioStr = toLocalDateString(fechaInicio)
         const fechaFinStr = toLocalDateString(fechaFin)
 
-        // IMPORTANTE: Incluir aula_id de la asistencia para preservar el aula histórica
-        // Paginar: el límite por defecto de PostgREST (~1000) truncaba el año y bajaba
-        // artificialmente "marcados", generando alertas de incompleto inexistentes.
-        const selectAsistencias = `
-            estudiante_id,
-            fecha,
-            estado,
-            aula_id,
-            aula:aulas(id, nombre),
-            estudiante:estudiantes(id, aula_id)
-          `
-        let todasAsistenciasData: any[] = []
-        let offsetAsist = 0
-        const pageSizeAsist = 1000
-        let hasMoreAsist = true
-        while (hasMoreAsist) {
-          const { data: page, error: pageErr } = await supabase
-            .from('asistencias')
-            .select(selectAsistencias)
-            .eq('fcp_id', fcp.id)
-            .gte('fecha', fechaInicioStr)
-            .lte('fecha', fechaFinStr)
-            .order('fecha', { ascending: true })
-            .range(offsetAsist, offsetAsist + pageSizeAsist - 1)
-          if (pageErr) throw pageErr
-          todasAsistenciasData = todasAsistenciasData.concat(page || [])
-          hasMoreAsist = (page?.length || 0) === pageSizeAsist
-          offsetAsist += pageSizeAsist
-        }
+        const flatAnio = await fetchAsistenciasRangoFlat(supabase, fcp.id, fechaInicioStr, fechaFinStr)
+        const idsEstAnio = [...new Set(flatAnio.map((r) => r.estudiante_id))]
+        const idsAulAnio = [...new Set(flatAnio.map((r) => r.aula_id).filter(Boolean))] as string[]
+        const [estMapAnio, aulMapAnio] = await Promise.all([
+          fetchEstudiantesAulaOnlyMapByIds(supabase, idsEstAnio),
+          fetchAulasMapByIds(supabase, idsAulAnio),
+        ])
+        const todasAsistenciasData = enrichAsistenciasParticipantes(flatAnio, estMapAnio, aulMapAnio)
 
         // Obtener estudiantes activos actuales de la FCP (para meses actuales/futuros)
         const { data: estudiantesActualesData, error: estudiantesError } = await supabase
@@ -353,29 +339,45 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
             aulasParaMes = aulasData || []
           }
 
-          // contar: solo meses ya cerrados (totales por día). Alertas: siempre vía RPC (como el resto de reportes).
+          // contar + días incompletos en paralelo; estudiantes por aula en paralelo (mes anterior)
           const totalPorAulaFechaFCP = new Map<string, number>()
+          const activosPorAulaEsteMes =
+            esMesAnterior && aulasParaMes.length > 0
+              ? await fetchEstudiantesActivosPorAulas(
+                  supabase,
+                  aulasParaMes.map((a: any) => a.id),
+                  mesInicioStr,
+                  mesFinStr
+                )
+              : null
+
           if (aulasParaMes.length > 0) {
             const aulaIdsMes = aulasParaMes.map((a: any) => a.id)
-            if (esMesAnterior) {
-              const { data: rpcData } = await supabase.rpc('contar_estudiantes_por_aula_fecha', {
+            const [rpcContarRes, rpcDiasRes] = await Promise.all([
+              esMesAnterior
+                ? supabase.rpc('contar_estudiantes_por_aula_fecha', {
+                    p_aula_ids: aulaIdsMes,
+                    p_fecha_inicio: mesInicioStr,
+                    p_fecha_fin: mesFinStr,
+                  })
+                : Promise.resolve({ data: [] as { aula_id: string; fecha: string; total: number }[], error: null }),
+              supabase.rpc('dias_incompletos_por_aula', {
                 p_aula_ids: aulaIdsMes,
                 p_fecha_inicio: mesInicioStr,
                 p_fecha_fin: mesFinStr,
-              })
-              ;(rpcData || []).forEach((row: { aula_id: string; fecha: string; total: number }) => {
+                p_fcp_id: fcp.id,
+              }),
+            ])
+            if (rpcContarRes.error) throw rpcContarRes.error
+            if (rpcDiasRes.error) throw rpcDiasRes.error
+            if (esMesAnterior) {
+              ;(rpcContarRes.data || []).forEach((row: { aula_id: string; fecha: string; total: number }) => {
                 const fechaStr = typeof row.fecha === 'string' ? row.fecha.split('T')[0] : row.fecha
                 totalPorAulaFechaFCP.set(`${row.aula_id}|${fechaStr}`, Number(row.total) || 0)
               })
             }
 
-            const { data: rpcDiasIncompletos } = await supabase.rpc('dias_incompletos_por_aula', {
-              p_aula_ids: aulaIdsMes,
-              p_fecha_inicio: mesInicioStr,
-              p_fecha_fin: mesFinStr,
-              p_fcp_id: fcp.id,
-            })
-            ;(rpcDiasIncompletos || []).forEach(
+            ;(rpcDiasRes.data || []).forEach(
               (row: { aula_id: string; aula_nombre: string; fecha: string; marcados: number; total: number }) => {
                 const fechaStr = typeof row.fecha === 'string' ? row.fecha.split('T')[0] : row.fecha
                 const [y, m, d] = fechaStr.split('-').map(Number)
@@ -427,21 +429,11 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
             let estudiantesAula: any[] = []
 
             if (esMesAnterior) {
-              const { data: idsRango } = await supabase.rpc('estudiantes_activos_en_rango', {
-                p_aula_id: aula.id,
-                p_fecha_inicio: mesInicioStr,
-                p_fecha_fin: mesFinStr,
-              })
-              const ids = (idsRango || []).flatMap((x: unknown) => {
-                if (typeof x === 'string') return [x]
-                if (x && typeof x === 'object') {
-                  const v = (x as Record<string, unknown>)['estudiante_id'] ?? Object.values(x as object)[0]
-                  return typeof v === 'string' ? [v] : []
-                }
-                return []
-              })
+              const ids = activosPorAulaEsteMes?.get(aula.id) || []
               const estudiantesParaMesMap = new Map((estudiantesParaMes || []).map((e: any) => [e.id, e]))
-              estudiantesAula = ids.map(id => estudiantesParaMesMap.get(id) || { id, aula_id: aula.id })
+              estudiantesAula = ids.map((id) =>
+                estudiantesParaMesMap.get(id) || { id, aula_id: aula.id }
+              )
             } else {
               estudiantesAula = estudiantesParaMes?.filter(e => e.aula_id === aula.id) || []
             }

@@ -38,6 +38,13 @@ import {
   getProportionalColumnStyles,
   type PDFTableColumnConfig,
 } from '@/lib/utils/pdfTableUtils'
+import {
+  enrichAsistenciasRows,
+  fetchAsistenciasRangoFlat,
+  fetchAulasMapByIds,
+  fetchEstudiantesActivosPorAulas,
+  fetchEstudiantesMapByIds,
+} from '@/lib/reportes/asistenciasReporteQueries'
 
 interface ReporteAsistenciaPorNivelProps {
   fcpId: string | null
@@ -498,23 +505,19 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         esMesAnterior
       })
 
-      // IMPORTANTE: Incluir aula_id de la asistencia para preservar el aula histórica
-      // Primero obtener asistencias para determinar qué estudiantes y aulas incluir
-      const { data: asistenciasData, error: asistenciasError } = await supabase
-        .from('asistencias')
-        .select(`
-          estudiante_id, 
-          fecha, 
-          estado,
-          aula_id,
-          aula:aulas(id, nombre),
-          estudiante:estudiantes(id, codigo, nombre_completo, aula_id, created_at)
-        `)
-        .eq('fcp_id', fcpIdParaReporte)
-        .gte('fecha', fechaInicio)
-        .lte('fecha', fechaFin)
-
-      if (asistenciasError) throw asistenciasError
+      const flatAsist = await fetchAsistenciasRangoFlat(
+        supabase,
+        fcpIdParaReporte,
+        fechaInicio,
+        fechaFin
+      )
+      const idsEstAsist = [...new Set(flatAsist.map((r) => r.estudiante_id))]
+      const idsAulAsist = [...new Set(flatAsist.map((r) => r.aula_id).filter(Boolean))] as string[]
+      const [estMapAsist, aulMapAsist] = await Promise.all([
+        fetchEstudiantesMapByIds(supabase, idsEstAsist),
+        fetchAulasMapByIds(supabase, idsAulAsist),
+      ])
+      const asistenciasData = enrichAsistenciasRows(flatAsist, estMapAsist, aulMapAsist)
 
       // Obtener estudiantes según el mes consultado
       let estudiantesData: any[] = []
@@ -564,36 +567,13 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         selectedFCP,
         selectedRoleFcpId: selectedRole?.fcpId,
         estudiantesCount: estudiantesData?.length || 0,
-        estudianteIds: estudianteIds.slice(0, 3), // Primeros 3 IDs
+        estudianteIds: estudianteIds.slice(0, 3),
         fechaInicio,
         fechaFin,
         year: selectedYear,
         month: selectedMonth,
-        esMesAnterior
+        esMesAnterior,
       })
-
-      console.log('📊 Asistencias en reporte:', {
-        count: asistenciasData?.length || 0,
-        fechasUnicas: [...new Set(asistenciasData?.map(a => a.fecha) || [])].sort((a, b) => {
-          const dateA = new Date(a)
-          const dateB = new Date(b)
-          return dateA.getTime() - dateB.getTime()
-        }),
-        muestra: asistenciasData?.slice(0, 5).map(a => ({ estudiante_id: a.estudiante_id, fecha: a.fecha, estado: a.estado })),
-        asistenciasPorEstudiante: estudiantesData?.map(e => ({
-          id: e.id,
-          codigo: e.codigo,
-          nombre: e.nombre_completo,
-          aula_id: e.aula_id,
-          asistenciasCount: asistenciasData?.filter(a => a.estudiante_id === e.id).length || 0,
-          fechas: [...new Set(asistenciasData?.filter(a => a.estudiante_id === e.id).map(a => a.fecha) || [])].sort(),
-        })),
-      })
-
-      if (asistenciasError) {
-        console.error('❌ [ReporteAsistenciaPorNivel] Error obteniendo asistencias:', asistenciasError)
-        throw asistenciasError
-      }
 
       // Agrupar asistencias por aula y tutor
       const nivelesMap = new Map<string, NivelGroup>()
@@ -688,6 +668,16 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         })
       }
 
+      const estudiantesActivosPorAulaCache =
+        esMesAnterior && aulasParaProcesar.length > 0
+          ? await fetchEstudiantesActivosPorAulas(
+              supabase,
+              aulasParaProcesar.map((a: any) => a.id),
+              fechaInicio,
+              fechaFin
+            )
+          : null
+
       for (const aula of aulasParaProcesar) {
         // IMPORTANTE: Agrupar estudiantes por aula según el mes consultado
         // Para meses anteriores: usar aula_id de las asistencias (histórica)
@@ -695,23 +685,16 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         let estudiantesDeAula: any[] = []
         
         if (esMesAnterior) {
-          // Para meses anteriores: usar estudiantes_activos_en_rango (MISMA lógica que vista Asistencias)
-          const { data: idsRango } = await supabase.rpc('estudiantes_activos_en_rango', {
-            p_aula_id: aula.id,
-            p_fecha_inicio: fechaInicio,
-            p_fecha_fin: fechaFin,
-          })
-          const ids = (idsRango || []).flatMap((x: unknown) => {
-            if (typeof x === 'string') return [x]
-            if (x && typeof x === 'object') {
-              const v = (x as Record<string, unknown>)['estudiante_id'] ?? Object.values(x as object)[0]
-              return typeof v === 'string' ? [v] : []
+          const ids = estudiantesActivosPorAulaCache?.get(aula.id) || []
+          const estudiantesDataMap = new Map((estudiantesData || []).map((e) => [e.id, e]))
+          estudiantesDeAula = ids.map((id) =>
+            estudiantesDataMap.get(id) || {
+              id,
+              codigo: '',
+              nombre_completo: '',
+              aula_id: aula.id,
             }
-            return []
-          })
-          // Combinar con estudiantesData si existe; si no, crear objetos mínimos (el RPC es la fuente de verdad)
-          const estudiantesDataMap = new Map((estudiantesData || []).map(e => [e.id, e]))
-          estudiantesDeAula = ids.map(id => estudiantesDataMap.get(id) || { id, codigo: '', nombre_completo: '', aula_id: aula.id })
+          )
         } else {
           // Para meses actuales/futuros, filtrar estudiantes por su aula_id actual
           estudiantesDeAula = estudiantesData?.filter(e => e.aula_id === aula.id) || []

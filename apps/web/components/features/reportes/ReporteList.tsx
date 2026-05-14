@@ -38,6 +38,13 @@ import {
   getProportionalColumnStyles,
   type PDFTableColumnConfig,
 } from '@/lib/utils/pdfTableUtils'
+import {
+  enrichAsistenciasRows,
+  fetchAsistenciasRangoFlat,
+  fetchAulasMapByIds,
+  fetchEstudiantesActivosPorAulas,
+  fetchEstudiantesMapByIds,
+} from '@/lib/reportes/asistenciasReporteQueries'
 
 interface ReporteData {
   fcp: {
@@ -426,37 +433,20 @@ export function ReporteList() {
         esMesAnterior
       })
 
-      // Obtener TODAS las asistencias en el rango (paginación para no perder ninguna fecha)
-      const selectAsistencias = `
-        estudiante_id, 
-        estado, 
-        fecha,
-        aula_id,
-        aula:aulas(id, nombre),
-        estudiante:estudiantes(id, codigo, nombre_completo, aula_id, created_at)
-      `
-      let asistenciasData: any[] = []
-      let offset = 0
-      const pageSize = 1000
-      let hasMore = true
-      while (hasMore) {
-        const { data: page, error: asistenciasError } = await supabase
-          .from('asistencias')
-          .select(selectAsistencias)
-          .eq('fcp_id', fcpIdAUsar)
-          .gte('fecha', fechaInicioStr)
-          .lte('fecha', fechaFinStr)
-          .order('fecha', { ascending: true })
-          .range(offset, offset + pageSize - 1)
-
-        if (asistenciasError) {
-          console.error('❌ [ReporteList] Error obteniendo asistencias:', asistenciasError)
-          throw asistenciasError
-        }
-        asistenciasData = asistenciasData.concat(page || [])
-        hasMore = (page?.length || 0) === pageSize
-        offset += pageSize
-      }
+      // Asistencias sin joins anidados (PostgREST repite estudiante/aula por fila → muy lento).
+      const flatAsist = await fetchAsistenciasRangoFlat(
+        supabase,
+        fcpIdAUsar,
+        fechaInicioStr,
+        fechaFinStr
+      )
+      const idsEst = [...new Set(flatAsist.map((r) => r.estudiante_id))]
+      const idsAul = [...new Set(flatAsist.map((r) => r.aula_id).filter(Boolean))] as string[]
+      const [estMap, aulMap] = await Promise.all([
+        fetchEstudiantesMapByIds(supabase, idsEst),
+        fetchAulasMapByIds(supabase, idsAul),
+      ])
+      const asistenciasData = enrichAsistenciasRows(flatAsist, estMap, aulMap)
 
       // Obtener estudiantes activos de la FCP
       // IMPORTANTE: Para meses anteriores, cargar estudiantes basándose en las asistencias del mes
@@ -674,22 +664,18 @@ export function ReporteList() {
             aulasDeAsistencias.set(aulaId, asist.aula?.nombre || 'Sin aula')
           }
         })
-        // Para cada aula, obtener estudiantes desde RPC (igual que la vista de Asistencias)
+        const activosPorAula = await fetchEstudiantesActivosPorAulas(
+          supabase,
+          Array.from(aulasDeAsistencias.keys()),
+          fechaInicioStr,
+          fechaFinStr
+        )
         for (const [aulaId, aulaNombre] of aulasDeAsistencias) {
-          const { data: idsRango } = await supabase.rpc('estudiantes_activos_en_rango', {
-            p_aula_id: aulaId,
-            p_fecha_inicio: fechaInicioStr,
-            p_fecha_fin: fechaFinStr,
+          aulasMap.set(aulaId, {
+            aulaId,
+            aulaNombre,
+            estudiantesIds: activosPorAula.get(aulaId) || [],
           })
-          const ids = (idsRango || []).flatMap((x: unknown) => {
-            if (typeof x === 'string') return [x]
-            if (x && typeof x === 'object') {
-              const v = (x as Record<string, unknown>)['estudiante_id'] ?? Object.values(x as object)[0]
-              return typeof v === 'string' ? [v] : []
-            }
-            return []
-          })
-          aulasMap.set(aulaId, { aulaId, aulaNombre, estudiantesIds: ids })
         }
       } else {
         // Para meses actuales/futuros, agrupar estudiantes por su aula_id actual

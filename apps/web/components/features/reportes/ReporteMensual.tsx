@@ -33,6 +33,13 @@ import {
   getPDFCellTextColor,
 } from '@/lib/utils/exportStyles'
 import { getAvailableTableWidth, getProportionalColumnStyles, type PDFTableColumnConfig } from '@/lib/utils/pdfTableUtils'
+import {
+  enrichAsistenciasRowsMinimalEstudiante,
+  fetchAsistenciasRangoFlat,
+  fetchAulasMapByIds,
+  fetchEstudiantesActivosPorAulas,
+  fetchEstudiantesMinimalMapByIds,
+} from '@/lib/reportes/asistenciasReporteQueries'
 
 interface ReporteMensualProps {
   fcpId: string | null
@@ -351,28 +358,23 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null }: Report
       // Cargar facilitador
       await loadFacilitador(fcpIdParaReporte)
 
-      // Obtener TODAS las asistencias del mes (para detectar días incompletos)
-      // IMPORTANTE: Incluir aula_id de la asistencia para preservar el aula histórica
-      const { data: todasAsistenciasData, error: todasAsistenciasError } = await supabase
-        .from('asistencias')
-        .select(`
-          estudiante_id, 
-          fecha, 
-          estado,
-          aula_id,
-          aula:aulas(id, nombre),
-          estudiante:estudiantes(id, aula_id, created_at)
-        `)
-        .eq('fcp_id', fcpIdParaReporte)
-        .gte('fecha', fechaInicioStr)
-        .lte('fecha', fechaFinStr)
-
-      if (todasAsistenciasError) {
-        console.error('❌ [ReporteMensual] Error obteniendo asistencias:', todasAsistenciasError)
-        throw todasAsistenciasError
-      }
-
-      let asistenciasDelMes: any[] = todasAsistenciasData || []
+      const flatTodas = await fetchAsistenciasRangoFlat(
+        supabase,
+        fcpIdParaReporte,
+        fechaInicioStr,
+        fechaFinStr
+      )
+      const idsEstTodas = [...new Set(flatTodas.map((r) => r.estudiante_id))]
+      const idsAulTodas = [...new Set(flatTodas.map((r) => r.aula_id).filter(Boolean))] as string[]
+      const [estMapTodas, aulMapTodas] = await Promise.all([
+        fetchEstudiantesMinimalMapByIds(supabase, idsEstTodas),
+        fetchAulasMapByIds(supabase, idsAulTodas),
+      ])
+      let asistenciasDelMes: any[] = enrichAsistenciasRowsMinimalEstudiante(
+        flatTodas,
+        estMapTodas,
+        aulMapTodas
+      )
       if (soloAulasIds && soloAulasIds.length > 0) {
         const permitidas = new Set(soloAulasIds)
         asistenciasDelMes = asistenciasDelMes.filter((asist: any) => {
@@ -539,6 +541,16 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null }: Report
         })
       }
 
+      const estudiantesActivosPorAulaMensual =
+        esMesAnterior && aulaIds.length > 0
+          ? await fetchEstudiantesActivosPorAulas(
+              supabase,
+              aulaIds,
+              fechaInicioStr,
+              fechaFinStr
+            )
+          : null
+
       // Calcular datos por nivel
       const niveles: NivelData[] = []
       let totalAsistenPromed = 0
@@ -552,21 +564,9 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null }: Report
         let estudiantesAulaIds = new Set<string>()
         
         if (esMesAnterior) {
-          const { data: idsRango } = await supabase.rpc('estudiantes_activos_en_rango', {
-            p_aula_id: aula.id,
-            p_fecha_inicio: fechaInicioStr,
-            p_fecha_fin: fechaFinStr,
-          })
-          const ids = (idsRango || []).flatMap((x: unknown) => {
-            if (typeof x === 'string') return [x]
-            if (x && typeof x === 'object') {
-              const v = (x as Record<string, unknown>)['estudiante_id'] ?? Object.values(x as object)[0]
-              return typeof v === 'string' ? [v] : []
-            }
-            return []
-          })
+          const ids = estudiantesActivosPorAulaMensual?.get(aula.id) || []
           estudiantesAulaIds = new Set(ids)
-          estudiantesAula = ids.map(id => ({ id }))
+          estudiantesAula = ids.map((id) => ({ id }))
         } else {
           estudiantesAula = estudiantesData?.filter(e => e.aula_id === aula.id) || []
           estudiantesAulaIds = new Set(estudiantesAula.map(e => e.id))
