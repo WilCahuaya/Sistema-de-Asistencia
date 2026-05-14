@@ -13,6 +13,7 @@ import {
   ClipboardList,
   BarChart3,
   Menu,
+  MessageCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -29,6 +30,7 @@ const allNavigation = [
   { name: 'Estudiantes', href: '/estudiantes', icon: GraduationCap },
   { name: 'Asistencias', href: '/asistencias', icon: ClipboardList },
   { name: 'Reportes', href: '/reportes', icon: BarChart3 },
+  { name: 'WhatsApp (Excel)', href: '/herramientas/whatsapp-excel', icon: MessageCircle },
 ]
 
 const OVERLAP_BREAKPOINT = 1100 // px: usar menú hamburguesa cuando el ancho sea menor
