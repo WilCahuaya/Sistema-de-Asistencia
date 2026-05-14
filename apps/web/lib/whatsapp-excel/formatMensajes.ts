@@ -1,5 +1,10 @@
 import type { FilaCarta, FilaFoto } from './parser'
 import { normalizarCodigo } from './parser'
+import {
+  elegirEstudianteYAdvertencia,
+  tutorNombreParaEstudiante,
+  type EstudianteMin,
+} from './resolverTutorPorIdLocal'
 
 export type ItemAgrupado =
   | { tipo: 'foto'; fila: FilaFoto }
@@ -64,6 +69,57 @@ export function agruparPorTutor(
   }
 
   return map
+}
+
+/**
+ * Agrupa por tutor usando códigos del Excel (completos o solo últimos 1–3 dígitos)
+ * resolviendo contra estudiantes de la FCP.
+ */
+export function agruparPorTutorConEstudiantes(
+  items: Array<{ codigo: string; items: ItemAgrupado[] }>,
+  estudiantes: EstudianteMin[],
+  aulaToTutor: Map<string, string>
+): {
+  map: Map<string, { nombre: string; fotos: FilaFoto[]; blp: FilaCarta[]; pres: FilaCarta[] }>
+  advertenciasResolucion: string[]
+} {
+  const map = new Map<
+    string,
+    { nombre: string; fotos: FilaFoto[]; blp: FilaCarta[]; pres: FilaCarta[] }
+  >()
+  const tutorPorIdExcel = new Map<string, string>()
+  const advertenciasResolucion: string[] = []
+  const advVistas = new Set<string>()
+
+  function nombreTutorParaIdExcel(idExcel: string): string {
+    if (tutorPorIdExcel.has(idExcel)) return tutorPorIdExcel.get(idExcel)!
+    const { est, advertencia } = elegirEstudianteYAdvertencia(idExcel, estudiantes)
+    if (advertencia && !advVistas.has(advertencia)) {
+      advVistas.add(advertencia)
+      advertenciasResolucion.push(advertencia)
+    }
+    const nombre = est
+      ? tutorNombreParaEstudiante(est, aulaToTutor)
+      : 'Sin asignación en sistema'
+    tutorPorIdExcel.set(idExcel, nombre)
+    return nombre
+  }
+
+  for (const { codigo, items: its } of items) {
+    const keyExcel = normalizarCodigo(codigo)
+    const nombreTutor = nombreTutorParaIdExcel(keyExcel)
+    if (!map.has(nombreTutor)) {
+      map.set(nombreTutor, { nombre: nombreTutor, fotos: [], blp: [], pres: [] })
+    }
+    const bucket = map.get(nombreTutor)!
+    for (const it of its) {
+      if (it.tipo === 'foto') bucket.fotos.push(it.fila)
+      else if (it.fila.seccion === 'blp') bucket.blp.push(it.fila)
+      else bucket.pres.push(it.fila)
+    }
+  }
+
+  return { map, advertenciasResolucion }
 }
 
 /** Expande filas a pares (código, item) para agrupar. */

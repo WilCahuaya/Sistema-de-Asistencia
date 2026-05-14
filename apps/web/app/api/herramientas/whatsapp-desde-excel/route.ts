@@ -2,17 +2,13 @@ export const dynamic = 'force-dynamic'
 
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import { parsearExcelArchivo, type FilaCarta, type FilaFoto } from '@/lib/whatsapp-excel/parser'
 import {
-  parsearExcelArchivo,
-  normalizarCodigo,
-  type FilaCarta,
-  type FilaFoto,
-} from '@/lib/whatsapp-excel/parser'
-import {
-  agruparPorTutor,
+  agruparPorTutorConEstudiantes,
   filasAItemsPorCodigo,
   mapAOrdenados,
 } from '@/lib/whatsapp-excel/formatMensajes'
+import type { EstudianteMin } from '@/lib/whatsapp-excel/resolverTutorPorIdLocal'
 
 async function puedeUsarHerramienta(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -37,12 +33,10 @@ async function puedeUsarHerramienta(
   return fcp?.facilitador_id === userId
 }
 
-async function buildCodigoATutorNombre(
+async function loadAulaToTutorYEstudiantes(
   supabase: Awaited<ReturnType<typeof createClient>>,
   fcpId: string
-): Promise<Map<string, string>> {
-  const map = new Map<string, string>()
-
+): Promise<{ aulaToTutor: Map<string, string>; estudiantes: EstudianteMin[] }> {
   const { data: tutorRows, error: taErr } = await supabase
     .from('tutor_aula')
     .select(
@@ -89,13 +83,12 @@ async function buildCodigoATutorNombre(
 
   if (eErr) throw eErr
 
-  for (const est of estudiantes || []) {
-    const cod = normalizarCodigo(est.codigo)
-    const tutor = est.aula_id ? aulaToTutor.get(est.aula_id) : undefined
-    map.set(cod, tutor || 'Sin tutor asignado en salón')
-  }
+  const list: EstudianteMin[] = (estudiantes || []).map((e) => ({
+    codigo: String(e.codigo ?? ''),
+    aula_id: e.aula_id ?? null,
+  }))
 
-  return map
+  return { aulaToTutor, estudiantes: list }
 }
 
 /**
@@ -174,9 +167,14 @@ export async function POST(request: Request) {
       }
     }
 
-    const codigoATutor = await buildCodigoATutorNombre(supabase, fcpId)
+    const { aulaToTutor, estudiantes } = await loadAulaToTutorYEstudiantes(supabase, fcpId)
     const itemsPorCodigo = filasAItemsPorCodigo(todasFotos, todasCartas)
-    const agrupado = agruparPorTutor(itemsPorCodigo, codigoATutor)
+    const { map: agrupado, advertenciasResolucion } = agruparPorTutorConEstudiantes(
+      itemsPorCodigo,
+      estudiantes,
+      aulaToTutor
+    )
+    advertencias.push(...advertenciasResolucion)
     const mensajes = mapAOrdenados(agrupado)
 
     return NextResponse.json({
