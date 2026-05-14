@@ -154,13 +154,16 @@ function mapearIndicesCabecera(headerRow: unknown[]): Record<string, number> {
   }
 
   for (let idx = 0; idx < headerRow.length; idx++) {
+    /** Código del beneficiario en el reporte (p. ej. «ID Local del Beneficiario»); es el valor que se cruza con `estudiantes.codigo`. */
     setCol('id_local', idx, (s) => {
       if (s.includes('nombre') && s.includes('cuenta')) return false
       return (
         (s.includes('id local') && (s.includes('benef') || s.includes('identif'))) ||
         (s.includes('identificador') && s.includes('local') && s.includes('benef')) ||
         (s.includes('codigo') && s.includes('local') && s.includes('benef')) ||
-        (s.includes('id') && s.includes('local') && s.includes('benef'))
+        (s.includes('id') && s.includes('local') && s.includes('benef')) ||
+        (s.includes('beneficiary') && s.includes('local') && s.includes('id')) ||
+        (s.includes('beneficiary') && s.includes('local') && s.includes('identifier'))
       )
     })
     setCol('nombre_cuenta', idx, (s) => {
@@ -173,13 +176,21 @@ function mapearIndicesCabecera(headerRow: unknown[]): Record<string, number> {
     })
     setCol('tipo_com', idx, (s) => {
       if (s.includes('global') && !s.includes('tipo')) return false
-      return (s.includes('tipo') && s.includes('comunic')) || (s.includes('tipo') && s.includes('carta'))
+      return (
+        (s.includes('tipo') && s.includes('comunic')) ||
+        (s.includes('tipo') && s.includes('carta')) ||
+        (s.includes('tipo') && s.includes('mensaje')) ||
+        (s.includes('type') && s.includes('communication')) ||
+        (s.includes('communication') && s.includes('type'))
+      )
     })
     setCol('id_global', idx, (s) => {
       return (
         (s.includes('comunicacion') && s.includes('global')) ||
+        (s.includes('communication') && s.includes('global')) ||
         (s.includes('id') && s.includes('global') && (s.includes('comunic') || s.length < 60)) ||
-        (s.includes('referencia') && s.includes('global'))
+        (s.includes('referencia') && s.includes('global')) ||
+        (s.includes('global') && s.includes('reference'))
       )
     })
     setCol('comentarios', idx, (s) => {
@@ -214,6 +225,10 @@ function mapearIndicesCabecera(headerRow: unknown[]): Record<string, number> {
         map['id_local'] = idx
         break
       }
+      if (s.includes('beneficiary') && s.includes('local') && !s.includes('nombre')) {
+        map['id_local'] = idx
+        break
+      }
     }
   }
 
@@ -241,7 +256,8 @@ function scoreHeaderRow(row: unknown[]): number {
   const idLocalStrong =
     (joined.includes('id') && joined.includes('local') && joined.includes('benef')) ||
     (joined.includes('identificador') && joined.includes('local')) ||
-    (joined.includes('codigo') && joined.includes('local') && joined.includes('benef'))
+    (joined.includes('codigo') && joined.includes('local') && joined.includes('benef')) ||
+    (joined.includes('beneficiary') && joined.includes('local'))
 
   const idLocalWeak = joined.includes('id') && joined.includes('local')
 
@@ -249,7 +265,12 @@ function scoreHeaderRow(row: unknown[]): number {
   else if (idLocalWeak) score += 4
 
   if (cells.some((s) => s.includes('nombre') && s.includes('cuenta'))) score += 4
-  if (cells.some((s) => s.includes('tipo') && s.includes('comunic'))) score += 4
+  if (
+    cells.some((s) => s.includes('tipo') && s.includes('comunic')) ||
+    cells.some((s) => s.includes('tipo') && s.includes('carta')) ||
+    cells.some((s) => s.includes('type') && s.includes('communication'))
+  )
+    score += 4
   if (cells.some((s) => s.includes('fecha') && s.includes('foto'))) score += 4
   if (cells.some((s) => s.includes('estado') && s.includes('actualiz'))) score += 2
 
@@ -295,7 +316,11 @@ function findBestHeader(matrix: unknown[][]): { rowIndex: number; headerCells: u
     (joined.includes('codigo') && joined.includes('local') && joined.includes('benef')) ||
     (joined.includes('local') && joined.includes('beneficiary'))
   const tieneNombreYCarta =
-    joined.includes('nombre') && joined.includes('cuenta') && joined.includes('tipo') && joined.includes('comunic')
+    joined.includes('nombre') &&
+    joined.includes('cuenta') &&
+    ((joined.includes('tipo') &&
+      (joined.includes('comunic') || joined.includes('carta') || joined.includes('mensaje'))) ||
+      (joined.includes('communication') && joined.includes('type')))
   const tieneNombreYFoto =
     joined.includes('nombre') && joined.includes('cuenta') && joined.includes('fecha') && joined.includes('foto')
 
@@ -335,11 +360,21 @@ function parseSheet(
   const headerIdxForDash = dataStart > 0 ? dataStart - 1 : 0
   const seccionCarta: CartaSeccion = modoFoto ? 'blp' : detectarSeccionCarta(matrix, headerIdxForDash)
 
-  if (!modoFoto && (col['tipo_com'] === undefined || col['id_global'] === undefined)) {
+  if (!modoFoto && col['tipo_com'] === undefined && col['id_global'] === undefined) {
     advertencias.push(
-      `${nombreArchivo}: faltan columnas «Tipo de Comunicación» o «Comunicación: ID… Global» en el encabezado; no se pueden leer filas de cartas.`
+      `${nombreArchivo}: no se detectaron columnas de carta («Tipo de Comunicación» / «ID… Global»); no se pueden leer filas de cartas.`
     )
     return { fotos: [], cartas: [], columnasDetectadas }
+  }
+  if (!modoFoto && col['tipo_com'] === undefined) {
+    advertencias.push(
+      `${nombreArchivo}: no se detectó columna «Tipo de Comunicación»; se leerán cartas con ese campo vacío.`
+    )
+  }
+  if (!modoFoto && col['id_global'] === undefined) {
+    advertencias.push(
+      `${nombreArchivo}: no se detectó columna de ID global de comunicación; se leerán cartas con ese campo vacío.`
+    )
   }
 
   const fotos: FilaFoto[] = []
@@ -365,8 +400,10 @@ function parseSheet(
       cartas.push({
         idLocal,
         nombreCuenta,
-        tipoComunicacion: cellStr(row[col['tipo_com']]),
-        idComunicacionGlobal: cellStr(row[col['id_global']]),
+        tipoComunicacion:
+          col['tipo_com'] !== undefined ? cellStr(row[col['tipo_com']]) : '',
+        idComunicacionGlobal:
+          col['id_global'] !== undefined ? cellStr(row[col['id_global']]) : '',
         comentarios: col['comentarios'] !== undefined ? cellStr(row[col['comentarios']]) : '',
         indicador: col['indicador'] !== undefined ? cellStr(row[col['indicador']]) : '',
         seccion: seccionCarta,
