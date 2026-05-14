@@ -241,6 +241,7 @@ function filaDashSeccionCarta(row: unknown[]): CartaSeccion | null {
 }
 
 function esFormatoFotos(col: Record<string, number>): boolean {
+  if (col['tipo_com'] !== undefined || col['id_global'] !== undefined) return false
   return col['fecha_ultima'] !== undefined && col['estado_act'] !== undefined
 }
 
@@ -317,7 +318,11 @@ function mapearIndicesCabecera(headerRow: unknown[]): Record<string, number> {
         (s.includes('type') && s.includes('communication')) ||
         (s.includes('communication') && s.includes('type')) ||
         (s.includes('category') && s.includes('communication')) ||
-        (s.includes('tipo') && s.includes('letter'))
+        (s.includes('tipo') && s.includes('letter')) ||
+        (s.includes('tipo') && s.includes('registro')) ||
+        (s.includes('record') && s.includes('type') && s.includes('comunic')) ||
+        (s.includes('tipo') && s.includes('solicitud')) ||
+        (s.includes('tipo') && s.includes('documento'))
       )
     })
     setCol('id_global', idx, (s) => {
@@ -328,7 +333,9 @@ function mapearIndicesCabecera(headerRow: unknown[]): Record<string, number> {
         (s.includes('referencia') && s.includes('global')) ||
         (s.includes('global') && s.includes('reference')) ||
         (s.includes('external') && s.includes('id') && s.includes('comunic')) ||
-        (s.includes('record') && s.includes('id') && s.includes('comunic'))
+        (s.includes('record') && s.includes('id') && s.includes('comunic')) ||
+        (s.includes('communication') && s.includes('id') && s.includes('number')) ||
+        (s.includes('numero') && s.includes('comunic') && s.includes('global'))
       )
     })
     setCol('comentarios', idx, (s) => {
@@ -341,13 +348,16 @@ function mapearIndicesCabecera(headerRow: unknown[]): Record<string, number> {
     setCol('fecha_ultima', idx, (s) => {
       return (
         (s.includes('fecha') && s.includes('ultima') && s.includes('foto')) ||
-        (s.includes('fecha') && s.includes('foto') && s.includes('ultim'))
+        (s.includes('fecha') && s.includes('foto') && s.includes('ultim')) ||
+        (s.includes('last') && s.includes('photo') && s.includes('date'))
       )
     })
+    /** Solo columnas de estado de la foto (no «estado de actualización» genérico de cartas/comunicaciones). */
     setCol('estado_act', idx, (s) => {
       return (
-        (s.includes('estado') && s.includes('actualiz')) ||
-        (s.includes('estado') && s.includes('foto') && s.includes('actualiz'))
+        (s.includes('foto') && s.includes('estado') && s.includes('actualiz')) ||
+        (s.includes('photo') && s.includes('status') && s.includes('updat')) ||
+        (s.includes('foto') && s.includes('estado') && s.includes('subida'))
       )
     })
   }
@@ -524,9 +534,8 @@ function parseSheet(
 
   if (!modoFoto && col['tipo_com'] === undefined && col['id_global'] === undefined) {
     advertencias.push(
-      `${nombreArchivo}: no se detectaron columnas de carta («Tipo de Comunicación» / «ID… Global»); no se pueden leer filas de cartas.`
+      `${nombreArchivo}: no se detectaron columnas «Tipo de Comunicación» ni «ID… Global»; se importarán filas como cartas con esos campos vacíos (sirve para agrupar por tutor).`
     )
-    return { fotos: [], cartas: [], columnasDetectadas }
   }
   if (!modoFoto && col['tipo_com'] === undefined) {
     advertencias.push(
@@ -564,7 +573,8 @@ function parseSheet(
       fotos.push({
         idLocal,
         nombreCuenta,
-        fechaUltimaFoto: valorFechaExcel(row[col['fecha_ultima']]),
+        fechaUltimaFoto:
+          col['fecha_ultima'] !== undefined ? valorFechaExcel(row[col['fecha_ultima']]) : '',
         estadoActualizacion: cellStr(row[col['estado_act']]),
       })
     } else {

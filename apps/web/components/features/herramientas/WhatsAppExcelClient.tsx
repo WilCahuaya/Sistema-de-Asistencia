@@ -205,9 +205,9 @@ export function WhatsAppExcelClient() {
             <CardTitle className="text-base">No se leyeron filas</CardTitle>
             <CardDescription>
               Revisa los avisos arriba. El encabezado debe incluir columnas reconocibles (ID local del beneficiario,
-              nombre de la cuenta; para cartas también tipo de comunicación e ID global; para fotos, fecha de la última
-              foto y estado de actualización). A veces el título ocupa varias filas: el lector busca en las primeras 150
-              filas y puede combinar dos filas de encabezado seguidas.
+              nombre de la cuenta; para cartas, tipo de comunicación e ID global si existen; para fotos, fecha de la
+              última foto y/o estado de actualización). Si faltan tipo o ID global, igual se leen filas para agrupar por
+              tutor. El lector busca en las primeras ~280 filas y puede combinar hasta tres filas de encabezado seguidas.
             </CardDescription>
           </CardHeader>
         </Card>
