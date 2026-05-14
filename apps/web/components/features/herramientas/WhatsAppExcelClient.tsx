@@ -3,19 +3,11 @@
 import { useState } from 'react'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { toast } from '@/lib/toast'
 import { Loader2, Copy, FileSpreadsheet, MessageCircle } from 'lucide-react'
-
-type MensajePorTutor = {
-  tutorNombre: string
-  tutorKey: string
-  mensaje: string
-  fotos: number
-  cartasBlp: number
-  cartasPresentacion: number
-}
+import type { MensajePorTutor } from '@/lib/whatsapp-excel/formatMensajes'
 
 export function WhatsAppExcelClient() {
   const { selectedRole, loading: roleLoading } = useSelectedRole()
@@ -29,6 +21,11 @@ export function WhatsAppExcelClient() {
     filasFoto: number
     filasCarta: number
     tutores: number
+    lectura?: {
+      archivo: string
+      filaEncabezado?: number
+      columnas?: Record<string, number>
+    } | null
   } | null>(null)
 
   const onFiles = (list: FileList | null) => {
@@ -71,7 +68,13 @@ export function WhatsAppExcelClient() {
       setMensajes(data.mensajes || [])
       setAdvertencias(data.advertencias || [])
       setResumen(data.resumen || null)
-      toast.success('Listo', `Se generaron mensajes para ${(data.mensajes || []).length} tutor(es).`)
+      const n = (data.mensajes || []).length
+      toast.success(
+        'Listo',
+        n > 0
+          ? `Se generaron ${n} mensaje(s) por tutor.`
+          : 'Proceso terminado. Si no hay mensajes, revisa avisos o que los códigos del Excel existan en Estudiantes.'
+      )
     } catch (e: unknown) {
       toast.error('Error', e instanceof Error ? e.message : 'No se pudo procesar.')
     } finally {
@@ -164,10 +167,50 @@ export function WhatsAppExcelClient() {
       </Card>
 
       {resumen && (
-        <p className="text-sm text-muted-foreground">
-          Resumen: {resumen.archivos} archivo(s), {resumen.filasFoto} fila(s) foto, {resumen.filasCarta} fila(s) carta,{' '}
-          {resumen.tutores} tutor(es).
-        </p>
+        <div className="space-y-2 text-sm text-muted-foreground">
+          <p>
+            Resumen: {resumen.archivos} archivo(s), {resumen.filasFoto} fila(s) foto, {resumen.filasCarta} fila(s)
+            carta, {resumen.tutores} tutor(es).
+          </p>
+          {resumen.lectura?.columnas && Object.keys(resumen.lectura.columnas).length > 0 && (
+            <p className="rounded-md border bg-muted/30 px-3 py-2 font-mono text-xs">
+              Última lectura útil: <strong>{resumen.lectura.archivo}</strong>
+              {resumen.lectura.filaEncabezado ? ` · encabezado fila ${resumen.lectura.filaEncabezado}` : ''}
+              <br />
+              Columnas:{' '}
+              {Object.entries(resumen.lectura.columnas)
+                .map(([k, v]) => `${k}→${Number(v) + 1}`)
+                .join(' · ')}
+            </p>
+          )}
+        </div>
+      )}
+
+      {resumen && resumen.tutores === 0 && resumen.filasFoto + resumen.filasCarta > 0 && (
+        <Card className="border-destructive/40">
+          <CardHeader>
+            <CardTitle className="text-base">No hay mensajes por tutor</CardTitle>
+            <CardDescription>
+              Se leyeron filas del Excel pero ningún «ID Local del Beneficiario» coincide con el código de un estudiante
+              de esta FCP. Revisa que el rol sea el de la misma FCP del listado y que los códigos (p. ej. PE053…) estén
+              cargados en Estudiantes.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+
+      {resumen && resumen.filasFoto + resumen.filasCarta === 0 && !loading && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">No se leyeron filas</CardTitle>
+            <CardDescription>
+              Revisa los avisos arriba. El encabezado debe incluir columnas reconocibles (ID local del beneficiario,
+              nombre de la cuenta; para cartas también tipo de comunicación e ID global; para fotos, fecha de la última
+              foto y estado de actualización). A veces el título ocupa varias filas: el lector busca en las primeras 150
+              filas y puede combinar dos filas de encabezado seguidas.
+            </CardDescription>
+          </CardHeader>
+        </Card>
       )}
 
       {advertencias.length > 0 && (
@@ -186,27 +229,29 @@ export function WhatsAppExcelClient() {
       )}
 
       {mensajes.length > 0 && (
-        <div className="space-y-4">
+        <div className="space-y-6">
           <h2 className="text-lg font-semibold">Mensajes por tutor</h2>
           {mensajes.map((m) => (
-            <Card key={m.tutorKey}>
-              <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2 space-y-0 pb-2">
-                <div>
-                  <CardTitle className="text-base">{m.tutorNombre}</CardTitle>
-                  <CardDescription>
-                    {m.fotos} foto(s) · {m.cartasBlp} carta(s) BLP · {m.cartasPresentacion} carta(s) presentación
-                  </CardDescription>
-                </div>
-                <Button type="button" variant="outline" size="sm" onClick={() => copiar(m.mensaje)}>
-                  <Copy className="mr-2 h-4 w-4" />
-                  Copiar
-                </Button>
+            <Card key={m.tutorKey} className="shadow-sm border-border/80">
+              <CardHeader className="space-y-1 pb-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tutor</p>
+                <CardTitle className="text-lg">{m.tutorNombre}</CardTitle>
+                <CardDescription>
+                  {m.fotos} foto(s) · {m.cartasBlp} carta(s) BLP · {m.cartasPresentacion} carta(s) presentación
+                </CardDescription>
               </CardHeader>
-              <CardContent>
-                <pre className="whitespace-pre-wrap rounded-md border bg-muted/40 p-4 text-sm font-sans leading-relaxed">
+              <CardContent className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Mensaje</p>
+                <pre className="max-h-[min(24rem,55vh)] overflow-y-auto whitespace-pre-wrap rounded-lg border bg-muted/40 p-4 text-sm font-sans leading-relaxed">
                   {m.mensaje}
                 </pre>
               </CardContent>
+              <CardFooter className="justify-end border-t pt-4">
+                <Button type="button" variant="default" size="sm" onClick={() => copiar(m.mensaje)}>
+                  <Copy className="mr-2 h-4 w-4" />
+                  Copiar mensaje
+                </Button>
+              </CardFooter>
             </Card>
           ))}
         </div>

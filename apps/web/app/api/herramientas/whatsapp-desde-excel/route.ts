@@ -147,6 +147,11 @@ export async function POST(request: Request) {
     let todasFotos: FilaFoto[] = []
     let todasCartas: FilaCarta[] = []
     const advertencias: string[] = []
+    let lectura: {
+      archivo: string
+      filaEncabezado?: number
+      columnas?: Record<string, number>
+    } | null = null
 
     for (const file of files) {
       const name = file.name || 'archivo.xlsx'
@@ -159,6 +164,14 @@ export async function POST(request: Request) {
       advertencias.push(...parsed.advertencias)
       todasFotos = todasFotos.concat(parsed.fotos)
       todasCartas = todasCartas.concat(parsed.cartas)
+      const totalFilas = parsed.fotos.length + parsed.cartas.length
+      if (totalFilas > 0 || lectura === null) {
+        lectura = {
+          archivo: name,
+          filaEncabezado: parsed.filaEncabezado,
+          columnas: parsed.columnasDetectadas,
+        }
+      }
     }
 
     const codigoATutor = await buildCodigoATutorNombre(supabase, fcpId)
@@ -174,6 +187,7 @@ export async function POST(request: Request) {
         filasFoto: todasFotos.length,
         filasCarta: todasCartas.length,
         tutores: mensajes.length,
+        lectura,
       },
     })
   } catch (e) {

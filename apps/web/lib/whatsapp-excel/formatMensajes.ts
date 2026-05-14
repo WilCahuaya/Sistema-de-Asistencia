@@ -89,9 +89,9 @@ export function mapAOrdenados(
   map: Map<string, { nombre: string; fotos: FilaFoto[]; blp: FilaCarta[]; pres: FilaCarta[] }>
 ): MensajePorTutor[] {
   return [...map.values()]
-    .map((v) => ({
+    .map((v, idx) => ({
       tutorNombre: v.nombre,
-      tutorKey: v.nombre,
+      tutorKey: `${v.nombre}__${idx}`,
       mensaje: construirMensajeTutor(v.nombre, v.fotos, v.blp, v.pres),
       fotos: v.fotos.length,
       cartasBlp: v.blp.length,
