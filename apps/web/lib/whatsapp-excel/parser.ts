@@ -111,10 +111,15 @@ function matrixFromSheet(sheet: XLSX.WorkSheet): unknown[][] {
   return densify(XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true }) as unknown[][])
 }
 
+function textoFila(row: unknown[]): string {
+  return row.map((c) => norm(c)).join(' | ')
+}
+
+/** Heurística inicial si no hay filas DASH antes de los datos. */
 function detectarSeccionCarta(matrix: unknown[][], headerRow: number): CartaSeccion {
   const tail = matrix.slice(Math.max(headerRow + 1, matrix.length - 35))
   for (let i = tail.length - 1; i >= 0; i--) {
-    const text = tail[i].map((c) => norm(c)).join(' | ')
+    const text = textoFila(tail[i])
     if (!text.trim()) continue
     if (text.includes('presentacion') || text.includes('presentación')) return 'presentacion'
     if (text.includes('blp') || text.includes('mycon')) return 'blp'
@@ -124,6 +129,16 @@ function detectarSeccionCarta(matrix: unknown[][], headerRow: number): CartaSecc
     }
   }
   return 'blp'
+}
+
+/** Fila separadora DASH del reporte (cambia bloque BLP vs presentación). */
+function filaDashSeccionCarta(row: unknown[]): CartaSeccion | null {
+  const text = textoFila(row)
+  if (!text.includes('dash')) return null
+  if (text.includes('blp') || text.includes('mycon')) return 'blp'
+  if (text.includes('cartas') && text.includes('presentacion')) return 'presentacion'
+  if (text.includes('cartas') && text.includes('presentación')) return 'presentacion'
+  return null
 }
 
 function esFormatoFotos(col: Record<string, number>): boolean {
@@ -336,7 +351,8 @@ function esFilaBasuraFooter(row: unknown[], colId: number): boolean {
   const id = norm(row[colId])
   const joined = row.map((c) => norm(c)).join(' ')
   if (!id && joined.length < 3) return true
-  if (joined.includes('dash') && joined.length < 80) return true
+  // Fila DASH sin ID: separador de bloque (no es fila de datos); la sección se actualiza aparte.
+  if (joined.includes('dash') && joined.length < 120 && !id) return true
   if (joined.includes('total general')) return true
   return false
 }
@@ -358,7 +374,7 @@ function parseSheet(
 
   const modoFoto = esFormatoFotos(col)
   const headerIdxForDash = dataStart > 0 ? dataStart - 1 : 0
-  const seccionCarta: CartaSeccion = modoFoto ? 'blp' : detectarSeccionCarta(matrix, headerIdxForDash)
+  let seccionCarta: CartaSeccion = modoFoto ? 'blp' : detectarSeccionCarta(matrix, headerIdxForDash)
 
   if (!modoFoto && col['tipo_com'] === undefined && col['id_global'] === undefined) {
     advertencias.push(
@@ -383,6 +399,15 @@ function parseSheet(
   for (let r = dataStart; r < matrix.length; r++) {
     const row = matrix[r]
     if (!row || row.length === 0) continue
+
+    if (!modoFoto) {
+      const dashSec = filaDashSeccionCarta(row)
+      if (dashSec !== null) {
+        seccionCarta = dashSec
+        continue
+      }
+    }
+
     if (esFilaBasuraFooter(row, col['id_local'])) continue
 
     const idLocal = cellStr(row[col['id_local']])
