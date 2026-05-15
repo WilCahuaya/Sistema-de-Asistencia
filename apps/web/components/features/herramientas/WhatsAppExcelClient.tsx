@@ -131,7 +131,11 @@ export function WhatsAppExcelClient() {
             <FileSpreadsheet className="h-5 w-5" />
             Archivos
           </CardTitle>
-          <CardDescription>Formatos: hojas con encabezado que incluya «ID Local del Beneficiario».</CardDescription>
+          <CardDescription>
+            Dos formatos: reportes de <strong>cartas</strong> (varios Excel; el DASH indica BLP o presentación) y de{' '}
+            <strong>fotos de actualización</strong> (un Excel). En todos, el ID Local del Beneficiario se cruza con el
+            código del estudiante para agrupar por tutor.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
@@ -204,10 +208,8 @@ export function WhatsAppExcelClient() {
           <CardHeader>
             <CardTitle className="text-base">No se leyeron filas</CardTitle>
             <CardDescription>
-              Revisa los avisos arriba. El encabezado debe incluir columnas reconocibles (ID local del beneficiario,
-              nombre de la cuenta; para cartas, tipo de comunicación e ID global si existen; para fotos, fecha de la
-              última foto y/o estado de actualización). Si faltan tipo o ID global, igual se leen filas para agrupar por
-              tutor. El lector busca en las primeras ~280 filas y puede combinar hasta tres filas de encabezado seguidas.
+              Debe haber una fila DASH (p. ej. «DASH: Cartas de Presentación»), debajo el encabezado con ID local del
+              beneficiario y filas con datos. Las celdas vacías se omiten en el mensaje.
             </CardDescription>
           </CardHeader>
         </Card>

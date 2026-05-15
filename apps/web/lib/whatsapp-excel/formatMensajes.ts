@@ -19,17 +19,32 @@ export type MensajePorTutor = {
   cartasPresentacion: number
 }
 
+/** Une solo los campos con valor; omite celdas vacías. */
+function unirCampos(sep: string, partes: string[]): string {
+  return partes.map((p) => p.trim()).filter(Boolean).join(sep)
+}
+
 function lineaFoto(f: FilaFoto): string {
-  return `📸  ${f.nombreCuenta} – ${f.idLocal} – ${f.fechaUltimaFoto} – ${f.estadoActualizacion}`
+  const cuerpo = unirCampos(' – ', [f.nombreCuenta, f.idLocal, f.fechaUltimaFoto, f.estadoActualizacion])
+  return cuerpo ? `📸  ${cuerpo}` : ''
 }
 
 function lineaCarta(f: FilaCarta): string {
-  return `📝 ${f.nombreCuenta} – ${f.idLocal} - ${f.tipoComunicacion} - ${f.idComunicacionGlobal} - ${f.comentarios} - ${f.indicador}`
+  const cuerpo = unirCampos(' - ', [
+    f.nombreCuenta,
+    f.idLocal,
+    f.tipoComunicacion,
+    f.idComunicacionGlobal,
+    f.comentarios,
+    f.indicador,
+  ])
+  return cuerpo ? `📝 ${cuerpo}` : ''
 }
 
 function bloque(titulo: string, lineas: string[]): string {
-  if (lineas.length === 0) return `${titulo}\n\n`
-  return `${titulo}\n\n${lineas.join('\n')}\n\n`
+  const validas = lineas.filter(Boolean)
+  if (validas.length === 0) return ''
+  return `${titulo}\n\n${validas.join('\n')}\n\n`
 }
 
 export function construirMensajeTutor(
@@ -38,11 +53,13 @@ export function construirMensajeTutor(
   cartasBlp: FilaCarta[],
   cartasPres: FilaCarta[]
 ): string {
-  const partes: string[] = []
-  partes.push(`Para ${tutorNombre}:\n`)
-  partes.push(bloque('Fotos para actualizar:', fotos.map(lineaFoto)))
-  partes.push(bloque('Cartas Pendientes BLP (Myconnet):', cartasBlp.map(lineaCarta)))
-  partes.push(bloque('Cartas de Presentación:', cartasPres.map(lineaCarta)))
+  const partes: string[] = [`Para ${tutorNombre}:\n`]
+  const bFoto = bloque('Fotos para actualizar:', fotos.map(lineaFoto))
+  const bBlp = bloque('Cartas Pendientes BLP (Myconnet):', cartasBlp.map(lineaCarta))
+  const bPres = bloque('Cartas de Presentación:', cartasPres.map(lineaCarta))
+  if (bFoto) partes.push(bFoto)
+  if (bBlp) partes.push(bBlp)
+  if (bPres) partes.push(bPres)
   return partes.join('').trimEnd()
 }
 
