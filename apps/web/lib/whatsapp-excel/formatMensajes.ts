@@ -52,14 +52,14 @@ function lineaFoto(f: FilaFoto): string {
 }
 
 function lineaCarta(f: FilaCarta): string {
-  const cuerpo = unirCampos(' - ', [
-    f.nombreCuenta,
-    f.idLocal,
+  const cabecera = unirCampos(' – ', [f.nombreCuenta, f.idLocal])
+  const resto = unirCampos(' - ', [
     f.tipoComunicacion,
     f.idComunicacionGlobal,
     f.comentarios,
     f.indicador,
   ])
+  const cuerpo = resto ? (cabecera ? `${cabecera} - ${resto}` : resto) : cabecera
   return cuerpo ? `📝 ${cuerpo}` : ''
 }
 

@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx'
 import {
   COLUMNA_ID_LOCAL_POR_SUB_REPORTE,
+  SUB_REPORTES_ORDEN,
   type TipoSubReporte,
   subReporteDesdeNombreArchivo,
   subReporteDesdeTextoDash,
@@ -49,6 +50,17 @@ function norm(s: unknown): string {
     .replace(/\p{M}/gu, '')
 }
 
+/** Repara texto exportado en ISO-8859-1 mal interpretado como UTF-8. */
+function repararTextoExcel(s: string): string {
+  if (!s || !/[ÃÂ]/.test(s)) return s
+  try {
+    const bytes = Uint8Array.from(s, (c) => c.charCodeAt(0) & 0xff)
+    return new TextDecoder('iso-8859-1').decode(bytes)
+  } catch {
+    return s
+  }
+}
+
 export function cellStr(v: unknown): string {
   if (v == null || v === '') return ''
   if (v instanceof Date) {
@@ -68,7 +80,7 @@ export function cellStr(v: unknown): string {
       return t
     }
   }
-  return String(v).trim()
+  return repararTextoExcel(String(v).trim())
 }
 
 function valorFechaExcel(v: unknown): string {
@@ -135,88 +147,53 @@ function seccionLegacy(sub: TipoSubReporte): CartaSeccion {
   return sub === 'presentacion' ? 'presentacion' : 'blp'
 }
 
-function ventanasCabecera(cells: string[], i: number): string[] {
-  const seen = new Set<string>()
-  const push = (s: string) => {
-    const t = s.trim().replace(/\s+/g, ' ')
-    if (t.length > 0 && t.length < 220) seen.add(t)
-  }
-  const lo = Math.max(0, i - 4)
-  const hi = Math.min(cells.length - 1, i + 4)
-  for (let a = lo; a <= i; a++) {
-    for (let b = i; b <= hi; b++) push(cells.slice(a, b + 1).join(' '))
-  }
-  return [...seen]
+function esColumnaPfBeneficiario(s: string): boolean {
+  return s.includes('pf del') || (s.startsWith('pf ') && s.includes('benef'))
 }
 
-/** Mapeo de columnas (los distintos Excel de cartas pueden traerlas en otra posición). */
+function esColumnaTutor(s: string): boolean {
+  return s.includes('tutor') || s.includes('implementador')
+}
+
+/** Mapeo estricto por texto de encabezado (solo las columnas del requerimiento). */
 function mapearIndicesCabecera(headerRow: unknown[]): Record<string, number> {
   const map: Record<string, number> = {}
   const cells = headerRow.map((cell) => norm(cell))
+  const usados = new Set<number>()
 
   const setCol = (key: string, idx: number, pred: (s: string) => boolean) => {
-    if (map[key] !== undefined) return
-    for (const w of ventanasCabecera(cells, idx)) {
-      if (pred(w)) {
-        map[key] = idx
-        return
-      }
-    }
+    if (map[key] !== undefined || usados.has(idx)) return
+    const s = cells[idx] ?? ''
+    if (!s || !pred(s)) return
+    map[key] = idx
+    usados.add(idx)
   }
 
   for (let idx = 0; idx < headerRow.length; idx++) {
-    setCol('id_local', idx, (s) => {
-      if (s.includes('nombre') && s.includes('cuenta')) return false
-      if (s.includes('global') && !s.includes('local')) return false
-      return (
-        (s.includes('id local') && (s.includes('benef') || s.includes('identif'))) ||
-        (s.includes('id') && s.includes('local') && s.includes('benef')) ||
-        (s.includes('codigo') && s.includes('local') && s.includes('benef')) ||
-        (s.includes('beneficiary') && s.includes('local'))
-      )
-    })
-    setCol('nombre_cuenta', idx, (s) => {
-      if (s.includes('id local') && s.includes('benef')) return false
-      if (s.includes('tutor')) return false
-      return (
-        (s.includes('nombre') && s.includes('cuenta')) ||
-        (s.includes('nombre') && (s.includes('beneficiario') || s.includes('estudiante'))) ||
-        (s.includes('account') && s.includes('name'))
-      )
-    })
-    setCol('tipo_com', idx, (s) => {
-      if (s.includes('global') && !s.includes('tipo')) return false
-      return (s.includes('tipo') && s.includes('comunic')) || (s.includes('tipo') && s.includes('carta'))
-    })
-    setCol('id_global', idx, (s) => {
-      return (
-        (s.includes('comunicacion') && s.includes('global')) ||
-        (s.includes('id') && s.includes('global') && s.includes('comunic'))
-      )
-    })
-    setCol('comentarios', idx, (s) => s.includes('comentario') && !s.includes('global'))
-    setCol('indicador', idx, (s) => s.includes('indicador') && s.length < 90)
-    setCol('fecha_ultima', idx, (s) => s.includes('fecha') && s.includes('foto'))
-    setCol('estado_act', idx, (s) => s.includes('foto') && s.includes('estado') && s.includes('actualiz'))
-  }
+    const s = cells[idx] ?? ''
 
-  if (map['id_local'] === undefined) {
-    for (let idx = 0; idx < cells.length; idx++) {
-      const s = cells[idx] ?? ''
-      if (s.includes('id local') && !s.includes('nombre')) {
-        map['id_local'] = idx
-        break
-      }
-    }
-  }
-  if (map['nombre_cuenta'] === undefined) {
-    for (let idx = 0; idx < cells.length; idx++) {
-      const s = cells[idx] ?? ''
-      if (s.includes('nombre') && !s.includes('tutor') && !s.includes('id local')) {
-        map['nombre_cuenta'] = idx
-        break
-      }
-    }
+    setCol('id_local', idx, (h) => {
+      if (esColumnaPfBeneficiario(h) || h.includes('iglesia')) return false
+      return (
+        h.includes('id local') &&
+        h.includes('benef') &&
+        !h.includes('iglesia') &&
+        !h.includes('nombre')
+      )
+    })
+    setCol('nombre_cuenta', idx, (h) => {
+      if (esColumnaPfBeneficiario(h) || esColumnaTutor(h)) return false
+      return (h.includes('nombre') && h.includes('cuenta')) || (h.includes('account') && h.includes('name'))
+    })
+    setCol('tipo_com', idx, (h) => {
+      if (h.includes('estatus') || h.includes('registro') || h.includes('plantilla')) return false
+      return h.includes('tipo') && h.includes('comunic')
+    })
+    setCol('id_global', idx, (h) => h.includes('comunicacion') && h.includes('global'))
+    setCol('comentarios', idx, (h) => h.includes('comentario') && !h.includes('global'))
+    setCol('indicador', idx, (h) => h === 'indicador')
+    setCol('fecha_ultima', idx, (h) => h.includes('fecha') && h.includes('foto') && !h.includes('revision'))
+    setCol('estado_act', idx, (h) => h.includes('estado') && h.includes('actualiz') && !h.includes('revision'))
   }
 
   return map
@@ -236,7 +213,9 @@ function puntajeFilaEncabezado(row: unknown[]): number {
 }
 
 function esFilaEncabezado(row: unknown[]): boolean {
-  return puntajeFilaEncabezado(row) >= 8
+  if (puntajeFilaEncabezado(row) >= 8) return true
+  const joined = row.map((c) => norm(c)).join('|')
+  return joined.includes('id') && joined.includes('local') && joined.includes('benef')
 }
 
 function celda(row: unknown[], col: Record<string, number>, key: string): string {
@@ -245,29 +224,70 @@ function celda(row: unknown[], col: Record<string, number>, key: string): string
   return cellStr(row[i])
 }
 
-/** ID Local del Beneficiario: columna fija según tipo de reporte (A, B u O). */
-function idLocalDesdeFila(
+function pareceIdBeneficiario(val: unknown): boolean {
+  const t = cellStr(val).trim()
+  if (!t || t.length > 40) return false
+  const n = norm(t)
+  if (n.includes('id local') || n.includes('beneficiario') || n.includes('identificador')) return false
+  if (n.includes('nombre') && n.includes('cuenta')) return false
+  const compact = t.replace(/\s/g, '')
+  if (/^PE[A-Z0-9]+$/i.test(compact)) return compact.length >= 11
+  if (/^[A-Z]{2,4}\d{6,}$/i.test(compact)) return true
+  if (/^\d{4,12}$/.test(t)) return true
+  return false
+}
+
+/** Cuenta filas con ID válido en la columna fija de cada tipo (archivos sin DASH ni nombre claro). */
+function autodetectarSubReporteDesdeMatrix(matrix: unknown[][]): TipoSubReporte | null {
+  const scores = Object.fromEntries(SUB_REPORTES_ORDEN.map((s) => [s, 0])) as Record<
+    TipoSubReporte,
+    number
+  >
+  for (const row of matrix) {
+    if (!row || !row.some((c) => String(c ?? '').trim() !== '')) continue
+    const line = textoFila(row)
+    if (line.includes('dash') || line.includes('total general')) continue
+    if (esFilaEncabezado(row)) continue
+    for (const sub of SUB_REPORTES_ORDEN) {
+      const idx = COLUMNA_ID_LOCAL_POR_SUB_REPORTE[sub]
+      if (pareceIdBeneficiario(row[idx])) scores[sub]++
+    }
+  }
+  let mejor: TipoSubReporte | null = null
+  let max = 0
+  for (const sub of SUB_REPORTES_ORDEN) {
+    if (scores[sub] > max) {
+      max = scores[sub]
+      mejor = sub
+    }
+  }
+  return max > 0 ? mejor : null
+}
+
+/**
+ * ID Local: columna fija del tipo de reporte (A/B/O); si está vacía, prueba las otras columnas fijas.
+ */
+function idLocalDesdeFilaConSub(
   row: unknown[],
-  subReporte: TipoSubReporte,
+  subReportePreferido: TipoSubReporte,
   col: Record<string, number>
-): string {
-  const idx = COLUMNA_ID_LOCAL_POR_SUB_REPORTE[subReporte]
-  const v = row[idx]
-  if (v != null && String(v).trim() !== '') return cellStr(v)
-  return celda(row, col, 'id_local')
+): { id: string; sub: TipoSubReporte } | null {
+  const idxFijo = COLUMNA_ID_LOCAL_POR_SUB_REPORTE[subReportePreferido]
+  if (pareceIdBeneficiario(row[idxFijo])) {
+    return { id: cellStr(row[idxFijo]), sub: subReportePreferido }
+  }
+  for (const sub of SUB_REPORTES_ORDEN) {
+    if (sub === subReportePreferido) continue
+    const idx = COLUMNA_ID_LOCAL_POR_SUB_REPORTE[sub]
+    if (pareceIdBeneficiario(row[idx])) return { id: cellStr(row[idx]), sub }
+  }
+  const hdr = celda(row, col, 'id_local')
+  if (pareceIdBeneficiario(hdr)) return { id: hdr, sub: subReportePreferido }
+  return null
 }
 
 function aplicarColumnaIdLocalFija(col: Record<string, number>, subReporte: TipoSubReporte): void {
   col['id_local'] = COLUMNA_ID_LOCAL_POR_SUB_REPORTE[subReporte]
-}
-
-function inferirSubReporteDesdeColumnas(
-  col: Record<string, number>,
-  fallback: TipoSubReporte
-): TipoSubReporte {
-  if (col['fecha_ultima'] !== undefined && col['estado_act'] !== undefined) return 'actualizaciones'
-  if (col['fecha_ultima'] !== undefined || col['estado_act'] !== undefined) return 'actualizaciones'
-  return fallback
 }
 
 function parseFilaFoto(
@@ -275,15 +295,16 @@ function parseFilaFoto(
   col: Record<string, number>,
   subReporte: TipoSubReporte
 ): FilaFoto | null {
-  const idLocal = idLocalDesdeFila(row, subReporte, col)
-  if (!idLocal) return null
+  const hit = idLocalDesdeFilaConSub(row, subReporte, col)
+  if (!hit) return null
+  const sub = hit.sub
   return {
-    idLocal,
+    idLocal: hit.id,
     nombreCuenta: celda(row, col, 'nombre_cuenta'),
     fechaUltimaFoto:
       col['fecha_ultima'] !== undefined ? valorFechaExcel(row[col['fecha_ultima']]) : '',
     estadoActualizacion: celda(row, col, 'estado_act'),
-    subReporte,
+    subReporte: sub,
   }
 }
 
@@ -292,17 +313,18 @@ function parseFilaCarta(
   col: Record<string, number>,
   subReporte: TipoSubReporte
 ): FilaCarta | null {
-  const idLocal = idLocalDesdeFila(row, subReporte, col)
-  if (!idLocal) return null
+  const hit = idLocalDesdeFilaConSub(row, subReporte, col)
+  if (!hit) return null
+  const sub = hit.sub
   return {
-    idLocal,
+    idLocal: hit.id,
     nombreCuenta: celda(row, col, 'nombre_cuenta'),
     tipoComunicacion: celda(row, col, 'tipo_com'),
     idComunicacionGlobal: celda(row, col, 'id_global'),
     comentarios: celda(row, col, 'comentarios'),
     indicador: celda(row, col, 'indicador'),
-    seccion: seccionLegacy(subReporte),
-    subReporte,
+    seccion: seccionLegacy(sub),
+    subReporte: sub,
   }
 }
 
@@ -324,8 +346,9 @@ function parseSheet(
 } {
   const fotos: FilaFoto[] = []
   const cartas: FilaCarta[] = []
-  const defaultSub = subReporteDesdeNombreArchivo(nombreArchivo) ?? 'blp'
-  let subReporte: TipoSubReporte = defaultSub
+  const desdeNombre = subReporteDesdeNombreArchivo(nombreArchivo)
+  const desdeDatos = autodetectarSubReporteDesdeMatrix(matrix)
+  let subReporte: TipoSubReporte = desdeNombre ?? desdeDatos ?? 'blp'
   let col: Record<string, number> = {}
   let filaEncabezado: number | undefined
   let columnasDetectadas: Record<string, number> | undefined
@@ -354,9 +377,6 @@ function parseSheet(
       aplicarColumnaIdLocalFija(col, subReporte)
       filaEncabezado = r + 1
       columnasDetectadas = { ...col }
-      const inferido = inferirSubReporteDesdeColumnas(col, subReporte)
-      if (subReporte === defaultSub) subReporte = inferido
-      aplicarColumnaIdLocalFija(col, subReporte)
       continue
     }
 
@@ -364,6 +384,7 @@ function parseSheet(
 
     const line = textoFila(row)
     if (line.includes('total general')) continue
+    if (esFilaEncabezado(row)) continue
 
     const formato = formatoDesdeSubReporte(subReporte)
     if (formato === 'fotos') {
@@ -404,7 +425,9 @@ export function parsearExcelArchivo(buffer: ArrayBuffer, nombreArchivo: string):
   }
 
   if (fotos.length === 0 && cartas.length === 0) {
-    advertencias.push(`${nombreArchivo}: no se leyeron filas con ID Local del Beneficiario.`)
+    advertencias.push(
+      `${nombreArchivo}: no se leyeron filas con ID Local del Beneficiario (revise columnas A, B u O según el tipo de reporte).`
+    )
   }
 
   return { nombreArchivo, fotos, cartas, advertencias, filaEncabezado, columnasDetectadas }
