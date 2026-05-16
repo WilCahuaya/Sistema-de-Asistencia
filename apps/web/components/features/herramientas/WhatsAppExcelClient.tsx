@@ -135,9 +135,9 @@ export function WhatsAppExcelClient() {
             Archivos
           </CardTitle>
           <CardDescription>
-            Hasta 5 Excel: cada tipo (actualizaciones, cartas relacionales, BLP, rehacer, presentación) aparece como
-            sub-apartado dentro del mensaje de cada tutor. El ID Local se cruza con Estudiantes; apartados aparte para{' '}
-            <strong>sin tutor</strong> y <strong>no están en el sistema</strong>.
+            Hasta 5 Excel: el <strong>ID Local del Beneficiario</strong> se lee siempre en la columna fija de cada
+            reporte (A, B u O según el tipo). Se cruza con Estudiantes (código completo o 1–4 dígitos con ceros:
+            1→0001, 85→0085). Apartados para <strong>sin tutor</strong> y <strong>no están en el sistema</strong>.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

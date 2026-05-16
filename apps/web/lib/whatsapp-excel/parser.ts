@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx'
 import {
+  COLUMNA_ID_LOCAL_POR_SUB_REPORTE,
   type TipoSubReporte,
   subReporteDesdeNombreArchivo,
   subReporteDesdeTextoDash,
@@ -244,6 +245,22 @@ function celda(row: unknown[], col: Record<string, number>, key: string): string
   return cellStr(row[i])
 }
 
+/** ID Local del Beneficiario: columna fija según tipo de reporte (A, B u O). */
+function idLocalDesdeFila(
+  row: unknown[],
+  subReporte: TipoSubReporte,
+  col: Record<string, number>
+): string {
+  const idx = COLUMNA_ID_LOCAL_POR_SUB_REPORTE[subReporte]
+  const v = row[idx]
+  if (v != null && String(v).trim() !== '') return cellStr(v)
+  return celda(row, col, 'id_local')
+}
+
+function aplicarColumnaIdLocalFija(col: Record<string, number>, subReporte: TipoSubReporte): void {
+  col['id_local'] = COLUMNA_ID_LOCAL_POR_SUB_REPORTE[subReporte]
+}
+
 function inferirSubReporteDesdeColumnas(
   col: Record<string, number>,
   fallback: TipoSubReporte
@@ -258,7 +275,7 @@ function parseFilaFoto(
   col: Record<string, number>,
   subReporte: TipoSubReporte
 ): FilaFoto | null {
-  const idLocal = celda(row, col, 'id_local')
+  const idLocal = idLocalDesdeFila(row, subReporte, col)
   if (!idLocal) return null
   return {
     idLocal,
@@ -275,7 +292,7 @@ function parseFilaCarta(
   col: Record<string, number>,
   subReporte: TipoSubReporte
 ): FilaCarta | null {
-  const idLocal = celda(row, col, 'id_local')
+  const idLocal = idLocalDesdeFila(row, subReporte, col)
   if (!idLocal) return null
   return {
     idLocal,
@@ -320,29 +337,30 @@ function parseSheet(
     const dash = dashDesdeFila(row)
     if (dash !== null) {
       subReporte = dash
+      aplicarColumnaIdLocalFija(col, subReporte)
       continue
     }
 
     if (esFilaEncabezado(row)) {
       col = mapearIndicesCabecera(row)
-      if (col['id_local'] === undefined && r + 1 < matrix.length) {
+      if (r + 1 < matrix.length) {
         const merged = mergeHeaderRows(row, matrix[r + 1])
         const col2 = mapearIndicesCabecera(merged)
-        if (col2['id_local'] !== undefined) {
+        if (Object.keys(col2).length > Object.keys(col).length) {
           col = col2
           r += 1
         }
       }
-      if (col['id_local'] !== undefined) {
-        filaEncabezado = r + 1
-        columnasDetectadas = { ...col }
-        const inferido = inferirSubReporteDesdeColumnas(col, subReporte)
-        if (subReporte === defaultSub) subReporte = inferido
-      }
+      aplicarColumnaIdLocalFija(col, subReporte)
+      filaEncabezado = r + 1
+      columnasDetectadas = { ...col }
+      const inferido = inferirSubReporteDesdeColumnas(col, subReporte)
+      if (subReporte === defaultSub) subReporte = inferido
+      aplicarColumnaIdLocalFija(col, subReporte)
       continue
     }
 
-    if (col['id_local'] === undefined) continue
+    aplicarColumnaIdLocalFija(col, subReporte)
 
     const line = textoFila(row)
     if (line.includes('total general')) continue
@@ -357,9 +375,9 @@ function parseSheet(
     }
   }
 
-  if (col['id_local'] === undefined) {
+  if (fotos.length === 0 && cartas.length === 0 && filaEncabezado === undefined) {
     advertencias.push(
-      `${nombreArchivo}: no se encontró encabezado con «ID Local del Beneficiario».`
+      `${nombreArchivo}: no se detectó encabezado de datos; el ID local se lee de la columna fija (A/B/O) según el tipo de reporte.`
     )
   }
 

@@ -22,6 +22,27 @@ export const TITULO_SUB_REPORTE: Record<TipoSubReporte, string> = {
   presentacion: 'Cartas de Presentación',
 }
 
+/**
+ * Columna fija «ID Local del Beneficiario» por tipo de reporte (índice 0-based en la hoja).
+ * Excel: A=1 → 0, B=2 → 1, O=15 → 14.
+ */
+export const COLUMNA_ID_LOCAL_POR_SUB_REPORTE: Record<TipoSubReporte, number> = {
+  actualizaciones: 0,
+  relacionales: 1,
+  blp: 14,
+  rehacer: 0,
+  presentacion: 1,
+}
+
+/** Etiqueta legible de la columna ID local (para avisos / depuración). */
+export const ETIQUETA_COLUMNA_ID_LOCAL: Record<TipoSubReporte, string> = {
+  actualizaciones: 'columna A (1)',
+  relacionales: 'columna B (2)',
+  blp: 'columna O (15)',
+  rehacer: 'columna A (1)',
+  presentacion: 'columna B (2)',
+}
+
 function normTexto(s: string): string {
   return s
     .toLowerCase()
