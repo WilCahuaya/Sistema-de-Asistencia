@@ -1,9 +1,14 @@
 import * as XLSX from 'xlsx'
+import {
+  type TipoSubReporte,
+  subReporteDesdeNombreArchivo,
+  subReporteDesdeTextoDash,
+} from './tiposReporte'
 
-/** Solo dos formatos de reporte: cartas (varios Excel de comunicaciones) y fotos de actualización. */
+/** Solo dos formatos de fila: fotos de actualización o cartas. */
 export type FormatoReporte = 'cartas' | 'fotos'
 
-/** Dentro del formato cartas, el DASH indica el bloque BLP o de presentación. */
+/** @deprecated Usar subReporte en la fila */
 export type CartaSeccion = 'blp' | 'presentacion'
 
 export type FilaFoto = {
@@ -11,6 +16,7 @@ export type FilaFoto = {
   nombreCuenta: string
   fechaUltimaFoto: string
   estadoActualizacion: string
+  subReporte: TipoSubReporte
 }
 
 export type FilaCarta = {
@@ -21,6 +27,7 @@ export type FilaCarta = {
   comentarios: string
   indicador: string
   seccion: CartaSeccion
+  subReporte: TipoSubReporte
 }
 
 export type ParseoArchivo = {
@@ -114,20 +121,17 @@ function textoFila(row: unknown[]): string {
   return row.map((c) => norm(c)).join(' | ')
 }
 
-/**
- * Fila «DASH: …»:
- * - fotos → formato fotos de actualización (un tipo de Excel)
- * - cartas → formato cartas; la sección BLP o presentación viene en el mismo DASH
- */
-export function dashDesdeFila(row: unknown[]): { formato: FormatoReporte; seccion?: CartaSeccion } | null {
-  const t = textoFila(row)
-  if (!t.includes('dash')) return null
-  if (t.includes('foto')) return { formato: 'fotos' }
-  const seccion: CartaSeccion =
-    t.includes('presentacion') || t.includes('presentación') || (t.includes('cartas') && t.includes('present'))
-      ? 'presentacion'
-      : 'blp'
-  return { formato: 'cartas', seccion }
+/** Fila «DASH: …» define el sub-apartado (tipo de Excel / bloque). */
+export function dashDesdeFila(row: unknown[]): TipoSubReporte | null {
+  return subReporteDesdeTextoDash(textoFila(row))
+}
+
+function formatoDesdeSubReporte(sub: TipoSubReporte): FormatoReporte {
+  return sub === 'actualizaciones' ? 'fotos' : 'cartas'
+}
+
+function seccionLegacy(sub: TipoSubReporte): CartaSeccion {
+  return sub === 'presentacion' ? 'presentacion' : 'blp'
 }
 
 function ventanasCabecera(cells: string[], i: number): string[] {
@@ -240,15 +244,20 @@ function celda(row: unknown[], col: Record<string, number>, key: string): string
   return cellStr(row[i])
 }
 
-/** Sin DASH previo: fotos si el encabezado es de actualización de foto; si no, cartas. */
-function inferirFormatoDesdeColumnas(col: Record<string, number>): FormatoReporte {
-  if (col['fecha_ultima'] !== undefined && col['estado_act'] !== undefined) return 'fotos'
-  if (col['tipo_com'] !== undefined || col['id_global'] !== undefined) return 'cartas'
-  if (col['fecha_ultima'] !== undefined || col['estado_act'] !== undefined) return 'fotos'
-  return 'cartas'
+function inferirSubReporteDesdeColumnas(
+  col: Record<string, number>,
+  fallback: TipoSubReporte
+): TipoSubReporte {
+  if (col['fecha_ultima'] !== undefined && col['estado_act'] !== undefined) return 'actualizaciones'
+  if (col['fecha_ultima'] !== undefined || col['estado_act'] !== undefined) return 'actualizaciones'
+  return fallback
 }
 
-function parseFilaFoto(row: unknown[], col: Record<string, number>): FilaFoto | null {
+function parseFilaFoto(
+  row: unknown[],
+  col: Record<string, number>,
+  subReporte: TipoSubReporte
+): FilaFoto | null {
   const idLocal = celda(row, col, 'id_local')
   if (!idLocal) return null
   return {
@@ -257,10 +266,15 @@ function parseFilaFoto(row: unknown[], col: Record<string, number>): FilaFoto | 
     fechaUltimaFoto:
       col['fecha_ultima'] !== undefined ? valorFechaExcel(row[col['fecha_ultima']]) : '',
     estadoActualizacion: celda(row, col, 'estado_act'),
+    subReporte,
   }
 }
 
-function parseFilaCarta(row: unknown[], col: Record<string, number>, seccion: CartaSeccion): FilaCarta | null {
+function parseFilaCarta(
+  row: unknown[],
+  col: Record<string, number>,
+  subReporte: TipoSubReporte
+): FilaCarta | null {
   const idLocal = celda(row, col, 'id_local')
   if (!idLocal) return null
   return {
@@ -270,7 +284,8 @@ function parseFilaCarta(row: unknown[], col: Record<string, number>, seccion: Ca
     idComunicacionGlobal: celda(row, col, 'id_global'),
     comentarios: celda(row, col, 'comentarios'),
     indicador: celda(row, col, 'indicador'),
-    seccion,
+    seccion: seccionLegacy(subReporte),
+    subReporte,
   }
 }
 
@@ -292,8 +307,8 @@ function parseSheet(
 } {
   const fotos: FilaFoto[] = []
   const cartas: FilaCarta[] = []
-  let formato: FormatoReporte | null = null
-  let seccionCarta: CartaSeccion = 'blp'
+  const defaultSub = subReporteDesdeNombreArchivo(nombreArchivo) ?? 'blp'
+  let subReporte: TipoSubReporte = defaultSub
   let col: Record<string, number> = {}
   let filaEncabezado: number | undefined
   let columnasDetectadas: Record<string, number> | undefined
@@ -304,8 +319,7 @@ function parseSheet(
 
     const dash = dashDesdeFila(row)
     if (dash !== null) {
-      formato = dash.formato
-      if (dash.seccion) seccionCarta = dash.seccion
+      subReporte = dash
       continue
     }
 
@@ -322,22 +336,23 @@ function parseSheet(
       if (col['id_local'] !== undefined) {
         filaEncabezado = r + 1
         columnasDetectadas = { ...col }
-        if (formato === null) formato = inferirFormatoDesdeColumnas(col)
+        const inferido = inferirSubReporteDesdeColumnas(col, subReporte)
+        if (subReporte === defaultSub) subReporte = inferido
       }
       continue
     }
 
     if (col['id_local'] === undefined) continue
-    if (formato === null) formato = inferirFormatoDesdeColumnas(col)
 
     const line = textoFila(row)
     if (line.includes('total general')) continue
 
+    const formato = formatoDesdeSubReporte(subReporte)
     if (formato === 'fotos') {
-      const f = parseFilaFoto(row, col)
+      const f = parseFilaFoto(row, col, subReporte)
       if (f) fotos.push(f)
     } else {
-      const c = parseFilaCarta(row, col, seccionCarta)
+      const c = parseFilaCarta(row, col, subReporte)
       if (c) cartas.push(c)
     }
   }

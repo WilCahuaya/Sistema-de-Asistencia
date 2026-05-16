@@ -7,12 +7,19 @@ import {
   tutorNombreParaEstudiante,
   type EstudianteMin,
 } from './resolverTutorPorIdLocal'
+import {
+  SUB_REPORTES_ORDEN,
+  TITULO_SUB_REPORTE,
+  type TipoSubReporte,
+} from './tiposReporte'
 
 export type ItemAgrupado =
   | { tipo: 'foto'; fila: FilaFoto }
   | { tipo: 'carta'; fila: FilaCarta }
 
 export type TipoGrupoMensaje = 'tutor' | 'sin_tutor' | 'no_en_sistema'
+
+export type FilasPorSubReporte = Record<TipoSubReporte, { fotos: FilaFoto[]; cartas: FilaCarta[] }>
 
 export type MensajePorTutor = {
   tutorNombre: string
@@ -22,6 +29,16 @@ export type MensajePorTutor = {
   cartasBlp: number
   cartasPresentacion: number
   tipoGrupo: TipoGrupoMensaje
+}
+
+function bucketVacio(): FilasPorSubReporte {
+  return {
+    actualizaciones: { fotos: [], cartas: [] },
+    relacionales: { fotos: [], cartas: [] },
+    blp: { fotos: [], cartas: [] },
+    rehacer: { fotos: [], cartas: [] },
+    presentacion: { fotos: [], cartas: [] },
+  }
 }
 
 /** Une solo los campos con valor; omite celdas vacías. */
@@ -46,10 +63,9 @@ function lineaCarta(f: FilaCarta): string {
   return cuerpo ? `📝 ${cuerpo}` : ''
 }
 
-function bloque(titulo: string, lineas: string[]): string {
-  const validas = lineas.filter(Boolean)
-  if (validas.length === 0) return ''
-  return `${titulo}\n\n${validas.join('\n')}\n\n`
+function lineasSubReporte(sub: TipoSubReporte, fotos: FilaFoto[], cartas: FilaCarta[]): string[] {
+  if (sub === 'actualizaciones') return fotos.map(lineaFoto)
+  return cartas.map(lineaCarta)
 }
 
 function encabezadoGrupo(tutorNombre: string): string {
@@ -66,61 +82,55 @@ function tipoGrupoDesdeNombre(nombre: string): TipoGrupoMensaje {
   return 'tutor'
 }
 
-export function construirMensajeTutor(
-  tutorNombre: string,
-  fotos: FilaFoto[],
-  cartasBlp: FilaCarta[],
-  cartasPres: FilaCarta[]
-): string {
+export function construirMensajeTutor(tutorNombre: string, porSub: FilasPorSubReporte): string {
   const partes: string[] = [encabezadoGrupo(tutorNombre)]
-  const bFoto = bloque('Fotos para actualizar:', fotos.map(lineaFoto))
-  const bBlp = bloque('Cartas Pendientes BLP (Myconnet):', cartasBlp.map(lineaCarta))
-  const bPres = bloque('Cartas de Presentación:', cartasPres.map(lineaCarta))
-  if (bFoto) partes.push(bFoto)
-  if (bBlp) partes.push(bBlp)
-  if (bPres) partes.push(bPres)
+
+  for (const sub of SUB_REPORTES_ORDEN) {
+    const { fotos, cartas } = porSub[sub]
+    const lineas = lineasSubReporte(sub, fotos, cartas).filter(Boolean)
+    if (lineas.length === 0) continue
+    partes.push(`${TITULO_SUB_REPORTE[sub]}\n\n${lineas.join('\n')}\n\n`)
+  }
+
   return partes.join('').trimEnd()
 }
 
-export function agruparPorTutor(
-  items: Array<{ codigo: string; items: ItemAgrupado[] }>,
-  codigoATutor: Map<string, string>
-): Map<string, { nombre: string; fotos: FilaFoto[]; blp: FilaCarta[]; pres: FilaCarta[] }> {
-  const map = new Map<string, { nombre: string; fotos: FilaFoto[]; blp: FilaCarta[]; pres: FilaCarta[] }>()
-
-  for (const { codigo, items: its } of items) {
-    const key = normalizarCodigo(codigo)
-    const nombreTutor = codigoATutor.has(key) ? codigoATutor.get(key)! : GRUPO_NO_EN_SISTEMA
-    if (!map.has(nombreTutor)) {
-      map.set(nombreTutor, { nombre: nombreTutor, fotos: [], blp: [], pres: [] })
-    }
-    const bucket = map.get(nombreTutor)!
-    for (const it of its) {
-      if (it.tipo === 'foto') bucket.fotos.push(it.fila)
-      else if (it.fila.seccion === 'blp') bucket.blp.push(it.fila)
-      else bucket.pres.push(it.fila)
-    }
+function contarFilas(porSub: FilasPorSubReporte): {
+  fotos: number
+  cartasBlp: number
+  cartasPresentacion: number
+} {
+  let fotos = 0
+  let cartasBlp = 0
+  let cartasPresentacion = 0
+  for (const sub of SUB_REPORTES_ORDEN) {
+    const b = porSub[sub]
+    fotos += b.fotos.length
+    if (sub === 'presentacion') cartasPresentacion += b.cartas.length
+    else cartasBlp += b.cartas.length
   }
+  return { fotos, cartasBlp, cartasPresentacion }
+}
 
-  return map
+function agregarItem(porSub: FilasPorSubReporte, it: ItemAgrupado): void {
+  const sub = it.tipo === 'foto' ? it.fila.subReporte : it.fila.subReporte
+  if (it.tipo === 'foto') porSub[sub].fotos.push(it.fila)
+  else porSub[sub].cartas.push(it.fila)
 }
 
 /**
- * Agrupa por tutor usando ID local del Excel (código completo o sufijo hasta 4 dígitos)
- * contra estudiantes de la FCP.
+ * Agrupa por tutor usando ID local del Excel contra estudiantes de la FCP.
+ * Dentro de cada tutor, las filas se ordenan por sub-apartado (tipo de Excel / DASH).
  */
 export function agruparPorTutorConEstudiantes(
   items: Array<{ codigo: string; items: ItemAgrupado[] }>,
   estudiantes: EstudianteMin[],
   aulaToTutor: Map<string, string>
 ): {
-  map: Map<string, { nombre: string; fotos: FilaFoto[]; blp: FilaCarta[]; pres: FilaCarta[] }>
+  map: Map<string, { nombre: string; porSub: FilasPorSubReporte }>
   advertenciasResolucion: string[]
 } {
-  const map = new Map<
-    string,
-    { nombre: string; fotos: FilaFoto[]; blp: FilaCarta[]; pres: FilaCarta[] }
-  >()
+  const map = new Map<string, { nombre: string; porSub: FilasPorSubReporte }>()
   const tutorPorIdExcel = new Map<string, string>()
   const advertenciasResolucion: string[] = []
   const advVistas = new Set<string>()
@@ -141,14 +151,10 @@ export function agruparPorTutorConEstudiantes(
     const keyExcel = normalizarCodigo(codigo)
     const nombreTutor = nombreTutorParaIdExcel(keyExcel)
     if (!map.has(nombreTutor)) {
-      map.set(nombreTutor, { nombre: nombreTutor, fotos: [], blp: [], pres: [] })
+      map.set(nombreTutor, { nombre: nombreTutor, porSub: bucketVacio() })
     }
     const bucket = map.get(nombreTutor)!
-    for (const it of its) {
-      if (it.tipo === 'foto') bucket.fotos.push(it.fila)
-      else if (it.fila.seccion === 'blp') bucket.blp.push(it.fila)
-      else bucket.pres.push(it.fila)
-    }
+    for (const it of its) agregarItem(bucket.porSub, it)
   }
 
   return { map, advertenciasResolucion }
@@ -180,18 +186,21 @@ function ordenGrupo(nombre: string): number {
 }
 
 export function mapAOrdenados(
-  map: Map<string, { nombre: string; fotos: FilaFoto[]; blp: FilaCarta[]; pres: FilaCarta[] }>
+  map: Map<string, { nombre: string; porSub: FilasPorSubReporte }>
 ): MensajePorTutor[] {
   return [...map.values()]
-    .map((v, idx) => ({
-      tutorNombre: v.nombre,
-      tutorKey: `${v.nombre}__${idx}`,
-      mensaje: construirMensajeTutor(v.nombre, v.fotos, v.blp, v.pres),
-      fotos: v.fotos.length,
-      cartasBlp: v.blp.length,
-      cartasPresentacion: v.pres.length,
-      tipoGrupo: tipoGrupoDesdeNombre(v.nombre),
-    }))
+    .map((v, idx) => {
+      const counts = contarFilas(v.porSub)
+      return {
+        tutorNombre: v.nombre,
+        tutorKey: `${v.nombre}__${idx}`,
+        mensaje: construirMensajeTutor(v.nombre, v.porSub),
+        fotos: counts.fotos,
+        cartasBlp: counts.cartasBlp,
+        cartasPresentacion: counts.cartasPresentacion,
+        tipoGrupo: tipoGrupoDesdeNombre(v.nombre),
+      }
+    })
     .sort((a, b) => {
       const oa = ordenGrupo(a.tutorNombre)
       const ob = ordenGrupo(b.tutorNombre)

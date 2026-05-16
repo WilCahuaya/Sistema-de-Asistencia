@@ -135,9 +135,9 @@ export function WhatsAppExcelClient() {
             Archivos
           </CardTitle>
           <CardDescription>
-            Dos formatos: reportes de <strong>cartas</strong> (varios Excel; el DASH indica BLP o presentación) y de{' '}
-            <strong>fotos de actualización</strong> (un Excel). El ID Local se cruza con Estudiantes: mensaje por tutor,
-            apartado <strong>sin tutor</strong> o apartado <strong>no están en el sistema</strong>.
+            Hasta 5 Excel: cada tipo (actualizaciones, cartas relacionales, BLP, rehacer, presentación) aparece como
+            sub-apartado dentro del mensaje de cada tutor. El ID Local se cruza con Estudiantes; apartados aparte para{' '}
+            <strong>sin tutor</strong> y <strong>no están en el sistema</strong>.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

@@ -29,27 +29,26 @@ function alfanumericoCompacto(s: string): string {
   return normalizarCodigo(s).replace(/\s/g, '').replace(/[^A-Z0-9]/g, '')
 }
 
+/** Excel trae código PE completo o más de 4 dígitos: no usar sufijos cortos (evita confundir 821 con …221, …321). */
+function esIdLocalCompleto(normFull: string, digits: string): boolean {
+  const compact = normFull.replace(/\s/g, '')
+  if (/^PE[A-Z0-9]{5,}$/i.test(compact)) return true
+  return digits.length > MAX_SUFIJO_ID_LOCAL
+}
+
 /**
- * Variantes del ID local numérico: valor tal cual, sin ceros a la izquierda,
- * y sufijos de 1…4 dígitos (p. ej. 1059, 059, 59, 9).
+ * ID local corto (1–4 dígitos en Excel) → bloque de 4 dígitos con ceros a la izquierda:
+ * 1 → 0001, 120 → 0120, 1120 → 1120, 13 → 0013, 85 → 0085.
+ * Se compara con el final del bloque numérico del código en sistema (sin recortar a 2–3 dígitos).
  */
-function variantesSufijoExcel(digits: string): string[] {
-  const d = digits.length > 12 ? digits.slice(-12) : digits
-  if (!d) return []
+function variantesIdLocalCorto(digits: string): string[] {
+  const d = digits.slice(0, MAX_SUFIJO_ID_LOCAL)
+  if (!d || d.length > MAX_SUFIJO_ID_LOCAL) return []
   const seen = new Set<string>()
-  const push = (s: string) => {
-    if (s.length > 0 && s.length <= 12) seen.add(s)
-  }
-  push(d)
-  const stripped = d.replace(/^0+/, '') || '0'
-  if (stripped !== d) push(stripped)
-  for (let k = 1; k <= Math.min(MAX_SUFIJO_ID_LOCAL, d.length); k++) push(d.slice(-k))
-  if (stripped !== d) {
-    for (let k = 1; k <= Math.min(MAX_SUFIJO_ID_LOCAL, stripped.length); k++) {
-      push(stripped.slice(-k))
-    }
-  }
-  return [...seen].sort((a, b) => b.length - a.length)
+  const nucleo = d.replace(/^0+/, '') || '0'
+  seen.add(d.padStart(MAX_SUFIJO_ID_LOCAL, '0'))
+  seen.add(nucleo.padStart(MAX_SUFIJO_ID_LOCAL, '0'))
+  return [...seen]
 }
 
 function scoreSufijo(dEst: string, variantes: string[]): number {
@@ -64,7 +63,8 @@ function scoreSufijo(dEst: string, variantes: string[]): number {
  * Estudiantes que corresponden al «ID Local del Beneficiario» del Excel:
  * - código completo igual (normalizado), o
  * - mismo alfanumérico compacto / uno termina en el otro,
- * - o todos los dígitos del código en sistema terminan en alguna variante del ID local (p. ej. 059, 1059, PE053001059).
+ * - ID local corto (1–4 dígitos): se rellena a 4 con ceros (1→0001, 85→0085) y se busca al final del código.
+ * - Código PE completo en Excel: solo coincidencia exacta o cola numérica completa, no sufijos ambiguos.
  */
 export function candidatosEstudiantesPorIdLocal(
   idLocalExcel: string,
@@ -80,29 +80,32 @@ export function candidatosEstudiantesPorIdLocal(
 
   const aExcel = alfanumericoCompacto(normFull)
   if (aExcel.length > 0) {
-    const byAlnum = estudiantes.filter((e) => {
-      const a = alfanumericoCompacto(e.codigo)
-      return a === aExcel || a.endsWith(aExcel) || aExcel.endsWith(a)
-    })
+    const byAlnum = estudiantes.filter((e) => alfanumericoCompacto(e.codigo) === aExcel)
     if (byAlnum.length > 0) return byAlnum
   }
 
-  if (/^PE[A-Z0-9]{4,}$/i.test(normFull.replace(/\s/g, ''))) {
-    const compact = normFull.replace(/\s/g, '')
-    const byPe = estudiantes.filter((e) => {
-      const c = normalizarCodigo(e.codigo).replace(/\s/g, '')
-      return c === compact || c.endsWith(compact) || compact.endsWith(c)
-    })
+  const compact = normFull.replace(/\s/g, '')
+  if (/^PE[A-Z0-9]{4,}$/i.test(compact)) {
+    const byPe = estudiantes.filter((e) => alfanumericoCompacto(e.codigo) === aExcel)
     if (byPe.length > 0) return byPe
   }
 
   const digits = soloDigitos(normFull)
   if (digits.length === 0) return []
 
-  const variantes = variantesSufijoExcel(digits)
-
   const igualdadDigitos = estudiantes.filter((e) => soloDigitos(normalizarCodigo(e.codigo)) === digits)
   if (igualdadDigitos.length > 0) return igualdadDigitos
+
+  if (esIdLocalCompleto(normFull, digits)) {
+    const porColaCompleta = estudiantes.filter((e) => {
+      const dEst = soloDigitos(normalizarCodigo(e.codigo))
+      return dEst.length > 0 && dEst.endsWith(digits)
+    })
+    if (porColaCompleta.length > 0) return porColaCompleta
+    return []
+  }
+
+  const variantes = variantesIdLocalCorto(digits)
 
   const porSufijo = estudiantes.filter((e) => {
     const dEst = soloDigitos(normalizarCodigo(e.codigo))
