@@ -177,6 +177,10 @@ export async function POST(request: Request) {
     advertencias.push(...advertenciasResolucion)
     const mensajes = mapAOrdenados(agrupado)
 
+    const conTutor = mensajes.filter((m) => m.tipoGrupo === 'tutor').length
+    const sinTutor = mensajes.filter((m) => m.tipoGrupo === 'sin_tutor').length
+    const noEnSistema = mensajes.filter((m) => m.tipoGrupo === 'no_en_sistema').length
+
     return NextResponse.json({
       mensajes,
       advertencias,
@@ -184,7 +188,10 @@ export async function POST(request: Request) {
         archivos: files.length,
         filasFoto: todasFotos.length,
         filasCarta: todasCartas.length,
-        tutores: mensajes.length,
+        tutores: conTutor,
+        apartadosSinTutor: sinTutor,
+        apartadosNoEnSistema: noEnSistema,
+        bloquesMensaje: mensajes.length,
         lectura,
       },
     })

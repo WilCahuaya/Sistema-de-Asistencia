@@ -2,6 +2,8 @@ import type { FilaCarta, FilaFoto } from './parser'
 import { normalizarCodigo } from './parser'
 import {
   elegirEstudianteYAdvertencia,
+  GRUPO_NO_EN_SISTEMA,
+  GRUPO_SIN_TUTOR,
   tutorNombreParaEstudiante,
   type EstudianteMin,
 } from './resolverTutorPorIdLocal'
@@ -10,6 +12,8 @@ export type ItemAgrupado =
   | { tipo: 'foto'; fila: FilaFoto }
   | { tipo: 'carta'; fila: FilaCarta }
 
+export type TipoGrupoMensaje = 'tutor' | 'sin_tutor' | 'no_en_sistema'
+
 export type MensajePorTutor = {
   tutorNombre: string
   tutorKey: string
@@ -17,6 +21,7 @@ export type MensajePorTutor = {
   fotos: number
   cartasBlp: number
   cartasPresentacion: number
+  tipoGrupo: TipoGrupoMensaje
 }
 
 /** Une solo los campos con valor; omite celdas vacías. */
@@ -47,13 +52,27 @@ function bloque(titulo: string, lineas: string[]): string {
   return `${titulo}\n\n${validas.join('\n')}\n\n`
 }
 
+function encabezadoGrupo(tutorNombre: string): string {
+  if (tutorNombre === GRUPO_SIN_TUTOR) return `${GRUPO_SIN_TUTOR} (están en la FCP pero sin tutor en salón):\n`
+  if (tutorNombre === GRUPO_NO_EN_SISTEMA) {
+    return `${GRUPO_NO_EN_SISTEMA} (el ID local del Excel no está cargado en Estudiantes de esta FCP):\n`
+  }
+  return `Para ${tutorNombre}:\n`
+}
+
+function tipoGrupoDesdeNombre(nombre: string): TipoGrupoMensaje {
+  if (nombre === GRUPO_SIN_TUTOR) return 'sin_tutor'
+  if (nombre === GRUPO_NO_EN_SISTEMA) return 'no_en_sistema'
+  return 'tutor'
+}
+
 export function construirMensajeTutor(
   tutorNombre: string,
   fotos: FilaFoto[],
   cartasBlp: FilaCarta[],
   cartasPres: FilaCarta[]
 ): string {
-  const partes: string[] = [`Para ${tutorNombre}:\n`]
+  const partes: string[] = [encabezadoGrupo(tutorNombre)]
   const bFoto = bloque('Fotos para actualizar:', fotos.map(lineaFoto))
   const bBlp = bloque('Cartas Pendientes BLP (Myconnet):', cartasBlp.map(lineaCarta))
   const bPres = bloque('Cartas de Presentación:', cartasPres.map(lineaCarta))
@@ -71,9 +90,7 @@ export function agruparPorTutor(
 
   for (const { codigo, items: its } of items) {
     const key = normalizarCodigo(codigo)
-    const nombreTutor = codigoATutor.has(key)
-      ? codigoATutor.get(key)!
-      : 'Sin asignación en sistema'
+    const nombreTutor = codigoATutor.has(key) ? codigoATutor.get(key)! : GRUPO_NO_EN_SISTEMA
     if (!map.has(nombreTutor)) {
       map.set(nombreTutor, { nombre: nombreTutor, fotos: [], blp: [], pres: [] })
     }
@@ -89,8 +106,8 @@ export function agruparPorTutor(
 }
 
 /**
- * Agrupa por tutor usando códigos del Excel (completos o solo últimos 1–3 dígitos)
- * resolviendo contra estudiantes de la FCP.
+ * Agrupa por tutor usando ID local del Excel (código completo o sufijo hasta 4 dígitos)
+ * contra estudiantes de la FCP.
  */
 export function agruparPorTutorConEstudiantes(
   items: Array<{ codigo: string; items: ItemAgrupado[] }>,
@@ -115,9 +132,7 @@ export function agruparPorTutorConEstudiantes(
       advVistas.add(advertencia)
       advertenciasResolucion.push(advertencia)
     }
-    const nombre = est
-      ? tutorNombreParaEstudiante(est, aulaToTutor)
-      : 'Sin asignación en sistema'
+    const nombre = est ? tutorNombreParaEstudiante(est, aulaToTutor) : GRUPO_NO_EN_SISTEMA
     tutorPorIdExcel.set(idExcel, nombre)
     return nombre
   }
@@ -158,6 +173,12 @@ export function filasAItemsPorCodigo(
   return [...byCode.entries()].map(([codigo, items]) => ({ codigo, items }))
 }
 
+function ordenGrupo(nombre: string): number {
+  if (nombre === GRUPO_SIN_TUTOR) return 1
+  if (nombre === GRUPO_NO_EN_SISTEMA) return 2
+  return 0
+}
+
 export function mapAOrdenados(
   map: Map<string, { nombre: string; fotos: FilaFoto[]; blp: FilaCarta[]; pres: FilaCarta[] }>
 ): MensajePorTutor[] {
@@ -169,6 +190,12 @@ export function mapAOrdenados(
       fotos: v.fotos.length,
       cartasBlp: v.blp.length,
       cartasPresentacion: v.pres.length,
+      tipoGrupo: tipoGrupoDesdeNombre(v.nombre),
     }))
-    .sort((a, b) => a.tutorNombre.localeCompare(b.tutorNombre, 'es'))
+    .sort((a, b) => {
+      const oa = ordenGrupo(a.tutorNombre)
+      const ob = ordenGrupo(b.tutorNombre)
+      if (oa !== ob) return oa - ob
+      return a.tutorNombre.localeCompare(b.tutorNombre, 'es')
+    })
 }

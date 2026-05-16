@@ -21,6 +21,9 @@ export function WhatsAppExcelClient() {
     filasFoto: number
     filasCarta: number
     tutores: number
+    apartadosSinTutor?: number
+    apartadosNoEnSistema?: number
+    bloquesMensaje?: number
     lectura?: {
       archivo: string
       filaEncabezado?: number
@@ -133,8 +136,8 @@ export function WhatsAppExcelClient() {
           </CardTitle>
           <CardDescription>
             Dos formatos: reportes de <strong>cartas</strong> (varios Excel; el DASH indica BLP o presentación) y de{' '}
-            <strong>fotos de actualización</strong> (un Excel). En todos, el ID Local del Beneficiario se cruza con el
-            código del estudiante para agrupar por tutor.
+            <strong>fotos de actualización</strong> (un Excel). El ID Local se cruza con Estudiantes: mensaje por tutor,
+            apartado <strong>sin tutor</strong> o apartado <strong>no están en el sistema</strong>.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -174,7 +177,11 @@ export function WhatsAppExcelClient() {
         <div className="space-y-2 text-sm text-muted-foreground">
           <p>
             Resumen: {resumen.archivos} archivo(s), {resumen.filasFoto} fila(s) foto, {resumen.filasCarta} fila(s)
-            carta, {resumen.tutores} tutor(es).
+            carta · {resumen.tutores} tutor(es)
+            {(resumen.apartadosSinTutor ?? 0) > 0 && ` · ${resumen.apartadosSinTutor} apartado(s) sin tutor`}
+            {(resumen.apartadosNoEnSistema ?? 0) > 0 &&
+              ` · ${resumen.apartadosNoEnSistema} apartado(s) no en el sistema`}
+            .
           </p>
           {resumen.lectura?.columnas && Object.keys(resumen.lectura.columnas).length > 0 && (
             <p className="rounded-md border bg-muted/30 px-3 py-2 font-mono text-xs">
@@ -190,18 +197,20 @@ export function WhatsAppExcelClient() {
         </div>
       )}
 
-      {resumen && resumen.tutores === 0 && resumen.filasFoto + resumen.filasCarta > 0 && (
-        <Card className="border-destructive/40">
-          <CardHeader>
-            <CardTitle className="text-base">No hay mensajes por tutor</CardTitle>
-            <CardDescription>
-              Se leyeron filas del Excel pero ningún «ID Local del Beneficiario» coincide con el código de un estudiante
-              de esta FCP. Revisa que el rol sea el de la misma FCP del listado y que los códigos (p. ej. PE053…) estén
-              cargados en Estudiantes.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      )}
+      {resumen &&
+        resumen.filasFoto + resumen.filasCarta > 0 &&
+        mensajes.length > 0 &&
+        mensajes.every((m) => m.tipoGrupo === 'no_en_sistema') && (
+          <Card className="border-destructive/40">
+            <CardHeader>
+              <CardTitle className="text-base">Ningún ID local está en Estudiantes</CardTitle>
+              <CardDescription>
+                Todas las filas quedaron en el apartado «No están en el sistema». Revisa la FCP del rol seleccionado y
+                que los códigos (completos o sufijo de hasta 4 dígitos) estén cargados.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        )}
 
       {resumen && resumen.filasFoto + resumen.filasCarta === 0 && !loading && (
         <Card>
@@ -232,11 +241,26 @@ export function WhatsAppExcelClient() {
 
       {mensajes.length > 0 && (
         <div className="space-y-6">
-          <h2 className="text-lg font-semibold">Mensajes por tutor</h2>
+          <h2 className="text-lg font-semibold">Mensajes por tutor y apartados</h2>
           {mensajes.map((m) => (
-            <Card key={m.tutorKey} className="shadow-sm border-border/80">
+            <Card
+              key={m.tutorKey}
+              className={
+                m.tipoGrupo === 'sin_tutor'
+                  ? 'shadow-sm border-amber-300 dark:border-amber-800'
+                  : m.tipoGrupo === 'no_en_sistema'
+                    ? 'shadow-sm border-rose-300 dark:border-rose-900'
+                    : 'shadow-sm border-border/80'
+              }
+            >
               <CardHeader className="space-y-1 pb-3">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tutor</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {m.tipoGrupo === 'tutor'
+                    ? 'Tutor'
+                    : m.tipoGrupo === 'sin_tutor'
+                      ? 'Sin tutor en el sistema'
+                      : 'No están en el sistema'}
+                </p>
                 <CardTitle className="text-lg">{m.tutorNombre}</CardTitle>
                 <CardDescription>
                   {m.fotos} foto(s) · {m.cartasBlp} carta(s) BLP · {m.cartasPresentacion} carta(s) presentación

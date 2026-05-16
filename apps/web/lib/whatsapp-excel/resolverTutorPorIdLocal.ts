@@ -2,6 +2,18 @@ import { normalizarCodigo } from './parser'
 
 export type EstudianteMin = { codigo: string; aula_id: string | null }
 
+/** Estudiante en FCP pero sin salón o sin tutor en el salón. */
+export const GRUPO_SIN_TUTOR = 'Sin tutor asignado'
+
+/** Beneficiario del Excel sin ningún estudiante con ese ID local en esta FCP. */
+export const GRUPO_NO_EN_SISTEMA = 'No están en el sistema'
+
+/** @deprecated Usar GRUPO_NO_EN_SISTEMA */
+export const GRUPO_SIN_ESTUDIANTE = GRUPO_NO_EN_SISTEMA
+
+/** Sufijos numéricos del ID local en Excel (ahora hasta 4 dígitos). */
+const MAX_SUFIJO_ID_LOCAL = 4
+
 /** Dígitos finales del código del estudiante (p. ej. PE053000222 → 000222). */
 export function digitosFinalesCodigoEstudiante(codigoNorm: string): string {
   const m = codigoNorm.match(/(\d+)$/)
@@ -19,7 +31,7 @@ function alfanumericoCompacto(s: string): string {
 
 /**
  * Variantes del ID local numérico: valor tal cual, sin ceros a la izquierda,
- * y sufijos de 1…9 dígitos (p. ej. 01059 → 1059, 059, …).
+ * y sufijos de 1…4 dígitos (p. ej. 1059, 059, 59, 9).
  */
 function variantesSufijoExcel(digits: string): string[] {
   const d = digits.length > 12 ? digits.slice(-12) : digits
@@ -31,9 +43,11 @@ function variantesSufijoExcel(digits: string): string[] {
   push(d)
   const stripped = d.replace(/^0+/, '') || '0'
   if (stripped !== d) push(stripped)
-  for (let k = 1; k <= Math.min(9, d.length); k++) push(d.slice(-k))
+  for (let k = 1; k <= Math.min(MAX_SUFIJO_ID_LOCAL, d.length); k++) push(d.slice(-k))
   if (stripped !== d) {
-    for (let k = 1; k <= Math.min(9, stripped.length); k++) push(stripped.slice(-k))
+    for (let k = 1; k <= Math.min(MAX_SUFIJO_ID_LOCAL, stripped.length); k++) {
+      push(stripped.slice(-k))
+    }
   }
   return [...seen].sort((a, b) => b.length - a.length)
 }
@@ -116,8 +130,8 @@ export function tutorNombreParaEstudiante(
   est: EstudianteMin,
   aulaToTutor: Map<string, string>
 ): string {
-  if (!est.aula_id) return 'Sin tutor asignado en salón'
-  return aulaToTutor.get(est.aula_id) ?? 'Sin tutor asignado en salón'
+  if (!est.aula_id) return GRUPO_SIN_TUTOR
+  return aulaToTutor.get(est.aula_id) ?? GRUPO_SIN_TUTOR
 }
 
 export function elegirEstudianteYAdvertencia(
