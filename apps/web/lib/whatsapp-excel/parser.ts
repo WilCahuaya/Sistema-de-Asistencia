@@ -50,15 +50,96 @@ function norm(s: unknown): string {
     .replace(/\p{M}/gu, '')
 }
 
-/** Repara texto exportado en ISO-8859-1 mal interpretado como UTF-8. */
+/** Sustituye secuencias con U+FFFD típicas de exportaciones Salesforce (Latin-1 mal leído). */
+const REPAROS_FFFD_ES: [RegExp, string][] = [
+  [/Peque\uFFFDo/gi, 'Pequeño'],
+  [/Peque\uFFFDa/gi, 'Pequeña'],
+  [/impresi\uFFFDn/gi, 'impresión'],
+  [/presentaci\uFFFDn/gi, 'presentación'],
+  [/Observaci\uFFFDn/gi, 'Observación'],
+  [/informaci\uFFFDn/gi, 'información'],
+  [/comunicaci\uFFFDn/gi, 'comunicación'],
+  [/educaci\uFFFDn/gi, 'educación'],
+  [/ni\uFFFDo/gi, 'niño'],
+  [/ni\uFFFDa/gi, 'niña'],
+  [/a\uFFFDo/gi, 'año'],
+  [/se\uFFFDor/gi, 'señor'],
+  [/se\uFFFDora/gi, 'señora'],
+  [/Espa\uFFFDa/gi, 'España'],
+]
+
+/** Repara mojibake (UTF-8 leído como Latin-1) y caracteres de reemplazo. */
 function repararTextoExcel(s: string): string {
-  if (!s || !/[ÃÂ]/.test(s)) return s
-  try {
-    const bytes = Uint8Array.from(s, (c) => c.charCodeAt(0) & 0xff)
-    return new TextDecoder('iso-8859-1').decode(bytes)
-  } catch {
-    return s
+  if (!s) return s
+  let out = s
+
+  if (/[ÃÂ]/.test(out)) {
+    try {
+      const bytes = Uint8Array.from(out, (c) => c.charCodeAt(0) & 0xff)
+      const utf8 = new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+      if (utf8 && !utf8.includes('\uFFFD')) out = utf8
+    } catch {
+      /* mantener original */
+    }
   }
+
+  if (out.includes('\uFFFD')) {
+    for (const [re, rep] of REPAROS_FFFD_ES) out = out.replace(re, rep)
+  }
+
+  return out
+}
+
+function esExportacionHtml(buffer: ArrayBuffer): boolean {
+  const sample = new TextDecoder('ascii', { fatal: false }).decode(
+    new Uint8Array(buffer).subarray(0, Math.min(4096, buffer.byteLength))
+  )
+  const t = sample.toLowerCase()
+  return t.includes('<table') || (t.includes('<html') && t.includes('<tr'))
+}
+
+function decodificarEntidadesHtml(texto: string): string {
+  return texto
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+}
+
+function extraerCeldasHtml(rowHtml: string): string[] {
+  const cells: string[] = []
+  const cellRe = /<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi
+  let m: RegExpExecArray | null
+  while ((m = cellRe.exec(rowHtml)) !== null) {
+    let text = m[1].replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '')
+    cells.push(repararTextoExcel(decodificarEntidadesHtml(text).replace(/\s+/g, ' ').trim()))
+  }
+  return cells
+}
+
+/** Reportes Salesforce .xls = HTML con charset ISO-8859-1 (ñ, tildes). */
+function matrixFromHtmlExport(buffer: ArrayBuffer): unknown[][] | null {
+  if (!esExportacionHtml(buffer)) return null
+  const html = new TextDecoder('iso-8859-1').decode(buffer)
+  const matrix: unknown[][] = []
+
+  const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi
+  let tr: RegExpExecArray | null
+  while ((tr = trRe.exec(html)) !== null) {
+    const cells = extraerCeldasHtml(tr[1])
+    if (cells.length) matrix.push(cells)
+  }
+
+  const dashRe = /(?:<br\s*\/?>|\n)\s*DASH:\s*([^\n<]+)/gi
+  let dm: RegExpExecArray | null
+  while ((dm = dashRe.exec(html)) !== null) {
+    matrix.push([`DASH: ${repararTextoExcel(dm[1].trim())}`])
+  }
+
+  return matrix.length ? matrix : null
 }
 
 export function cellStr(v: unknown): string {
@@ -407,21 +488,30 @@ function parseSheet(
 
 export function parsearExcelArchivo(buffer: ArrayBuffer, nombreArchivo: string): ParseoArchivo {
   const advertencias: string[] = []
-  const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
   let fotos: FilaFoto[] = []
   let cartas: FilaCarta[] = []
   let filaEncabezado: number | undefined
   let columnasDetectadas: Record<string, number> | undefined
 
-  for (const sheetName of wb.SheetNames) {
-    const sheet = wb.Sheets[sheetName]
-    if (!sheet) continue
-    const matrix = matrixFromSheet(sheet)
-    const part = parseSheet(matrix, `${nombreArchivo} [${sheetName}]`, advertencias)
-    fotos = fotos.concat(part.fotos)
-    cartas = cartas.concat(part.cartas)
-    if (part.filaEncabezado) filaEncabezado = part.filaEncabezado
-    if (part.columnasDetectadas) columnasDetectadas = part.columnasDetectadas
+  const htmlMatrix = matrixFromHtmlExport(buffer)
+  if (htmlMatrix) {
+    const part = parseSheet(htmlMatrix, nombreArchivo, advertencias)
+    fotos = part.fotos
+    cartas = part.cartas
+    filaEncabezado = part.filaEncabezado
+    columnasDetectadas = part.columnasDetectadas
+  } else {
+    const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
+    for (const sheetName of wb.SheetNames) {
+      const sheet = wb.Sheets[sheetName]
+      if (!sheet) continue
+      const matrix = matrixFromSheet(sheet)
+      const part = parseSheet(matrix, `${nombreArchivo} [${sheetName}]`, advertencias)
+      fotos = fotos.concat(part.fotos)
+      cartas = cartas.concat(part.cartas)
+      if (part.filaEncabezado) filaEncabezado = part.filaEncabezado
+      if (part.columnasDetectadas) columnasDetectadas = part.columnasDetectadas
+    }
   }
 
   if (fotos.length === 0 && cartas.length === 0) {
