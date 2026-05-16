@@ -23,14 +23,7 @@ async function puedeUsarHerramienta(
     .eq('activo', true)
     .in('rol', ['director', 'secretario'])
     .maybeSingle()
-  if (m) return true
-
-  const { data: fcp } = await supabase
-    .from('fcps')
-    .select('facilitador_id')
-    .eq('id', fcpId)
-    .maybeSingle()
-  return fcp?.facilitador_id === userId
+  return !!m
 }
 
 async function loadAulaToTutorYEstudiantes(
@@ -123,7 +116,7 @@ export async function POST(request: Request) {
     const ok = await puedeUsarHerramienta(supabase, user.id, fcpId)
     if (!ok) {
       return NextResponse.json(
-        { error: 'No tienes permiso para esta FCP (director, secretario o facilitador asignado).' },
+        { error: 'No tienes permiso para esta FCP (solo director o secretario).' },
         { status: 403 }
       )
     }

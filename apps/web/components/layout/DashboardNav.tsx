@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
+import { useUserRole } from '@/hooks/useUserRole'
 import { UserMenu } from '@/components/layout/UserMenu'
 import {
   Home,
@@ -38,6 +39,12 @@ const OVERLAP_BREAKPOINT = 1100 // px: usar menú hamburguesa cuando el ancho se
 export function DashboardNav() {
   const pathname = usePathname()
   const { selectedRole, loading: roleLoading } = useSelectedRole()
+  const fcpId = selectedRole?.fcpId ?? null
+  const {
+    hasDirectorMembership,
+    hasSecretarioMembership,
+    membershipsLoading,
+  } = useUserRole(fcpId)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [useCompactNav, setUseCompactNav] = useState(true) // Inicial true para evitar flash de solapamiento en móvil
 
@@ -50,7 +57,15 @@ export function DashboardNav() {
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  const navigation = allNavigation
+  const canWhatsAppExcel =
+    selectedRole?.role === 'director' ||
+    selectedRole?.role === 'secretario' ||
+    ((!fcpId || !membershipsLoading) &&
+      (hasDirectorMembership || hasSecretarioMembership))
+
+  const navigation = allNavigation.filter(
+    (item) => item.href !== '/herramientas/whatsapp-excel' || (!roleLoading && canWhatsAppExcel)
+  )
 
   const NavLinks = () => (
     <>

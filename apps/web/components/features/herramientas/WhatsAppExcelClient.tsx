@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
+import { useUserRole } from '@/hooks/useUserRole'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
@@ -12,6 +13,16 @@ import type { MensajePorTutor } from '@/lib/whatsapp-excel/formatMensajes'
 export function WhatsAppExcelClient() {
   const { selectedRole, loading: roleLoading } = useSelectedRole()
   const fcpId = selectedRole?.fcpId ?? null
+  const {
+    hasDirectorMembership,
+    hasSecretarioMembership,
+    membershipsLoading,
+  } = useUserRole(fcpId)
+  const canAccess =
+    selectedRole?.role === 'director' ||
+    selectedRole?.role === 'secretario' ||
+    ((!fcpId || !membershipsLoading) &&
+      (hasDirectorMembership || hasSecretarioMembership))
   const [files, setFiles] = useState<File[]>([])
   const [loading, setLoading] = useState(false)
   const [mensajes, setMensajes] = useState<MensajePorTutor[]>([])
@@ -94,10 +105,25 @@ export function WhatsAppExcelClient() {
     }
   }
 
-  if (roleLoading) {
+  if (roleLoading || (fcpId && membershipsLoading)) {
     return (
       <div className="flex justify-center py-12 text-muted-foreground">
         <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    )
+  }
+
+  if (!canAccess) {
+    return (
+      <div className="mx-auto max-w-lg px-4 py-16 sm:px-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Sin acceso</CardTitle>
+            <CardDescription>
+              Esta herramienta está disponible solo para directores y secretarios de la FCP.
+            </CardDescription>
+          </CardHeader>
+        </Card>
       </div>
     )
   }
@@ -110,9 +136,8 @@ export function WhatsAppExcelClient() {
           Mensajes WhatsApp desde Excel
         </h1>
         <p className="mt-2 text-muted-foreground text-sm sm:text-base">
-          Sube hasta 5 archivos exportados (cartas o fotos). Los estudiantes se cruzan por{' '}
-          <strong>ID Local del Beneficiario</strong> con el <strong>código</strong> en esta FCP y se agrupan por el{' '}
-          <strong>tutor del salón</strong> en el sistema (no por una columna tutor del Excel).
+          Sube hasta 5 archivos exportados (cartas o fotos). Los estudiantes se agrupan por el{' '}
+          <strong>tutor del salón</strong> en el sistema.
         </p>
       </div>
 
@@ -134,11 +159,7 @@ export function WhatsAppExcelClient() {
             <FileSpreadsheet className="h-5 w-5" />
             Archivos
           </CardTitle>
-          <CardDescription>
-            Hasta 5 Excel: el <strong>ID Local del Beneficiario</strong> se lee siempre en la columna fija de cada
-            reporte (A, B u O según el tipo). Se cruza con Estudiantes (código completo o 1–4 dígitos con ceros:
-            1→0001, 85→0085). Apartados para <strong>sin tutor</strong> y <strong>no están en el sistema</strong>.
-          </CardDescription>
+    
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
