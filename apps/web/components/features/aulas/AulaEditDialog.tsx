@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/select'
 import { useForm } from 'react-hook-form'
 import { toast } from '@/lib/toast'
+import { SucursalField, resolverSucursalId } from './SucursalField'
 
 interface AulaFormData {
   nombre: string
@@ -35,13 +36,16 @@ interface AulaEditDialogProps {
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
   aulaId: string
-  initialData: AulaFormData
+  fcpId: string
+  initialData: AulaFormData & { sucursal_id?: string }
 }
 
-export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, initialData }: AulaEditDialogProps) {
+export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, fcpId, initialData }: AulaEditDialogProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activa, setActiva] = useState(initialData.activa ?? true)
+  const [sucursalId, setSucursalId] = useState(initialData.sucursal_id ?? '')
+  const [nuevaSucursal, setNuevaSucursal] = useState('')
   const { register, handleSubmit, reset, formState: { errors } } = useForm<AulaFormData>({
     defaultValues: initialData,
   })
@@ -51,6 +55,8 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, initialD
     if (open && initialData) {
       reset(initialData)
       setActiva(initialData.activa ?? true)
+      setSucursalId(initialData.sucursal_id ?? '')
+      setNuevaSucursal('')
     }
   }, [open, initialData, reset])
 
@@ -84,6 +90,13 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, initialD
         }
       }
 
+      const sucursalFinalId = await resolverSucursalId(supabase, {
+        fcpId,
+        value: sucursalId,
+        nuevaNombre: nuevaSucursal,
+        userId: user.id,
+      })
+
       // Actualizar aula
       const { error: updateError } = await supabase
         .from('aulas')
@@ -91,6 +104,7 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, initialD
           nombre: data.nombre,
           descripcion: data.descripcion || null,
           activa: activa,
+          sucursal_id: sucursalFinalId,
         })
         .eq('id', aulaId)
 
@@ -158,6 +172,15 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, initialD
                 placeholder="Breve descripción (opcional)"
               />
             </div>
+
+            <SucursalField
+              fcpId={fcpId}
+              value={sucursalId}
+              onChange={setSucursalId}
+              nuevaNombre={nuevaSucursal}
+              onNuevaNombreChange={setNuevaSucursal}
+              disabled={loading}
+            />
 
             <div className="grid gap-2">
               <Label htmlFor="estado">Estado</Label>

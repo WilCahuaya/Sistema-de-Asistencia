@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input'
 import { AulaDialog } from './AulaDialog'
 import { AulaTutorDialog } from './AulaTutorDialog'
 import { AulaEditDialog } from './AulaEditDialog'
+import { ordenarSucursales, type Sucursal } from './SucursalField'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
   DropdownMenu,
@@ -58,10 +59,10 @@ function ordenNumerico(orden: unknown): number {
   return 0
 }
 
-/** Salones de una FCP en el mismo orden que usa el listado (orden → nombre → id). */
-function aulasDeFcpOrdenadas(list: Aula[], fcpId: string): Aula[] {
+/** Salones de una sucursal en el mismo orden que usa el listado (orden → nombre → id). */
+function aulasDeSucursalOrdenadas(list: Aula[], sucursalId: string): Aula[] {
   return list
-    .filter((a) => a.fcp_id === fcpId)
+    .filter((a) => a.sucursal_id === sucursalId)
     .sort((a, b) => {
       const oa = ordenNumerico(a.orden)
       const ob = ordenNumerico(b.orden)
@@ -81,6 +82,8 @@ interface Aula {
   descripcion?: string
   activa: boolean
   fcp_id: string
+  sucursal_id?: string
+  sucursal?: Sucursal
   fcp?: {
     razon_social: string
   }
@@ -103,6 +106,9 @@ export function AulaList() {
   const [vaciarLoading, setVaciarLoading] = useState(false)
   const [eliminarAula, setEliminarAula] = useState<Aula | null>(null)
   const [eliminarLoading, setEliminarLoading] = useState(false)
+  const [sucursales, setSucursales] = useState<Sucursal[]>([])
+  const [eliminarSucursal, setEliminarSucursal] = useState<Sucursal | null>(null)
+  const [eliminarSucursalLoading, setEliminarSucursalLoading] = useState(false)
   const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
   const [loadingFCPs, setLoadingFCPs] = useState(true)
@@ -178,10 +184,37 @@ export function AulaList() {
       })
     : aulas
 
+  /** Datos de la sucursal de un aula (desde la lista cargada o desde el join). */
+  const sucursalDeAula = (a: Aula): Sucursal | undefined =>
+    sucursales.find((s) => s.id === a.sucursal_id) || a.sucursal
+
+  /** Aulas ordenadas por grupo: sucursal predeterminada primero, luego por orden/nombre de sucursal, y dentro por orden/nombre del aula. */
+  const orderedAulas = [...filteredAulas].sort((a, b) => {
+    const sa = sucursalDeAula(a)
+    const sb = sucursalDeAula(b)
+    const pa = sa?.es_predeterminada ? 0 : 1
+    const pb = sb?.es_predeterminada ? 0 : 1
+    if (pa !== pb) return pa - pb
+    const oa = sa?.orden ?? 0
+    const ob = sb?.orden ?? 0
+    if (oa !== ob) return oa - ob
+    const sn = (sa?.nombre || '').localeCompare(sb?.nombre || '')
+    if (sn !== 0) return sn
+    const ada = ordenNumerico(a.orden)
+    const adb = ordenNumerico(b.orden)
+    if (ada !== adb) return ada - adb
+    return (a.nombre || '').localeCompare(b.nombre || '')
+  })
+
+  /** Sucursales (no predeterminadas) sin aulas: candidatas a eliminación. */
+  const sucursalesVacias = sucursales.filter(
+    (s) => !s.es_predeterminada && !aulas.some((a) => a.sucursal_id === s.id)
+  )
+
   const itemsPerPage = isMobile ? 8 : 24
-  const totalPages = Math.max(1, Math.ceil(filteredAulas.length / itemsPerPage))
-  const displayAulas = filteredAulas.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
-  const shouldShowPagination = filteredAulas.length > itemsPerPage
+  const totalPages = Math.max(1, Math.ceil(orderedAulas.length / itemsPerPage))
+  const displayAulas = orderedAulas.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+  const shouldShowPagination = orderedAulas.length > itemsPerPage
 
   useEffect(() => setCurrentPage(1), [searchTerm])
 
@@ -292,7 +325,7 @@ export function AulaList() {
             .from('tutor_aula')
             .select(`
               aula_id,
-              aula:aulas(*)
+              aula:aulas(*, sucursal:sucursales(id, nombre, es_predeterminada, orden))
             `)
             .in('fcp_miembro_id', tutorMiembroIds)
             .eq('activo', true)
@@ -336,7 +369,7 @@ export function AulaList() {
         // si aún no está aplicada, ORDER BY orden rompe la consulta — se ordena abajo en el cliente)
         let aulasQuery = supabase
           .from('aulas')
-          .select('*')
+          .select('*, sucursal:sucursales(id, nombre, es_predeterminada, orden)')
           .eq('fcp_id', fcpIdToUse)
           .order('nombre', { ascending: true })
         
@@ -453,12 +486,37 @@ export function AulaList() {
       }
       
       setAulas(aulasWithTutors)
+
+      // Cargar las sucursales de la FCP (para agrupar y gestionar)
+      const fcpIdSucursales = aulasBase[0]?.fcp_id || fcpIdFromRole || selectedFCP || fcpIdToUse
+      if (fcpIdSucursales) {
+        await loadSucursales(fcpIdSucursales)
+      }
     } catch (error: any) {
       console.error('Error loading aulas:', error)
       setError(`Error inesperado: ${error.message || 'Error desconocido'}`)
       setAulas([])
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadSucursales = async (fcpId: string) => {
+    if (!fcpId) return
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('sucursales')
+        .select('id, nombre, es_predeterminada, orden')
+        .eq('fcp_id', fcpId)
+        .eq('activa', true)
+      if (error) {
+        console.error('Error cargando sucursales:', error)
+        return
+      }
+      setSucursales(ordenarSucursales((data as Sucursal[]) || []))
+    } catch (e) {
+      console.error('Error cargando sucursales:', e)
     }
   }
 
@@ -484,9 +542,10 @@ export function AulaList() {
     setIsTutorDialogOpen(true)
   }
 
-  /** Reordenar salones dentro de la FCP (intercambia `orden` con el vecino en el listado; recalcula códigos en BD). */
+  /** Reordenar salones dentro de la sucursal (intercambia `orden` con el vecino del grupo; recalcula códigos en BD). */
   const handleMoveOrden = async (aula: Aula, dir: 'up' | 'down') => {
-    const siblings = aulasDeFcpOrdenadas(aulas, aula.fcp_id)
+    if (!aula.sucursal_id) return
+    const siblings = aulasDeSucursalOrdenadas(aulas, aula.sucursal_id)
     if (siblings.length <= 1) return
     const idx = siblings.findIndex((a) => a.id === aula.id)
     const j = dir === 'up' ? idx - 1 : idx + 1
@@ -699,11 +758,22 @@ export function AulaList() {
             </p>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {displayAulas.map((aula) => {
+              {displayAulas.map((aula, i) => {
                 const handleVerEstudiantes = () => router.push(`/estudiantes?aulaId=${aula.id}&fcpId=${aula.fcp_id}`)
+                const prev = i > 0 ? displayAulas[i - 1] : null
+                const suc = sucursalDeAula(aula)
+                const showHeader =
+                  (!prev || prev.sucursal_id !== aula.sucursal_id) && !!suc && !suc.es_predeterminada
                 return (
+                  <Fragment key={aula.id}>
+                  {showHeader && (
+                    <div className="col-span-1 md:col-span-2 lg:col-span-3 mt-2 first:mt-0">
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground border-b pb-1">
+                        {suc?.nombre}
+                      </h3>
+                    </div>
+                  )}
                   <Card
-                    key={aula.id}
                     className={`cursor-pointer hover:shadow-lg transition-shadow ${
                       !aula.activa ? 'opacity-60 border-dashed bg-muted/30' : ''
                     }`}
@@ -788,7 +858,7 @@ export function AulaList() {
                           {canManageAulas && (
                             <div className="flex flex-wrap items-center gap-2 pt-1">
                               {(() => {
-                                const siblings = aulasDeFcpOrdenadas(aulas, aula.fcp_id)
+                                const siblings = aulasDeSucursalOrdenadas(aulas, aula.sucursal_id || '')
                                 if (siblings.length <= 1) return null
                                 const idx = siblings.findIndex((a) => a.id === aula.id)
                                 return (
@@ -798,7 +868,7 @@ export function AulaList() {
                                       variant="outline"
                                       size="sm"
                                       className="h-8 w-8 p-0"
-                                      title="Subir en el listado de la FCP"
+                                      title="Subir dentro de la sucursal"
                                       disabled={idx === 0 || reordenandoId !== null}
                                       onClick={(e) => {
                                         e.stopPropagation()
@@ -812,7 +882,7 @@ export function AulaList() {
                                       variant="outline"
                                       size="sm"
                                       className="h-8 w-8 p-0"
-                                      title="Bajar en el listado de la FCP"
+                                      title="Bajar dentro de la sucursal"
                                       disabled={idx >= siblings.length - 1 || reordenandoId !== null}
                                       onClick={(e) => {
                                         e.stopPropagation()
@@ -889,6 +959,7 @@ export function AulaList() {
                       </CardContent>
                     </div>
                   </Card>
+                  </Fragment>
                 )
               })}
             </div>
@@ -924,6 +995,36 @@ export function AulaList() {
         </>
       )}
 
+      {canManageAulas && sucursalesVacias.length > 0 && (
+        <div className="mt-8 pt-4 border-t">
+          <h3 className="text-sm font-semibold text-muted-foreground mb-3">
+            Sucursales sin aulas
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {sucursalesVacias.map((s) => (
+              <span
+                key={s.id}
+                className="inline-flex items-center gap-2 rounded-full border bg-muted/40 px-3 py-1 text-sm"
+              >
+                <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                {s.nombre}
+                <button
+                  type="button"
+                  title="Eliminar sucursal"
+                  onClick={() => setEliminarSucursal(s)}
+                  className="text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  <XCircle className="h-4 w-4" />
+                </button>
+              </span>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Solo puedes eliminar sucursales que no tengan aulas asociadas.
+          </p>
+        </div>
+      )}
+
       <AulaDialog
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}
@@ -952,11 +1053,13 @@ export function AulaList() {
           }}
           onSuccess={handleAulaUpdated}
           aulaId={editingAula.id}
+          fcpId={editingAula.fcp_id}
           initialData={{
             nombre: editingAula.nombre,
             descripcion: editingAula.descripcion || '',
             activa: editingAula.activa,
             codigo_aula: editingAula.codigo_aula,
+            sucursal_id: editingAula.sucursal_id,
           }}
         />
       )}
@@ -1035,6 +1138,46 @@ export function AulaList() {
             toast.error('Error', e instanceof Error ? e.message : 'No se pudo eliminar el aula.')
           } finally {
             setEliminarLoading(false)
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={!!eliminarSucursal}
+        onOpenChange={(open) => {
+          if (!open) setEliminarSucursal(null)
+        }}
+        title="Eliminar sucursal"
+        message={
+          eliminarSucursal
+            ? `Se eliminará la sucursal "${eliminarSucursal.nombre}". Solo es posible si no tiene aulas asociadas. ¿Continuar?`
+            : ''
+        }
+        confirmLabel="Eliminar sucursal"
+        cancelLabel="Cancelar"
+        variant="destructive"
+        loading={eliminarSucursalLoading}
+        onConfirm={async () => {
+          if (!eliminarSucursal) return
+          setEliminarSucursalLoading(true)
+          try {
+            const res = await fetch(`/api/sucursales/${eliminarSucursal.id}`, {
+              method: 'DELETE',
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) {
+              toast.error('Error al eliminar sucursal', data.error || res.statusText)
+              return
+            }
+            toast.success('Sucursal eliminada', data.message || 'La sucursal se eliminó correctamente.')
+            const fcpId = selectedFCP || fcpIdFromRole || ''
+            setEliminarSucursal(null)
+            loadAulas()
+            if (fcpId) loadSucursales(fcpId)
+          } catch (e) {
+            toast.error('Error', e instanceof Error ? e.message : 'No se pudo eliminar la sucursal.')
+          } finally {
+            setEliminarSucursalLoading(false)
           }
         }}
       />

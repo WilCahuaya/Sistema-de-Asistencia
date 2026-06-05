@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ensureAuthenticated } from '@/lib/supabase/auth-helpers'
 import {
   Dialog,
@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useForm } from 'react-hook-form'
 import { toast } from '@/lib/toast'
+import { SucursalField, NUEVA_SUCURSAL, resolverSucursalId } from './SucursalField'
 
 interface AulaFormData {
   nombre: string
@@ -32,7 +33,16 @@ interface AulaDialogProps {
 
 export function AulaDialog({ open, onOpenChange, onSuccess, fcpId, onAulaCreated }: AulaDialogProps) {
   const [loading, setLoading] = useState(false)
+  const [sucursalId, setSucursalId] = useState('')
+  const [nuevaSucursal, setNuevaSucursal] = useState('')
   const { register, handleSubmit, reset, formState: { errors } } = useForm<AulaFormData>()
+
+  useEffect(() => {
+    if (!open) {
+      setSucursalId('')
+      setNuevaSucursal('')
+    }
+  }, [open])
 
   const onSubmit = async (data: AulaFormData) => {
     if (!fcpId) {
@@ -52,12 +62,20 @@ export function AulaDialog({ open, onOpenChange, onSuccess, fcpId, onAulaCreated
 
       const { user, supabase } = authResult
 
+      const sucursalFinalId = await resolverSucursalId(supabase, {
+        fcpId,
+        value: sucursalId,
+        nuevaNombre: nuevaSucursal,
+        userId: user.id,
+      })
+
       const { data: nuevaAula, error } = await supabase
         .from('aulas')
         .insert({
           nombre: data.nombre,
           descripcion: data.descripcion || null,
           fcp_id: fcpId,
+          sucursal_id: sucursalFinalId,
           activa: true,
           created_by: user.id,
         })
@@ -67,6 +85,8 @@ export function AulaDialog({ open, onOpenChange, onSuccess, fcpId, onAulaCreated
       if (error) throw error
 
       reset()
+      setSucursalId('')
+      setNuevaSucursal('')
       toast.created('Aula')
       onAulaCreated?.(nuevaAula)
       onSuccess()
@@ -100,6 +120,14 @@ export function AulaDialog({ open, onOpenChange, onSuccess, fcpId, onAulaCreated
                 <p className="text-sm text-red-500">{errors.nombre.message}</p>
               )}
             </div>
+            <SucursalField
+              fcpId={fcpId}
+              value={sucursalId}
+              onChange={setSucursalId}
+              nuevaNombre={nuevaSucursal}
+              onNuevaNombreChange={setNuevaSucursal}
+              disabled={loading}
+            />
             <div className="grid gap-2">
               <Label htmlFor="descripcion">Descripción</Label>
               <Input
@@ -129,4 +157,3 @@ export function AulaDialog({ open, onOpenChange, onSuccess, fcpId, onAulaCreated
     </Dialog>
   )
 }
-
