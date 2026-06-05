@@ -5,6 +5,7 @@ import { ReporteList } from '@/components/features/reportes/ReporteList'
 import { ReporteAsistenciaPorNivel } from '@/components/features/reportes/ReporteAsistenciaPorNivel'
 import { ReporteMensual } from '@/components/features/reportes/ReporteMensual'
 import { ReporteParticipantesPorMes } from '@/components/features/reportes/ReporteParticipantesPorMes'
+import { ReporteIntervencionAcumulado } from '@/components/features/reportes/ReporteIntervencionAcumulado'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { SegmentedControl } from '@/components/ui/segmented-control'
@@ -22,13 +23,21 @@ function ReportesPageContent() {
   const { selectedRole } = useSelectedRole()
   const fcpIdParaReporte = selectedRole?.fcpId
   
-  const [viewType, setViewType] = useState<'general' | 'por-nivel' | 'mensual' | 'participantes-mes'>(
+  const [viewType, setViewType] = useState<
+    'general' | 'por-nivel' | 'mensual' | 'participantes-mes' | 'intervencion-acumulada'
+  >(
     (viewParam === 'participantes-mes' || viewParam === 'fcps-por-mes' || viewParam === 'ongs-por-mes') ? 'participantes-mes' :
     viewParam === 'por-nivel' ? 'por-nivel' :
     viewParam === 'mensual' ? 'mensual' :
     'general'
   )
   const [tipoAula, setTipoAula] = useState<AulaTipo>('REGULAR')
+
+  useEffect(() => {
+    if (tipoAula === 'REGULAR' && viewType === 'intervencion-acumulada') {
+      setViewType('general')
+    }
+  }, [tipoAula, viewType])
   
   const { isFacilitador, isDirector, isSecretario, isTutor } = useUserRole(fcpIdParaReporte || null)
   const [tutorAulaIds, setTutorAulaIds] = useState<string[] | null>(null)
@@ -137,6 +146,14 @@ function ReportesPageContent() {
           >
             Reporte Mensual
           </Button>
+          {tipoAula === 'INTERVENTION' && (
+            <Button
+              variant={viewType === 'intervencion-acumulada' ? 'default' : 'outline'}
+              onClick={() => setViewType('intervencion-acumulada')}
+            >
+              Asistencia acumulada
+            </Button>
+          )}
           {isFacilitador && (
             <Button
               variant={viewType === 'participantes-mes' ? 'default' : 'outline'}
@@ -146,7 +163,7 @@ function ReportesPageContent() {
             </Button>
           )}
         </div>
-        {viewType !== 'participantes-mes' && (
+        {viewType !== 'participantes-mes' && viewType !== 'intervencion-acumulada' && (
           <SegmentedControl
             value={tipoAula}
             onChange={setTipoAula}
@@ -170,6 +187,8 @@ function ReportesPageContent() {
         <ReporteAsistenciaPorNivel fcpId={fcpIdParaReporte || null} tipoAula={tipoAula} />
       ) : viewType === 'mensual' ? (
         <ReporteMensual fcpId={fcpIdParaReporte || null} tipoAula={tipoAula} />
+      ) : viewType === 'intervencion-acumulada' ? (
+        <ReporteIntervencionAcumulado fcpId={fcpIdParaReporte || null} />
       ) : (
         <ReporteParticipantesPorMes fcpId={fcpIdParaReporte || null} />
       )}

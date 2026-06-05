@@ -44,6 +44,7 @@ import {
   fetchAulasMapByIds,
   fetchEstudiantesActivosPorAulas,
   fetchEstudiantesMapByIds,
+  fetchEstudiantesIntervencionPorAulas,
 } from '@/lib/reportes/asistenciasReporteQueries'
 import type { AulaTipo } from '@/lib/utils/aulaIntervencion'
 import { fetchAulaIdsPorTipo } from '@/lib/utils/aulaIntervencion'
@@ -531,8 +532,19 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
       // Obtener estudiantes según el mes consultado
       let estudiantesData: any[] = []
       let estudianteIds: string[] = []
+      const esIntervencion = tipoAula === 'INTERVENTION'
 
-      if (esMesAnterior) {
+      if (esIntervencion) {
+        estudiantesData = await fetchEstudiantesIntervencionPorAulas(
+          supabase,
+          fcpIdParaReporte,
+          aulas.map((a) => a.id)
+        )
+        estudianteIds = estudiantesData.map((e) => e.id)
+        console.log('📊 [ReporteAsistenciaPorNivel] Estudiantes intervención:', {
+          total: estudiantesData.length,
+        })
+      } else if (esMesAnterior) {
         // Para meses anteriores, obtener estudiantes únicos de las asistencias
         const estudiantesMap = new Map<string, any>()
         asistenciasData?.forEach((asist: any) => {
@@ -552,34 +564,6 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
         console.log('📊 [ReporteAsistenciaPorNivel] Estudiantes cargados de mes anterior (basados en asistencias):', {
           total: estudiantesData.length
         })
-      } else if (tipoAula === 'INTERVENTION') {
-        const aulaIdsArr = aulas.map((a) => a.id)
-        if (aulaIdsArr.length === 0) {
-          estudiantesData = []
-        } else {
-          const { data: inscripciones, error: inscErr } = await supabase
-            .from('intervencion_estudiantes')
-            .select(`
-              estudiante_id, aula_id,
-              estudiante:estudiantes(id, codigo, nombre_completo, aula_id, created_at)
-            `)
-            .eq('fcp_id', fcpIdParaReporte)
-            .eq('activo', true)
-            .in('aula_id', aulaIdsArr)
-          if (inscErr) throw inscErr
-          estudiantesData = (inscripciones || []).map((row: { estudiante_id: string; aula_id: string; estudiante: unknown }) => {
-            const est = Array.isArray(row.estudiante) ? row.estudiante[0] : row.estudiante
-            const e = est as { id: string; codigo: string; nombre_completo: string; created_at?: string }
-            return {
-              id: row.estudiante_id,
-              codigo: e?.codigo,
-              nombre_completo: e?.nombre_completo,
-              aula_id: row.aula_id,
-              created_at: e?.created_at,
-            }
-          })
-        }
-        estudianteIds = estudiantesData.map((e) => e.id)
       } else {
         // Para meses actuales/futuros, cargar todos los estudiantes activos de la FCP
         const { data: estudiantesDataQuery, error: estudiantesError } = await supabase
@@ -638,8 +622,8 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
       // Para meses actuales/futuros, usar las aulas cargadas normalmente
       let aulasParaProcesar: any[] = []
       
-      if (esMesAnterior) {
-        // Para meses anteriores, obtener aulas únicas de las asistencias
+      if (esMesAnterior && !esIntervencion) {
+        // Para meses anteriores (regulares), obtener aulas únicas de las asistencias
         // Usar aula_id de la asistencia con fallback al del estudiante
         const aulasMap = new Map<string, any>()
         asistenciasData?.forEach((a: any) => {
@@ -662,7 +646,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
       // Para meses anteriores: usar RPC (SECURITY DEFINER) para evitar problemas de RLS con facilitadores
       const aulaIdsParaPeriodos = aulasParaProcesar.map((a: any) => a.id)
       const totalPorAulaFechaNivel = new Map<string, number>() // key: `${aulaId}|${fechaStr}`
-      if (esMesAnterior && aulaIdsParaPeriodos.length > 0) {
+      if (esMesAnterior && !esIntervencion && aulaIdsParaPeriodos.length > 0) {
         const { data: rpcData } = await supabase.rpc('contar_estudiantes_por_aula_fecha', {
           p_aula_ids: aulaIdsParaPeriodos,
           p_fecha_inicio: fechaInicio,
@@ -680,7 +664,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
         const tn = a.tutor?.nombre_completo || a.tutor?.email || 'Sin tutor asignado'
         aulaTutorMapNivel.set(a.id, tn)
       })
-      if (aulaIdsParaPeriodos.length > 0 && fcpIdParaReporte) {
+      if (aulaIdsParaPeriodos.length > 0 && fcpIdParaReporte && !esIntervencion) {
         const { data: rpcDiasIncompletos } = await supabase.rpc('dias_incompletos_por_aula', {
           p_aula_ids: aulaIdsParaPeriodos,
           p_fecha_inicio: fechaInicio,
@@ -706,7 +690,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
       }
 
       const estudiantesActivosPorAulaCache =
-        esMesAnterior && aulasParaProcesar.length > 0
+        esMesAnterior && !esIntervencion && aulasParaProcesar.length > 0
           ? await fetchEstudiantesActivosPorAulas(
               supabase,
               aulasParaProcesar.map((a: any) => a.id),
@@ -721,7 +705,9 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
         // Para meses actuales/futuros: usar aula_id actual del estudiante
         let estudiantesDeAula: any[] = []
         
-        if (esMesAnterior) {
+        if (esIntervencion) {
+          estudiantesDeAula = estudiantesData?.filter((e) => e.aula_id === aula.id) || []
+        } else if (esMesAnterior) {
           const ids = estudiantesActivosPorAulaCache?.get(aula.id) || []
           const estudiantesDataMap = new Map((estudiantesData || []).map((e) => [e.id, e]))
           estudiantesDeAula = ids.map((id) =>
@@ -741,7 +727,10 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
         
         // MISMA LÓGICA que vista Asistencias: contar por (estudiante_id, fecha) sin filtrar por aula_id
         const estudiantesDeAulaIds = new Set(estudiantesDeAula.map(e => e.id))
-        const asistenciasDeAula = asistenciasData?.filter((a: any) => estudiantesDeAulaIds.has(a.estudiante_id)) || []
+        const asistenciasDeAula = asistenciasData?.filter((a: any) =>
+          estudiantesDeAulaIds.has(a.estudiante_id) &&
+          (!esIntervencion || a.aula_id === aula.id)
+        ) || []
         const asistenciasPorFecha: AsistenciaPorFecha = {}
         const tutorNombre = aula.tutor?.nombre_completo || aula.tutor?.email || 'Sin tutor asignado'
         const tutorId = aula.tutor?.id || null
@@ -791,15 +780,18 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
         // 3. Procesar todas las fechas del mes (no solo las que tienen asistencias)
         todasLasFechasDelMes.forEach(fecha => {
           // Para meses anteriores: usar RPC para el total correcto por fecha (evita RLS)
-          const totalEstudiantesEnFecha = esMesAnterior && totalPorAulaFechaNivel.size > 0
+          const totalEstudiantesEnFecha = esIntervencion
+            ? estudiantesDeAula.length
+            : esMesAnterior && totalPorAulaFechaNivel.size > 0
             ? (totalPorAulaFechaNivel.get(`${aula.id}|${fecha}`) ?? estudiantesDeAula.length)
             : estudiantesDeAula.length
           
           // Contar estudiantes que tienen asistencia registrada en esta fecha
           const marcadosEnFecha = estudiantesDeAula.filter(e => {
-            // Verificar si tiene asistencia registrada en esta fecha
             const tieneAsistencia = asistenciasData?.some(a => 
-              a.estudiante_id === e.id && a.fecha === fecha
+              a.estudiante_id === e.id &&
+              a.fecha === fecha &&
+              (!esIntervencion || a.aula_id === aula.id)
             )
             return tieneAsistencia
           }).length

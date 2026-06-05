@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-const DEFAULT_PAGE = 5000
+/** PostgREST/Supabase suele limitar ~1000 filas por petición; usar el mismo tamaño en `.range()`. */
+const DEFAULT_PAGE = 1000
 const IN_CHUNK = 200
 
 export type AsistenciaFlatRow = {
@@ -8,6 +9,7 @@ export type AsistenciaFlatRow = {
   fecha: string
   estado: string
   aula_id: string | null
+  registro_tardio?: boolean
 }
 
 export type EstudianteReporteRow = {
@@ -40,7 +42,7 @@ export async function fetchAsistenciasRangoFlat(
   options?: { pageSize?: number }
 ): Promise<AsistenciaFlatRow[]> {
   const pageSize = options?.pageSize ?? DEFAULT_PAGE
-  const selectCols = 'estudiante_id, estado, fecha, aula_id'
+  const selectCols = 'estudiante_id, estado, fecha, aula_id, registro_tardio'
   let all: AsistenciaFlatRow[] = []
   let offset = 0
   let hasMore = true
@@ -215,4 +217,47 @@ export async function fetchEstudiantesActivosPorAulas(
     pairs.forEach(([aulaId, ids]) => map.set(aulaId, ids))
   }
   return map
+}
+
+export type EstudianteIntervencionRow = {
+  id: string
+  aula_id: string
+  codigo: string
+  nombre_completo: string
+  created_at: string | null
+}
+
+/** Estudiantes inscritos en intervenciones (roster M2M, no estudiantes.aula_id). */
+export async function fetchEstudiantesIntervencionPorAulas(
+  supabase: SupabaseClient,
+  fcpId: string,
+  aulaIds: string[]
+): Promise<EstudianteIntervencionRow[]> {
+  const unique = [...new Set(aulaIds.filter(Boolean))]
+  if (unique.length === 0) return []
+
+  const { data, error } = await supabase
+    .from('intervencion_estudiantes')
+    .select(`
+      estudiante_id,
+      aula_id,
+      estudiante:estudiantes(id, codigo, nombre_completo, created_at)
+    `)
+    .eq('fcp_id', fcpId)
+    .eq('activo', true)
+    .in('aula_id', unique)
+
+  if (error) throw error
+
+  return (data || []).map((row: { estudiante_id: string; aula_id: string; estudiante: unknown }) => {
+    const est = Array.isArray(row.estudiante) ? row.estudiante[0] : row.estudiante
+    const e = est as { codigo?: string; nombre_completo?: string; created_at?: string | null } | null
+    return {
+      id: row.estudiante_id,
+      aula_id: row.aula_id,
+      codigo: e?.codigo ?? '',
+      nombre_completo: e?.nombre_completo ?? '',
+      created_at: e?.created_at ?? null,
+    }
+  })
 }

@@ -39,6 +39,7 @@ import {
   fetchAulasMapByIds,
   fetchEstudiantesActivosPorAulas,
   fetchEstudiantesMinimalMapByIds,
+  fetchEstudiantesIntervencionPorAulas,
 } from '@/lib/reportes/asistenciasReporteQueries'
 import type { AulaTipo } from '@/lib/utils/aulaIntervencion'
 import { fetchAulaIdsPorTipo } from '@/lib/utils/aulaIntervencion'
@@ -390,8 +391,23 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
 
       // Obtener estudiantes según el mes consultado
       let estudiantesData: any[] = []
+      const esIntervencion = tipoAula === 'INTERVENTION'
 
-      if (esMesAnterior) {
+      if (esIntervencion) {
+        const aulaIdsArr = [...aulaIdsTipo]
+        estudiantesData = await fetchEstudiantesIntervencionPorAulas(
+          supabase,
+          fcpIdParaReporte,
+          aulaIdsArr
+        )
+        if (soloAulasIds && soloAulasIds.length > 0) {
+          const permitidas = new Set(soloAulasIds)
+          estudiantesData = estudiantesData.filter((e) => e.aula_id && permitidas.has(e.aula_id))
+        }
+        console.log('📊 [ReporteMensual] Estudiantes intervención:', {
+          total: estudiantesData.length,
+        })
+      } else if (esMesAnterior) {
         // Para meses anteriores, obtener estudiantes únicos de las asistencias
         const estudiantesMap = new Map<string, any>()
         asistenciasDelMes.forEach((asist: any) => {
@@ -408,31 +424,6 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
         console.log('📊 [ReporteMensual] Estudiantes cargados de mes anterior (basados en asistencias):', {
           total: estudiantesData.length
         })
-      } else if (tipoAula === 'INTERVENTION') {
-        const aulaIdsArr = [...aulaIdsTipo]
-        if (aulaIdsArr.length === 0) {
-          estudiantesData = []
-        } else {
-          const { data: inscripciones, error: inscErr } = await supabase
-            .from('intervencion_estudiantes')
-            .select('estudiante_id, aula_id, estudiante:estudiantes(id, aula_id, created_at)')
-            .eq('fcp_id', fcpIdParaReporte)
-            .eq('activo', true)
-            .in('aula_id', aulaIdsArr)
-          if (inscErr) throw inscErr
-          estudiantesData = (inscripciones || []).map((row: { estudiante_id: string; aula_id: string; estudiante: unknown }) => {
-            const est = Array.isArray(row.estudiante) ? row.estudiante[0] : row.estudiante
-            return {
-              id: row.estudiante_id,
-              aula_id: row.aula_id,
-              created_at: (est as { created_at?: string })?.created_at,
-            }
-          })
-        }
-        if (soloAulasIds && soloAulasIds.length > 0) {
-          const permitidas = new Set(soloAulasIds)
-          estudiantesData = estudiantesData.filter((e: { aula_id?: string }) => e.aula_id && permitidas.has(e.aula_id))
-        }
       } else {
         // Para meses actuales/futuros, cargar todos los estudiantes activos de la FCP
         const { data: estudiantesDataQuery, error: estudiantesError } = await supabase
@@ -462,8 +453,8 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
       // Obtener aulas según el mes consultado
       let aulasData: any[] = []
 
-      if (esMesAnterior) {
-        // Para meses anteriores, obtener aulas únicas de las asistencias
+      if (esMesAnterior && !esIntervencion) {
+        // Para meses anteriores (regulares), obtener aulas únicas de las asistencias
         // Usar aula_id de la asistencia con fallback al del estudiante
         const aulasMap = new Map<string, any>()
         asistenciasDelMes.forEach((asist: any) => {
@@ -537,7 +528,7 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
 
       // Para meses anteriores: usar RPC (SECURITY DEFINER) para evitar problemas de RLS con facilitadores
       const totalPorAulaYFecha = new Map<string, number>() // key: `${aulaId}|${fechaStr}` -> total
-      if (esMesAnterior && aulaIds.length > 0) {
+      if (esMesAnterior && !esIntervencion && aulaIds.length > 0) {
         const { data: rpcData } = await supabase.rpc('contar_estudiantes_por_aula_fecha', {
           p_aula_ids: aulaIds,
           p_fecha_inicio: fechaInicioStr,
@@ -551,7 +542,7 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
 
       // Días incompletos: usar RPC en BD (única fuente de verdad, evita falsos positivos)
       const diasIncompletosGlobales: DiaIncompleto[] = []
-      if (aulaIds.length > 0 && fcpIdParaReporte) {
+      if (aulaIds.length > 0 && fcpIdParaReporte && !esIntervencion) {
         const { data: rpcDiasIncompletos } = await supabase.rpc('dias_incompletos_por_aula', {
           p_aula_ids: aulaIds,
           p_fecha_inicio: fechaInicioStr,
@@ -574,7 +565,7 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
       }
 
       const estudiantesActivosPorAulaMensual =
-        esMesAnterior && aulaIds.length > 0
+        esMesAnterior && !esIntervencion && aulaIds.length > 0
           ? await fetchEstudiantesActivosPorAulas(
               supabase,
               aulaIds,
@@ -595,7 +586,10 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
         let estudiantesAula: any[] = []
         let estudiantesAulaIds = new Set<string>()
         
-        if (esMesAnterior) {
+        if (esIntervencion) {
+          estudiantesAula = estudiantesData?.filter((e) => e.aula_id === aula.id) || []
+          estudiantesAulaIds = new Set(estudiantesAula.map((e) => e.id))
+        } else if (esMesAnterior) {
           const ids = estudiantesActivosPorAulaMensual?.get(aula.id) || []
           estudiantesAulaIds = new Set(ids)
           estudiantesAula = ids.map((id) => ({ id }))
@@ -610,6 +604,7 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
         const asistenciasPorFecha = new Map<string, Set<string>>()
         asistenciasDelMes.forEach((asistencia: any) => {
           if (!estudiantesAulaIds.has(asistencia.estudiante_id)) return
+          if (esIntervencion && asistencia.aula_id !== aula.id) return
           const fecha = asistencia.fecha
           if (!asistenciasPorFecha.has(fecha)) asistenciasPorFecha.set(fecha, new Set())
           asistenciasPorFecha.get(fecha)!.add(asistencia.estudiante_id)
@@ -636,10 +631,10 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
         let oportunidadesAulaSum = 0 // Suma de registradosEnFecha por cada día completo (cuando usamos períodos)
         const todasAsistenciasPorEstudianteFecha: { [key: string]: string } = {}
         asistenciasDelMes.forEach((asistencia: any) => {
-          if (estudiantesAulaIds.has(asistencia.estudiante_id)) {
-            const key = `${asistencia.estudiante_id}-${asistencia.fecha}`
-            todasAsistenciasPorEstudianteFecha[key] = asistencia.estado
-          }
+          if (!estudiantesAulaIds.has(asistencia.estudiante_id)) return
+          if (esIntervencion && asistencia.aula_id !== aula.id) return
+          const key = `${asistencia.estudiante_id}-${asistencia.fecha}`
+          todasAsistenciasPorEstudianteFecha[key] = asistencia.estado
         })
 
         // Verificar cada fecha del mes para detectar días incompletos
@@ -656,7 +651,9 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
           
           // Para meses anteriores: usar estudiante_periodos para el total correcto por fecha
           // (solo estudiantes que debían estar en el aula ESA fecha). Si no hay períodos, fallback a estudiantesAula.length
-          const registradosEnFecha = esMesAnterior && totalPorAulaYFecha.size > 0
+          const registradosEnFecha = esIntervencion
+            ? estudiantesAula.length
+            : esMesAnterior && totalPorAulaYFecha.size > 0
             ? (totalPorAulaYFecha.get(`${aula.id}|${fechaStr}`) ?? estudiantesAula.length)
             : estudiantesAula.length
           
@@ -699,9 +696,9 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
           : 0
 
         // Calcular porcentaje: con períodos usamos suma por día; si no, diasDeClases × registrados
-        const oportunidadesAsistencia = esMesAnterior && totalPorAulaYFecha.size > 0
-          ? oportunidadesAulaSum
-          : diasDeClases * registrados
+        const oportunidadesAsistencia = esIntervencion || !(esMesAnterior && totalPorAulaYFecha.size > 0)
+          ? diasDeClases * registrados
+          : oportunidadesAulaSum
         const porcentaje = oportunidadesAsistencia > 0 ? (totalAsistenciasPresente / oportunidadesAsistencia) * 100 : 0
 
         niveles.push({

@@ -74,6 +74,24 @@ interface ReporteData {
   diasIncompletos: DiaIncompleto[] // Días que no se completaron
 }
 
+function esMesFuturoDelReporte(year: number, mesIndex: number): boolean {
+  const hoy = new Date()
+  const añoActual = hoy.getFullYear()
+  const mesActual = hoy.getMonth()
+  return year > añoActual || (year === añoActual && mesIndex > mesActual)
+}
+
+function formatearCeldaPorcentajeMes(
+  year: number,
+  mesIndex: number,
+  valor: number | undefined,
+  decimales = 2
+): string {
+  if (esMesFuturoDelReporte(year, mesIndex)) return '-'
+  if (typeof valor !== 'number' || Number.isNaN(valor)) return '-'
+  return `${valor.toFixed(decimales)}%`
+}
+
 export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticipantesPorMesProps) {
   const searchParams = useSearchParams()
   const autoGenerate = searchParams.get('auto') === 'true'
@@ -256,14 +274,17 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
 
       // Para cada FCP, calcular porcentaje total por mes (igual que ReporteMensual)
       for (const fcp of fcpsAConsultar) {
-        // Obtener todas las aulas de la FCP
+        // Solo aulas regulares (excluir intervenciones del reporte por FCP)
         const { data: aulasData, error: aulasError } = await supabase
           .from('aulas')
-          .select('id, nombre')
+          .select('id, nombre, tipo')
           .eq('fcp_id', fcp.id)
           .eq('activa', true)
+          .or('tipo.eq.REGULAR,tipo.is.null')
 
         if (aulasError) throw aulasError
+
+        const regularAulaIds = new Set((aulasData || []).map((a: { id: string }) => a.id))
 
         // Obtener TODAS las asistencias del año para esta FCP (fecha local)
         const fechaInicio = new Date(selectedYear, 0, 1)
@@ -271,7 +292,10 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
         const fechaInicioStr = toLocalDateString(fechaInicio)
         const fechaFinStr = toLocalDateString(fechaFin)
 
-        const flatAnio = await fetchAsistenciasRangoFlat(supabase, fcp.id, fechaInicioStr, fechaFinStr)
+        const flatAnioRaw = await fetchAsistenciasRangoFlat(supabase, fcp.id, fechaInicioStr, fechaFinStr)
+        const flatAnio = flatAnioRaw.filter(
+          (r) => r.aula_id && regularAulaIds.has(r.aula_id)
+        )
         const idsEstAnio = [...new Set(flatAnio.map((r) => r.estudiante_id))]
         const idsAulAnio = [...new Set(flatAnio.map((r) => r.aula_id).filter(Boolean))] as string[]
         const [estMapAnio, aulMapAnio] = await Promise.all([
@@ -629,9 +653,7 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
         fcp.codigo,
         fcp.nombre,
         ...monthNames.map((_, index) =>
-          fcp.porcentajesPorMes[index]
-            ? fcp.porcentajesPorMes[index].toFixed(2) + '%'
-            : '-'
+          formatearCeldaPorcentajeMes(reporteData.year, index, fcp.porcentajesPorMes[index])
         ),
       ])
 
@@ -640,9 +662,7 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
         'Total General',
         '',
         ...monthNames.map((_, index) =>
-          reporteData.totalesPorMes[index]
-            ? reporteData.totalesPorMes[index].toFixed(2) + '%'
-            : '-'
+          formatearCeldaPorcentajeMes(reporteData.year, index, reporteData.totalesPorMes[index])
         ),
       ]
 
@@ -791,9 +811,7 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
         fcp.codigo,
         fcp.nombre,
         ...monthNames.map((_, index) =>
-          fcp.porcentajesPorMes[index]
-            ? fcp.porcentajesPorMes[index].toFixed(2) + '%'
-            : '-'
+          formatearCeldaPorcentajeMes(reporteData.year, index, fcp.porcentajesPorMes[index])
         ),
       ])
 
@@ -802,9 +820,7 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
         'Total General',
         '',
         ...monthNames.map((_, index) =>
-          reporteData.totalesPorMes[index]
-            ? reporteData.totalesPorMes[index].toFixed(2) + '%'
-            : '-'
+          formatearCeldaPorcentajeMes(reporteData.year, index, reporteData.totalesPorMes[index])
         ),
       ]
       body.push(totalRow)
@@ -1121,7 +1137,14 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
                                   {[0,1,2,3,4,5,6,7,8,9,10,11].map((mesIndex) => (
                                     <div key={mesIndex} className="text-center py-1 rounded text-xs bg-muted">
                                       <span className="block font-medium">{monthNamesShort[mesIndex]}</span>
-                                      <span>{fcp.porcentajesPorMes[mesIndex] != null ? fcp.porcentajesPorMes[mesIndex].toFixed(1) + '%' : '-'}</span>
+                                      <span>
+                                        {formatearCeldaPorcentajeMes(
+                                          reporteData.year,
+                                          mesIndex,
+                                          fcp.porcentajesPorMes[mesIndex],
+                                          1
+                                        )}
+                                      </span>
                                     </div>
                                   ))}
                                 </div>
@@ -1185,9 +1208,11 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
                           key={mesIndex}
                           className="border border-border p-2 text-center text-foreground"
                         >
-                          {fcp.porcentajesPorMes[mesIndex]
-                            ? `${fcp.porcentajesPorMes[mesIndex].toFixed(2)}%`
-                            : '-'}
+                          {formatearCeldaPorcentajeMes(
+                            reporteData.year,
+                            mesIndex,
+                            fcp.porcentajesPorMes[mesIndex]
+                          )}
                         </td>
                       ))}
                     </tr>
@@ -1202,9 +1227,11 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
                         key={mesIndex}
                         className="border border-border p-2 text-center text-foreground"
                       >
-                        {reporteData.totalesPorMes[mesIndex]
-                          ? `${reporteData.totalesPorMes[mesIndex].toFixed(2)}%`
-                          : '-'}
+                        {formatearCeldaPorcentajeMes(
+                          reporteData.year,
+                          mesIndex,
+                          reporteData.totalesPorMes[mesIndex]
+                        )}
                       </td>
                     ))}
                   </tr>
