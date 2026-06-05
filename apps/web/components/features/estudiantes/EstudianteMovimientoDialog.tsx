@@ -23,6 +23,7 @@ import {
 import { ArrowRight, AlertCircle } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { getCurrentMonthYearInAppTimezone, getMonthRangeInAppTimezone } from '@/lib/utils/dateUtils'
+import { SucursalTag } from '@/lib/utils/aulaSucursal'
 
 interface Estudiante {
   id: string
@@ -38,7 +39,7 @@ interface EstudianteMovimientoDialogProps {
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
   estudiante: Estudiante | null
-  aulas: Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null }>
+  aulas: Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null; sucursalNombre?: string; esPrincipal?: boolean }>
 }
 
 export function EstudianteMovimientoDialog({
@@ -205,6 +206,7 @@ export function EstudianteMovimientoDialog({
                     <SelectItem key={aula.id} value={aula.id}>
                       {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
                       {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
+                      <SucursalTag sucursalNombre={aula.sucursalNombre} esPrincipal={aula.esPrincipal} />
                     </SelectItem>
                   ))}
                 </SelectContent>

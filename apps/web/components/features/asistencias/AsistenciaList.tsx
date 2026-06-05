@@ -39,6 +39,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Building2 } from 'lucide-react'
+import { SUCURSAL_SELECT, extraerSucursal, SucursalTag } from '@/lib/utils/aulaSucursal'
 
 /** Salón tal como quedó registrado en la asistencia (snapshot), con respaldo al aula actual del estudiante. */
 function etiquetaAulaAsistencia(a: Asistencia): string {
@@ -79,7 +80,7 @@ export function AsistenciaList() {
   const [selectedDate, setSelectedDate] = useState<string>(() => getTodayInAppTimezone())
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string }>>([])
   const [loadingFCPs, setLoadingFCPs] = useState(true)
-  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null }>>([])
+  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null; sucursalNombre?: string; esPrincipal?: boolean }>>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [isMobile, setIsMobile] = useState(false)
@@ -180,13 +181,13 @@ export function AsistenciaList() {
       const supabase = createClient()
       const { data, error } = await supabase
         .from('aulas')
-        .select('id, nombre, codigo_aula')
+        .select(`id, nombre, codigo_aula, ${SUCURSAL_SELECT}`)
         .eq('fcp_id', selectedFCP)
         .eq('activa', true)
         .order('nombre', { ascending: true })
 
       if (error) throw error
-      const baseAulas = data || []
+      const baseAulas = (data || []).map((a: any) => ({ ...a, ...extraerSucursal(a) }))
 
       if (baseAulas.length === 0) {
         setAulas([])
@@ -221,7 +222,7 @@ export function AsistenciaList() {
       }
 
       setAulas(
-        baseAulas.map((aula: { id: string; nombre: string }) => ({
+        baseAulas.map((aula: any) => ({
           ...aula,
           tutor_display: tutoresMap.get(aula.id) ?? null,
         })),
@@ -410,7 +411,8 @@ export function AsistenciaList() {
                     const aula = aulas.find(a => a.id === selectedAula)
                     if (!aula) return 'Todas las aulas'
                     const base = `${aula.nombre} | ${aula.tutor_display || 'Sin tutor'}`
-                    return aula.codigo_aula ? `${base} | ${aula.codigo_aula}` : base
+                    const sucursal = !aula.esPrincipal && aula.sucursalNombre ? ` · ${aula.sucursalNombre}` : ''
+                    return (aula.codigo_aula ? `${base} | ${aula.codigo_aula}` : base) + sucursal
                   })() : 'Todas las aulas'}
                 </SelectValue>
               </SelectTrigger>
@@ -420,6 +422,7 @@ export function AsistenciaList() {
                 <SelectItem key={aula.id} value={aula.id}>
                   {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
                   {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
+                  <SucursalTag sucursalNombre={aula.sucursalNombre} esPrincipal={aula.esPrincipal} />
                 </SelectItem>
             ))}
             </SelectContent>

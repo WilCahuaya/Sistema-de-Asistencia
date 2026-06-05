@@ -27,6 +27,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { useUserRole } from '@/hooks/useUserRole'
 import { AulaDialog } from '@/components/features/aulas/AulaDialog'
 import { Plus } from 'lucide-react'
+import { SUCURSAL_SELECT, extraerSucursal, SucursalTag } from '@/lib/utils/aulaSucursal'
 
 interface MiembroFormData {
   email: string
@@ -50,7 +51,7 @@ export function MiembroAddDialog({
 }: MiembroAddDialogProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
+  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string; sucursalNombre?: string; esPrincipal?: boolean }>>([])
   const [selectedAulas, setSelectedAulas] = useState<string[]>([])
   const [fcpNombre, setFcpNombre] = useState<string>('')
   const [isAulaDialogOpen, setIsAulaDialogOpen] = useState(false)
@@ -120,7 +121,7 @@ export function MiembroAddDialog({
       // 1. Obtener todas las aulas de la FCP
       const { data: todasLasAulas, error: aulasError } = await supabase
         .from('aulas')
-        .select('id, nombre')
+        .select(`id, nombre, ${SUCURSAL_SELECT}`)
         .eq('fcp_id', fcpId)
         .eq('activa', true)
         .order('nombre')
@@ -140,7 +141,9 @@ export function MiembroAddDialog({
 
       // 3. Filtrar solo las aulas sin tutor asignado
       const aulasIdsConTutor = new Set(aulasConTutor?.map(ta => ta.aula_id) || [])
-      const aulasSinTutor = (todasLasAulas || []).filter(aula => !aulasIdsConTutor.has(aula.id))
+      const aulasSinTutor = (todasLasAulas || [])
+        .filter((aula: any) => !aulasIdsConTutor.has(aula.id))
+        .map((aula: any) => ({ id: aula.id, nombre: aula.nombre, ...extraerSucursal(aula) }))
 
       setAulas(aulasSinTutor)
     } catch (err) {
@@ -643,9 +646,10 @@ export function MiembroAddDialog({
                         />
                         <label
                           htmlFor={`aula-${aula.id}`}
-                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer inline-flex items-center"
                         >
                           {aula.nombre}
+                          <SucursalTag sucursalNombre={aula.sucursalNombre} esPrincipal={aula.esPrincipal} />
                         </label>
                       </div>
                     ))}

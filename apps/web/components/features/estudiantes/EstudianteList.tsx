@@ -46,6 +46,7 @@ import { Label } from '@/components/ui/label'
 import { Building2 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { sortByNombreCompleto } from '@/lib/utils/sortEstudiantes'
+import { SUCURSAL_SELECT, extraerSucursal, SucursalTag } from '@/lib/utils/aulaSucursal'
 
 interface Estudiante {
   id: string
@@ -81,7 +82,7 @@ export function EstudianteList() {
   const [selectedAula, setSelectedAula] = useState<string | null>(null)
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
   const [loadingFCPs, setLoadingFCPs] = useState(true)
-  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null }>>([])
+  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null; sucursalNombre?: string; esPrincipal?: boolean }>>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [includeInactivos, setIncludeInactivos] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
@@ -433,7 +434,7 @@ export function EstudianteList() {
             .select(`
               aula_id,
               fcp_id,
-              aula:aulas!inner(id, nombre, activa, fcp_id, codigo_aula),
+              aula:aulas!inner(id, nombre, activa, fcp_id, codigo_aula, ${SUCURSAL_SELECT}),
               fcp_miembro:fcp_miembros(nombre_display, email_pendiente, usuario:usuarios(nombre_completo, email))
             `)
             .in('fcp_miembro_id', tutorMiembroIds)
@@ -498,7 +499,7 @@ export function EstudianteList() {
         
         const { data: aulasData, error: aulasError } = await supabase
           .from('aulas')
-          .select('id, nombre, codigo_aula')
+          .select(`id, nombre, codigo_aula, ${SUCURSAL_SELECT}`)
           .eq('fcp_id', fcpIdToUse)
           .eq('activa', true)
           .order('nombre', { ascending: true })
@@ -517,7 +518,10 @@ export function EstudianteList() {
         console.error('❌ [EstudianteList] Error cargando aulas:', error)
         throw error
       }
-      
+
+      // Normalizar los datos de sucursal (nombre + si es la predeterminada)
+      data = (data || []).map((a: any) => ({ ...a, ...extraerSucursal(a) }))
+
       // Si hay aulas, cargar los tutores para enriquecer el listado
       if (data && data.length > 0 && !isTutorState) {
         const aulaIds = data.map((a: any) => a.id)
@@ -987,9 +991,10 @@ export function EstudianteList() {
                     const aula = aulas.find(a => a.id === selectedAula)
                     if (!aula) return 'Todas las aulas'
                     const tutor = aula.tutor_display || 'Sin tutor'
+                    const sucursal = !aula.esPrincipal && aula.sucursalNombre ? ` · ${aula.sucursalNombre}` : ''
                     return aula.codigo_aula
-                      ? `${aula.nombre} | ${tutor} | ${aula.codigo_aula}`
-                      : `${aula.nombre} | ${tutor}`
+                      ? `${aula.nombre} | ${tutor} | ${aula.codigo_aula}${sucursal}`
+                      : `${aula.nombre} | ${tutor}${sucursal}`
                   })() : 'Todas las aulas'}
                 </SelectValue>
               </SelectTrigger>
@@ -999,6 +1004,7 @@ export function EstudianteList() {
                   <SelectItem key={aula.id} value={aula.id}>
                     {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
                     {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
+                    <SucursalTag sucursalNombre={aula.sucursalNombre} esPrincipal={aula.esPrincipal} />
                   </SelectItem>
               ))}
               </SelectContent>

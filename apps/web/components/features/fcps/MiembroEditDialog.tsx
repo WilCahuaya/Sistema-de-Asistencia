@@ -26,6 +26,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { useUserRole } from '@/hooks/useUserRole'
 import { AulaDialog } from '@/components/features/aulas/AulaDialog'
 import { Plus } from 'lucide-react'
+import { SUCURSAL_SELECT, extraerSucursal, SucursalTag } from '@/lib/utils/aulaSucursal'
 
 interface Miembro {
   id: string
@@ -60,7 +61,7 @@ export function MiembroEditDialog({
   const [rol, setRol] = useState<Miembro['rol']>(miembro.rol)
   const [activo, setActivo] = useState(miembro.activo)
   const [nombreDisplay, setNombreDisplay] = useState(miembro.nombre_display ?? '')
-  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string }>>([])
+  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string; sucursalNombre?: string; esPrincipal?: boolean }>>([])
   const [selectedAulas, setSelectedAulas] = useState<string[]>([])
   const [loadingAulas, setLoadingAulas] = useState(false)
   const [isAulaDialogOpen, setIsAulaDialogOpen] = useState(false)
@@ -272,7 +273,7 @@ export function MiembroEditDialog({
       // 1. Obtener todas las aulas de la FCP
       const { data: todasLasAulas, error: aulasError } = await supabase
         .from('aulas')
-        .select('id, nombre')
+        .select(`id, nombre, ${SUCURSAL_SELECT}`)
         .eq('fcp_id', miembro.fcp_id)
         .eq('activa', true)
         .order('nombre')
@@ -317,9 +318,9 @@ export function MiembroEditDialog({
           .map(ta => ta.aula_id)
       )
       
-      const aulasDisponibles = (todasLasAulas || []).filter(
-        aula => !aulasIdsConOtroTutor.has(aula.id)
-      )
+      const aulasDisponibles = (todasLasAulas || [])
+        .filter((aula: any) => !aulasIdsConOtroTutor.has(aula.id))
+        .map((aula: any) => ({ id: aula.id, nombre: aula.nombre, ...extraerSucursal(aula) }))
 
       setAulas(aulasDisponibles)
     } catch (err) {
@@ -1214,9 +1215,10 @@ export function MiembroEditDialog({
                       />
                       <label
                         htmlFor={`aula-${aula.id}`}
-                        className={`text-sm font-medium leading-none ${!activo ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                        className={`text-sm font-medium leading-none inline-flex items-center ${!activo ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
                       >
                         {aula.nombre}
+                        <SucursalTag sucursalNombre={aula.sucursalNombre} esPrincipal={aula.esPrincipal} />
                       </label>
                     </div>
                   ))}

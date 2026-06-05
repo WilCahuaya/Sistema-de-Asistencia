@@ -22,6 +22,7 @@ import {
 import { UserCheck } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { getCurrentMonthYearInAppTimezone, getMonthRangeInAppTimezone } from '@/lib/utils/dateUtils'
+import { SucursalTag } from '@/lib/utils/aulaSucursal'
 
 interface Estudiante {
   id: string
@@ -38,7 +39,7 @@ interface EstudianteReactivarDialogProps {
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
   estudiante: Estudiante | null
-  aulas: Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null }>
+  aulas: Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null; sucursalNombre?: string; esPrincipal?: boolean }>
 }
 
 export function EstudianteReactivarDialog({
@@ -61,7 +62,7 @@ export function EstudianteReactivarDialog({
     if (!estudiante) return
 
     if (!selectedAulaId) {
-      toast.warning('Salón', 'Selecciona el salón donde será reactivado.')
+      toast.warning('Sal?n', 'Selecciona el sal?n donde ser? reactivado.')
       return
     }
 
@@ -70,7 +71,7 @@ export function EstudianteReactivarDialog({
 
       const authResult = await ensureAuthenticated()
       if (!authResult || !authResult.user) {
-        toast.error('Sesión expirada', 'Por favor, inicia sesión nuevamente.')
+        toast.error('Sesi?n expirada', 'Por favor, inicia sesi?n nuevamente.')
         setLoading(false)
         return
       }
@@ -91,7 +92,7 @@ export function EstudianteReactivarDialog({
 
       if (error) throw error
 
-      toast.success('Estudiante reactivado', 'Aparecerá en el salón desde este mes.')
+      toast.success('Estudiante reactivado', 'Aparecer? en el sal?n desde este mes.')
       onSuccess()
       onOpenChange(false)
     } catch (error: any) {
@@ -112,9 +113,9 @@ export function EstudianteReactivarDialog({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Reactivar en Salón</DialogTitle>
+          <DialogTitle>Reactivar en Sal?n</DialogTitle>
           <DialogDescription>
-            Crea un nuevo período para este mes. El historial anterior no se modifica.
+            Crea un nuevo per?odo para este mes. El historial anterior no se modifica.
           </DialogDescription>
         </DialogHeader>
 
@@ -128,16 +129,16 @@ export function EstudianteReactivarDialog({
           </div>
 
           <div>
-            <Label htmlFor="aula_reactivar">Salón: *</Label>
+            <Label htmlFor="aula_reactivar">Sal?n: *</Label>
             <Select value={selectedAulaId} onValueChange={setSelectedAulaId}>
               <SelectTrigger id="aula_reactivar" className="w-full">
-                <SelectValue placeholder="Selecciona salón">
+                <SelectValue placeholder="Selecciona sal?n">
                   {selectedAulaId ? (() => {
                     const aula = aulas.find(a => a.id === selectedAulaId)
-                    if (!aula) return 'Selecciona salón'
+                    if (!aula) return 'Selecciona sal?n'
                     const base = `${aula.nombre} | ${aula.tutor_display || 'Sin tutor'}`
                     return aula.codigo_aula ? `${base} | ${aula.codigo_aula}` : base
-                  })() : 'Selecciona salón'}
+                  })() : 'Selecciona sal?n'}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -145,6 +146,7 @@ export function EstudianteReactivarDialog({
                   <SelectItem key={aula.id} value={aula.id}>
                     {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
                     {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
+                    <SucursalTag sucursalNombre={aula.sucursalNombre} esPrincipal={aula.esPrincipal} />
                   </SelectItem>
                 ))}
               </SelectContent>

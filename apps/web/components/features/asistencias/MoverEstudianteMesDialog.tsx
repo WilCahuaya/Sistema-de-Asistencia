@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select'
 import { ArrowRight } from 'lucide-react'
 import { toast } from '@/lib/toast'
+import { SucursalTag } from '@/lib/utils/aulaSucursal'
 
 interface Estudiante {
   id: string
@@ -36,7 +37,7 @@ interface MoverEstudianteMesDialogProps {
   fcpId: string
   aulaOrigenId: string
   aulaOrigenNombre: string
-  aulas: Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null }>
+  aulas: Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null; sucursalNombre?: string; esPrincipal?: boolean }>
   firstDay: string
   lastDay: string
   mesLabel: string
@@ -206,6 +207,7 @@ export function MoverEstudianteMesDialog({
                   <SelectItem key={a.id} value={a.id}>
                     {a.nombre} | {a.tutor_display || 'Sin tutor'}
                     {a.codigo_aula ? ` | ${a.codigo_aula}` : ''}
+                    <SucursalTag sucursalNombre={a.sucursalNombre} esPrincipal={a.esPrincipal} />
                   </SelectItem>
                 ))}
               </SelectContent>

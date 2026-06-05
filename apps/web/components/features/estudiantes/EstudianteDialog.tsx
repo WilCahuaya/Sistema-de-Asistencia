@@ -23,6 +23,7 @@ import {
 import { useForm } from 'react-hook-form'
 import { toast } from '@/lib/toast'
 import { getCurrentMonthYearInAppTimezone, getMonthRangeInAppTimezone } from '@/lib/utils/dateUtils'
+import { SucursalTag } from '@/lib/utils/aulaSucursal'
 
 interface EstudianteFormData {
   codigo: string
@@ -35,7 +36,7 @@ interface EstudianteDialogProps {
   onSuccess: () => void
   fcpId: string
   aulaId?: string
-  aulas: Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null }>
+  aulas: Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null; sucursalNombre?: string; esPrincipal?: boolean }>
 }
 
 export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId, aulas }: EstudianteDialogProps) {
@@ -176,6 +177,7 @@ export function EstudianteDialog({ open, onOpenChange, onSuccess, fcpId, aulaId,
                     <SelectItem key={aula.id} value={aula.id}>
                       {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
                       {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
+                      <SucursalTag sucursalNombre={aula.sucursalNombre} esPrincipal={aula.esPrincipal} />
                     </SelectItem>
                   ))}
                 </SelectContent>

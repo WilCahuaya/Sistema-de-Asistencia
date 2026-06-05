@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/select'
 import { ArrowRight, AlertCircle, Users } from 'lucide-react'
 import { toast } from '@/lib/toast'
+import { SucursalTag } from '@/lib/utils/aulaSucursal'
 
 interface Estudiante {
   id: string
@@ -35,7 +36,7 @@ interface EstudianteMovimientoMasivoDialogProps {
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
   estudiantes: Estudiante[]
-  aulas: Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null }>
+  aulas: Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null; sucursalNombre?: string; esPrincipal?: boolean }>
 }
 
 export function EstudianteMovimientoMasivoDialog({
@@ -162,6 +163,7 @@ export function EstudianteMovimientoMasivoDialog({
                     <SelectItem key={aula.id} value={aula.id}>
                       {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
                       {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
+                      <SucursalTag sucursalNombre={aula.sucursalNombre} esPrincipal={aula.esPrincipal} />
                     </SelectItem>
                   ))}
                 </SelectContent>
