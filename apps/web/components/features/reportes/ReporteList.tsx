@@ -45,6 +45,12 @@ import {
   fetchEstudiantesActivosPorAulas,
   fetchEstudiantesMapByIds,
 } from '@/lib/reportes/asistenciasReporteQueries'
+import type { AulaTipo } from '@/lib/utils/aulaIntervencion'
+import { fetchAulaIdsPorTipo } from '@/lib/utils/aulaIntervencion'
+
+interface ReporteListProps {
+  tipoAula?: AulaTipo
+}
 
 interface ReporteData {
   fcp: {
@@ -105,7 +111,7 @@ interface DiaIncompleto {
   total: number
 }
 
-export function ReporteList() {
+export function ReporteList({ tipoAula = 'REGULAR' }: ReporteListProps) {
   const [loading, setLoading] = useState(false)
   const [fechaInicio, setFechaInicio] = useState<string>('')
   const [fechaFin, setFechaFin] = useState<string>('')
@@ -421,6 +427,8 @@ export function ReporteList() {
         throw fcpError
       }
 
+      const aulaIdsTipo = await fetchAulaIdsPorTipo(supabase, fcpIdAUsar, tipoAula)
+
       // Determinar si estamos consultando un mes anterior
       const fechaActual = new Date()
       const mesActual = new Date(fechaActual.getFullYear(), fechaActual.getMonth(), 1)
@@ -434,12 +442,12 @@ export function ReporteList() {
       })
 
       // Asistencias sin joins anidados (PostgREST repite estudiante/aula por fila → muy lento).
-      const flatAsist = await fetchAsistenciasRangoFlat(
+      const flatAsist = (await fetchAsistenciasRangoFlat(
         supabase,
         fcpIdAUsar,
         fechaInicioStr,
         fechaFinStr
-      )
+      )).filter((r) => r.aula_id && aulaIdsTipo.has(r.aula_id))
       const idsEst = [...new Set(flatAsist.map((r) => r.estudiante_id))]
       const idsAul = [...new Set(flatAsist.map((r) => r.aula_id).filter(Boolean))] as string[]
       const [estMap, aulMap] = await Promise.all([
@@ -475,6 +483,34 @@ export function ReporteList() {
           total: estudiantesData.length,
           muestra: estudiantesData.slice(0, 3).map(e => ({ nombre: e.nombre_completo, aula: e.aula?.nombre }))
         })
+      } else if (tipoAula === 'INTERVENTION') {
+        const aulaIdsArr = [...aulaIdsTipo]
+        if (aulaIdsArr.length === 0) {
+          estudiantesData = []
+        } else {
+          const { data: inscripciones, error: inscErr } = await supabase
+            .from('intervencion_estudiantes')
+            .select(`
+              estudiante:estudiantes(
+                id, codigo, nombre_completo, aula_id, created_at,
+                aula:aulas(id, nombre)
+              )
+            `)
+            .eq('fcp_id', fcpIdAUsar)
+            .eq('activo', true)
+            .in('aula_id', aulaIdsArr)
+          if (inscErr) throw inscErr
+          const seen = new Set<string>()
+          estudiantesData = (inscripciones || [])
+            .map((row: { estudiante: unknown }) =>
+              Array.isArray(row.estudiante) ? row.estudiante[0] : row.estudiante
+            )
+            .filter((e: { id?: string } | null | undefined): e is NonNullable<typeof e> => {
+              if (!e?.id || seen.has(e.id)) return false
+              seen.add(e.id)
+              return true
+            })
+        }
       } else {
         // Para meses actuales/futuros, cargar todos los estudiantes activos de la FCP
         const { data: estudiantesDataQuery, error: estudiantesError } = await supabase
@@ -495,7 +531,9 @@ export function ReporteList() {
           throw estudiantesError
         }
 
-        estudiantesData = estudiantesDataQuery || []
+        estudiantesData = (estudiantesDataQuery || []).filter(
+          (e: { aula_id?: string }) => e.aula_id && aulaIdsTipo.has(e.aula_id)
+        )
         
         console.log('📊 [ReporteList] Estudiantes cargados (mes actual/futuro):', {
           total: estudiantesData.length

@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Upload, FileSpreadsheet, CheckCircle2, Download } from 'lucide-react'
 import { toast } from '@/lib/toast'
 
 interface EstudianteIntervencionUploadDialogProps {
@@ -49,6 +49,23 @@ export function EstudianteIntervencionUploadDialog({
   const reset = () => {
     setResumen(null)
     if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const descargarPlantilla = () => {
+    const codigoDestino = aulaCodigo || 'INT-01'
+    const headerData = [
+      ['codigo', 'codigo_aula'],
+      ['Código del estudiante (obligatorio)', 'Código de la intervención (ej. INT-01)'],
+    ]
+    const ejemplo = [
+      ['EST001', codigoDestino],
+      ['EST002', codigoDestino],
+    ]
+    const worksheet = XLSX.utils.aoa_to_sheet([...headerData, ...ejemplo])
+    worksheet['!cols'] = [{ wch: 18 }, { wch: 14 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, worksheet, 'Intervencion')
+    XLSX.writeFile(wb, `plantilla_intervencion_${codigoDestino}.xlsx`)
   }
 
   const procesarArchivo = async (file: File) => {
@@ -199,15 +216,27 @@ export function EstudianteIntervencionUploadDialog({
         />
 
         {!resumen ? (
-          <div className="flex flex-col items-center gap-4 py-6 border-2 border-dashed rounded-lg">
-            <Upload className="h-10 w-10 text-muted-foreground" />
-            <Button
-              variant="outline"
-              disabled={loading}
-              onClick={() => fileRef.current?.click()}
-            >
-              {loading ? 'Procesando...' : 'Seleccionar Excel'}
-            </Button>
+          <div className="space-y-4">
+            <div className="flex flex-col items-center gap-4 py-6 border-2 border-dashed rounded-lg">
+              <Upload className="h-10 w-10 text-muted-foreground" />
+              <Button
+                variant="outline"
+                disabled={loading}
+                onClick={() => fileRef.current?.click()}
+              >
+                {loading ? 'Procesando...' : 'Seleccionar Excel'}
+              </Button>
+            </div>
+            <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+              <p className="text-muted-foreground mb-2">
+                ¿No tienes el formato? Descarga la plantilla de ejemplo con las columnas{' '}
+                <strong>codigo</strong> y <strong>codigo_aula</strong>.
+              </p>
+              <Button type="button" variant="secondary" size="sm" onClick={descargarPlantilla}>
+                <Download className="mr-2 h-4 w-4" />
+                Descargar plantilla Excel
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="space-y-3 text-sm">

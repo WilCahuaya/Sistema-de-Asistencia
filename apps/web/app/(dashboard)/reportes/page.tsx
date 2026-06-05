@@ -7,11 +7,14 @@ import { ReporteMensual } from '@/components/features/reportes/ReporteMensual'
 import { ReporteParticipantesPorMes } from '@/components/features/reportes/ReporteParticipantesPorMes'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { SegmentedControl } from '@/components/ui/segmented-control'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useSearchParams } from 'next/navigation'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
 import { BarChart3 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import type { AulaTipo } from '@/lib/utils/aulaIntervencion'
+import { SEGMENT_AULA_TIPO } from '@/lib/utils/aulaIntervencion'
 
 function ReportesPageContent() {
   const searchParams = useSearchParams()
@@ -25,6 +28,7 @@ function ReportesPageContent() {
     viewParam === 'mensual' ? 'mensual' :
     'general'
   )
+  const [tipoAula, setTipoAula] = useState<AulaTipo>('REGULAR')
   
   const { isFacilitador, isDirector, isSecretario, isTutor } = useUserRole(fcpIdParaReporte || null)
   const [tutorAulaIds, setTutorAulaIds] = useState<string[] | null>(null)
@@ -113,32 +117,41 @@ function ReportesPageContent() {
         <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Reportes</h1>
       </div>
       
-      <div className="mb-4 sm:mb-6 flex flex-wrap gap-2">
-        <Button
-          variant={viewType === 'general' ? 'default' : 'outline'}
-          onClick={() => setViewType('general')}
-        >
-          Reporte General
-        </Button>
-        <Button
-          variant={viewType === 'por-nivel' ? 'default' : 'outline'}
-          onClick={() => setViewType('por-nivel')}
-        >
-          Reporte por Nivel
-        </Button>
-        <Button
-          variant={viewType === 'mensual' ? 'default' : 'outline'}
-          onClick={() => setViewType('mensual')}
-        >
-          Reporte Mensual
-        </Button>
-        {isFacilitador && (
+      <div className="mb-4 sm:mb-6 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="flex flex-wrap gap-2">
           <Button
-            variant={viewType === 'participantes-mes' ? 'default' : 'outline'}
-            onClick={() => setViewType('participantes-mes')}
+            variant={viewType === 'general' ? 'default' : 'outline'}
+            onClick={() => setViewType('general')}
           >
-            FCPs por Meses
+            Reporte General
           </Button>
+          <Button
+            variant={viewType === 'por-nivel' ? 'default' : 'outline'}
+            onClick={() => setViewType('por-nivel')}
+          >
+            Reporte por Nivel
+          </Button>
+          <Button
+            variant={viewType === 'mensual' ? 'default' : 'outline'}
+            onClick={() => setViewType('mensual')}
+          >
+            Reporte Mensual
+          </Button>
+          {isFacilitador && (
+            <Button
+              variant={viewType === 'participantes-mes' ? 'default' : 'outline'}
+              onClick={() => setViewType('participantes-mes')}
+            >
+              FCPs por Meses
+            </Button>
+          )}
+        </div>
+        {viewType !== 'participantes-mes' && (
+          <SegmentedControl
+            value={tipoAula}
+            onChange={setTipoAula}
+            options={SEGMENT_AULA_TIPO}
+          />
         )}
       </div>
 
@@ -152,11 +165,11 @@ function ReportesPageContent() {
       )}
 
       {viewType === 'general' ? (
-        <ReporteList />
+        <ReporteList tipoAula={tipoAula} />
       ) : viewType === 'por-nivel' ? (
-        <ReporteAsistenciaPorNivel fcpId={fcpIdParaReporte || null} />
+        <ReporteAsistenciaPorNivel fcpId={fcpIdParaReporte || null} tipoAula={tipoAula} />
       ) : viewType === 'mensual' ? (
-        <ReporteMensual fcpId={fcpIdParaReporte || null} />
+        <ReporteMensual fcpId={fcpIdParaReporte || null} tipoAula={tipoAula} />
       ) : (
         <ReporteParticipantesPorMes fcpId={fcpIdParaReporte || null} />
       )}

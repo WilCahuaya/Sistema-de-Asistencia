@@ -45,9 +45,12 @@ import {
   fetchEstudiantesActivosPorAulas,
   fetchEstudiantesMapByIds,
 } from '@/lib/reportes/asistenciasReporteQueries'
+import type { AulaTipo } from '@/lib/utils/aulaIntervencion'
+import { fetchAulaIdsPorTipo } from '@/lib/utils/aulaIntervencion'
 
 interface ReporteAsistenciaPorNivelProps {
   fcpId: string | null
+  tipoAula?: AulaTipo
 }
 
 interface AulaData {
@@ -105,7 +108,7 @@ interface DiaIncompleto {
   aulaId: string
 }
 
-export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenciaPorNivelProps) {
+export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULAR' }: ReporteAsistenciaPorNivelProps) {
   const [loading, setLoading] = useState(false)
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth())
@@ -396,6 +399,8 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         throw fcpError
       }
 
+      const aulaIdsTipo = await fetchAulaIdsPorTipo(supabase, fcpIdParaReporte, tipoAula)
+
       // Obtener todas las aulas de la FCP con sus tutores usando el fcpId del rol seleccionado
       const { data: aulasData, error: aulasError } = await supabase
         .from('aulas')
@@ -464,7 +469,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
       // Agregar aulas sin tutores
       if (todasLasAulas) {
         todasLasAulas.forEach((aula: any) => {
-          if (!aulasIdsProcesadas.has(aula.id)) {
+          if (!aulasIdsProcesadas.has(aula.id) && aulaIdsTipo.has(aula.id)) {
             aulas.push({
               id: aula.id,
               nombre: aula.nombre,
@@ -472,6 +477,10 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
           }
         })
       }
+
+      const aulasFiltradas = aulas.filter((a) => aulaIdsTipo.has(a.id))
+      aulas.length = 0
+      aulas.push(...aulasFiltradas)
 
       console.log('📚 Aulas cargadas en reporte:', {
         total: aulas.length,
@@ -505,12 +514,12 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         esMesAnterior
       })
 
-      const flatAsist = await fetchAsistenciasRangoFlat(
+      const flatAsist = (await fetchAsistenciasRangoFlat(
         supabase,
         fcpIdParaReporte,
         fechaInicio,
         fechaFin
-      )
+      )).filter((r) => r.aula_id && aulaIdsTipo.has(r.aula_id))
       const idsEstAsist = [...new Set(flatAsist.map((r) => r.estudiante_id))]
       const idsAulAsist = [...new Set(flatAsist.map((r) => r.aula_id).filter(Boolean))] as string[]
       const [estMapAsist, aulMapAsist] = await Promise.all([
@@ -543,6 +552,34 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp }: ReporteAsistenci
         console.log('📊 [ReporteAsistenciaPorNivel] Estudiantes cargados de mes anterior (basados en asistencias):', {
           total: estudiantesData.length
         })
+      } else if (tipoAula === 'INTERVENTION') {
+        const aulaIdsArr = aulas.map((a) => a.id)
+        if (aulaIdsArr.length === 0) {
+          estudiantesData = []
+        } else {
+          const { data: inscripciones, error: inscErr } = await supabase
+            .from('intervencion_estudiantes')
+            .select(`
+              estudiante_id, aula_id,
+              estudiante:estudiantes(id, codigo, nombre_completo, aula_id, created_at)
+            `)
+            .eq('fcp_id', fcpIdParaReporte)
+            .eq('activo', true)
+            .in('aula_id', aulaIdsArr)
+          if (inscErr) throw inscErr
+          estudiantesData = (inscripciones || []).map((row: { estudiante_id: string; aula_id: string; estudiante: unknown }) => {
+            const est = Array.isArray(row.estudiante) ? row.estudiante[0] : row.estudiante
+            const e = est as { id: string; codigo: string; nombre_completo: string; created_at?: string }
+            return {
+              id: row.estudiante_id,
+              codigo: e?.codigo,
+              nombre_completo: e?.nombre_completo,
+              aula_id: row.aula_id,
+              created_at: e?.created_at,
+            }
+          })
+        }
+        estudianteIds = estudiantesData.map((e) => e.id)
       } else {
         // Para meses actuales/futuros, cargar todos los estudiantes activos de la FCP
         const { data: estudiantesDataQuery, error: estudiantesError } = await supabase

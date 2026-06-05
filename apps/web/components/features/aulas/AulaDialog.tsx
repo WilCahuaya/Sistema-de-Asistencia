@@ -24,6 +24,8 @@ import { useForm } from 'react-hook-form'
 import { toast } from '@/lib/toast'
 import { SucursalField, NUEVA_SUCURSAL, resolverSucursalId } from './SucursalField'
 import type { AulaTipo, EstadoIntervencion } from '@/lib/utils/aulaIntervencion'
+import { SEGMENT_AULA_TIPO } from '@/lib/utils/aulaIntervencion'
+import { SegmentedControl } from '@/components/ui/segmented-control'
 
 interface AulaFormData {
   nombre: string
@@ -154,26 +156,11 @@ export function AulaDialog({
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
               <Label>Tipo</Label>
-              <div className="inline-flex rounded-lg border p-0.5 bg-muted/50">
-                <button
-                  type="button"
-                  className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                    tipo === 'REGULAR' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground'
-                  }`}
-                  onClick={() => setTipo('REGULAR')}
-                >
-                  Regular
-                </button>
-                <button
-                  type="button"
-                  className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                    tipo === 'INTERVENTION' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground'
-                  }`}
-                  onClick={() => setTipo('INTERVENTION')}
-                >
-                  Intervención
-                </button>
-              </div>
+              <SegmentedControl
+                value={tipo}
+                onChange={setTipo}
+                options={SEGMENT_AULA_TIPO}
+              />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="nombre">Nombre *</Label>

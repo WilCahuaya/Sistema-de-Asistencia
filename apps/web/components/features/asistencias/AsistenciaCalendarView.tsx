@@ -24,6 +24,8 @@ import {
   intervencionTemporadaVencida,
   formatTemporada,
   ESTADO_INTERVENCION_LABEL,
+  fechaEnTemporadaIntervencion,
+  mesEnTemporadaIntervencion,
 } from '@/lib/utils/aulaIntervencion'
 import type { AulaTipo, EstadoIntervencion } from '@/lib/utils/aulaIntervencion'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -298,20 +300,24 @@ export function AsistenciaCalendarView({
   } = usePermisoTardioAnual(fcpId)
   const esMesPasadoVista = esMesPasado(selectedYear, mesNum)
   const correccionHabilitada = correccionMes?.estado === 'correccion_habilitada'
-  /**
-   * Gracia de 7 días, corrección mensual del facilitador o permiso anual.
-   * Debe coincidir con la lógica de puedeEditarMes + trigger en BD.
-   */
-  const ventanaEdicionParaFechaMes = (fy: number, mesNum1a12: number) =>
-    mesPermiteRegistroSinCorreccionFacilitador(fy, mesNum1a12 - 1) ||
-    correccionHabilitada ||
-    permisoAnualActivo
-  /** Semana de gracia después del cierre del mes: aún se puede registrar sin corrección del facilitador */
   const enGraciaRegistro = mesPermiteRegistroSinCorreccionFacilitador(selectedYear, selectedMonth)
-  /** Puede registrar/corregir como director o secretario aunque en el menú esté seleccionado otro rol (p. ej. tutor). */
   const esDirectorOSecretarioEnFcp = hasDirectorMembership || hasSecretarioMembership
   const aulaSeleccionada = selectedAula ? aulas.find((a) => a.id === selectedAula) : null
   const ctxIntervencion = esIntervencion(aulaSeleccionada)
+  /**
+   * Gracia de 7 días, corrección mensual del facilitador o permiso anual.
+   * Intervenciones: cualquier mes dentro de la temporada.
+   */
+  const ventanaEdicionParaFechaMes = (fy: number, mesNum1a12: number) => {
+    if (ctxIntervencion) {
+      return mesEnTemporadaIntervencion(aulaSeleccionada, fy, mesNum1a12 - 1)
+    }
+    return (
+      mesPermiteRegistroSinCorreccionFacilitador(fy, mesNum1a12 - 1) ||
+      correccionHabilitada ||
+      permisoAnualActivo
+    )
+  }
   const puedeEditarMes =
     ctxIntervencion
       ? esIntervencionActiva(aulaSeleccionada) &&
@@ -1022,6 +1028,14 @@ export function AsistenciaCalendarView({
     estado: 'presente' | 'falto' | 'permiso'
   ) => {
     if (!puedeEditarMes) return
+
+    if (ctxIntervencion && !fechaEnTemporadaIntervencion(aulaSeleccionada, fechaStr)) {
+      toast.warning(
+        'Fuera de la temporada',
+        'Esta fecha está fuera del intervalo de la intervención.'
+      )
+      return
+    }
 
     const [fy, fm] = fechaStr.split('-').map(Number)
     if (!ventanaEdicionParaFechaMes(fy, fm)) {
@@ -2114,6 +2128,12 @@ export function AsistenciaCalendarView({
               return `${parseInt(day, 10)} - ${monthName} - ${y}`
             }
 
+            const [fyMob, fmMob] = fechaStr.split('-').map(Number)
+            const puedeEditarEstaFecha =
+              puedeEditarMes &&
+              ventanaEdicionParaFechaMes(fyMob, fmMob) &&
+              fechaEnTemporadaIntervencion(aulaSeleccionada, fechaStr)
+
             const filteredEstudiantes = sortByNombreCompleto(
               mobileSearch.trim()
                 ? estudiantes.filter(
@@ -2172,7 +2192,7 @@ export function AsistenciaCalendarView({
                           Debes registrar a todos los estudiantes de este día.
                         </p>
                       )}
-                      {puedeEditarMes && (
+                      {puedeEditarEstaFecha && (
                         <div className="flex gap-2">
                           <Button
                             variant="outline"
@@ -2252,7 +2272,7 @@ export function AsistenciaCalendarView({
                                   <Calendar className="h-4 w-4 mr-2" />
                                   Ver calendario
                                 </DropdownMenuItem>
-                                {puedeEditarMes && estado && (
+                                {puedeEditarEstaFecha && estado && (
                                   <DropdownMenuItem
                                     onClick={() => deleteAsistencia(estudiante.id, fechaStr)}
                                     disabled={isSaving}
@@ -2266,7 +2286,7 @@ export function AsistenciaCalendarView({
                             </div>
                             {/* Fila 2: Botones de estado */}
                             <div className="flex items-center gap-2 border-t pt-3">
-                              {puedeEditarMes ? (
+                              {puedeEditarEstaFecha ? (
                                 <>
                                   <button
                                     type="button"
@@ -2593,7 +2613,9 @@ export function AsistenciaCalendarView({
                       const isSaving = saving.has(key)
                       const [fyCell, fmCell] = fechaStr.split('-').map(Number)
                       const puedeEditarEstaCelda =
-                        puedeEditarMes && ventanaEdicionParaFechaMes(fyCell, fmCell)
+                        puedeEditarMes &&
+                        ventanaEdicionParaFechaMes(fyCell, fmCell) &&
+                        fechaEnTemporadaIntervencion(aulaSeleccionada, fechaStr)
 
                       return (
                         <td

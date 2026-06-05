@@ -1236,12 +1236,27 @@ export function EstudianteList() {
             </p>
             {canManageEstudiantes && (
               <div className="flex gap-2">
-                <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedFCP || aulas.length === 0}>
+                <Button
+                  onClick={() =>
+                    ctxIntervencion ? setIsAgregarIntervencionOpen(true) : setIsDialogOpen(true)
+                  }
+                  disabled={
+                    !selectedFCP ||
+                    aulas.length === 0 ||
+                    (ctxIntervencion && (!selectedAula || !intervencionEditable))
+                  }
+                >
                   <Plus className="mr-2 h-4 w-4" />
-                  Agregar Estudiante
+                  {ctxIntervencion ? 'Agregar Estudiante' : 'Agregar Estudiante'}
                 </Button>
                 {selectedFCP && aulas.length > 0 && (
-                  <Button variant="outline" onClick={() => setIsUploadDialogOpen(true)}>
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      ctxIntervencion ? setIsIntervencionUploadOpen(true) : setIsUploadDialogOpen(true)
+                    }
+                    disabled={ctxIntervencion && !intervencionEditable}
+                  >
                     <Upload className="mr-2 h-4 w-4" />
                     Cargar desde Excel
                   </Button>
@@ -1385,10 +1400,12 @@ export function EstudianteList() {
                                 </Button>
                                 {canManageEstudiantes && (
                                   <>
-                                    <Button variant="outline" size="sm" className="flex-1" onClick={() => { setSelectedEstudianteForEdit(estudiante); setIsEditDialogOpen(true) }}>
-                                      <Edit className="h-4 w-4 mr-1" />
-                                      Editar
-                                    </Button>
+                                    {!ctxIntervencion && (
+                                      <Button variant="outline" size="sm" className="flex-1" onClick={() => { setSelectedEstudianteForEdit(estudiante); setIsEditDialogOpen(true) }}>
+                                        <Edit className="h-4 w-4 mr-1" />
+                                        Editar
+                                      </Button>
+                                    )}
                                     {ctxIntervencion ? (
                                       intervencionEditable && (
                                         <Button variant="outline" size="sm" onClick={() => handleQuitarIntervencion(estudiante)} title="Quitar de la intervención">
@@ -1511,9 +1528,11 @@ export function EstudianteList() {
                                 </Button>
                                 {canManageEstudiantes && (
                                   <>
-                                    <Button variant="ghost" size="sm" onClick={() => { setSelectedEstudianteForEdit(estudiante); setIsEditDialogOpen(true) }} title="Editar datos del estudiante">
-                                      <Edit className="h-4 w-4" />
-                                    </Button>
+                                    {!ctxIntervencion && (
+                                      <Button variant="ghost" size="sm" onClick={() => { setSelectedEstudianteForEdit(estudiante); setIsEditDialogOpen(true) }} title="Editar datos del estudiante">
+                                        <Edit className="h-4 w-4" />
+                                      </Button>
+                                    )}
                                     {ctxIntervencion ? (
                                       intervencionEditable && (
                                         <Button variant="ghost" size="sm" onClick={() => handleQuitarIntervencion(estudiante)} title="Quitar de la intervención">
@@ -1637,7 +1656,7 @@ export function EstudianteList() {
       )}
 
       <EstudianteDialog
-        open={isDialogOpen}
+        open={isDialogOpen && !ctxIntervencion}
         onOpenChange={setIsDialogOpen}
         onSuccess={handleEstudianteCreated}
         fcpId={selectedFCP || ''}
@@ -1653,7 +1672,7 @@ export function EstudianteList() {
         aulas={aulas}
       />
 
-      {selectedEstudianteForEdit && (
+      {selectedEstudianteForEdit && !ctxIntervencion && (
         <EstudianteEditDialog
           open={isEditDialogOpen}
           onOpenChange={(open) => {

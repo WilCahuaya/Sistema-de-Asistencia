@@ -40,11 +40,14 @@ import {
   fetchEstudiantesActivosPorAulas,
   fetchEstudiantesMinimalMapByIds,
 } from '@/lib/reportes/asistenciasReporteQueries'
+import type { AulaTipo } from '@/lib/utils/aulaIntervencion'
+import { fetchAulaIdsPorTipo } from '@/lib/utils/aulaIntervencion'
 
 interface ReporteMensualProps {
   fcpId: string | null
   /** Solo estas aulas (p. ej. salones del tutor); no listar ni calcular el resto de la FCP. */
   soloAulasIds?: string[] | null
+  tipoAula?: AulaTipo
 }
 
 interface NivelData {
@@ -75,7 +78,7 @@ interface ReporteData {
   diasIncompletos: DiaIncompleto[]
 }
 
-export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null }: ReporteMensualProps) {
+export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula = 'REGULAR' }: ReporteMensualProps) {
   const searchParams = useSearchParams()
   const autoGenerate = searchParams.get('auto') === 'true'
   const yearParam = searchParams.get('year')
@@ -337,6 +340,8 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null }: Report
         throw fcpError
       }
 
+      const aulaIdsTipo = await fetchAulaIdsPorTipo(supabase, fcpIdParaReporte, tipoAula)
+
       // Calcular fechas del mes (fecha local para no incluir día del mes siguiente por UTC)
       const fechaInicio = new Date(selectedYear, selectedMonth, 1)
       const fechaFin = new Date(selectedYear, selectedMonth + 1, 0)
@@ -358,12 +363,12 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null }: Report
       // Cargar facilitador
       await loadFacilitador(fcpIdParaReporte)
 
-      const flatTodas = await fetchAsistenciasRangoFlat(
+      const flatTodas = (await fetchAsistenciasRangoFlat(
         supabase,
         fcpIdParaReporte,
         fechaInicioStr,
         fechaFinStr
-      )
+      )).filter((r) => r.aula_id && aulaIdsTipo.has(r.aula_id))
       const idsEstTodas = [...new Set(flatTodas.map((r) => r.estudiante_id))]
       const idsAulTodas = [...new Set(flatTodas.map((r) => r.aula_id).filter(Boolean))] as string[]
       const [estMapTodas, aulMapTodas] = await Promise.all([
@@ -403,6 +408,31 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null }: Report
         console.log('📊 [ReporteMensual] Estudiantes cargados de mes anterior (basados en asistencias):', {
           total: estudiantesData.length
         })
+      } else if (tipoAula === 'INTERVENTION') {
+        const aulaIdsArr = [...aulaIdsTipo]
+        if (aulaIdsArr.length === 0) {
+          estudiantesData = []
+        } else {
+          const { data: inscripciones, error: inscErr } = await supabase
+            .from('intervencion_estudiantes')
+            .select('estudiante_id, aula_id, estudiante:estudiantes(id, aula_id, created_at)')
+            .eq('fcp_id', fcpIdParaReporte)
+            .eq('activo', true)
+            .in('aula_id', aulaIdsArr)
+          if (inscErr) throw inscErr
+          estudiantesData = (inscripciones || []).map((row: { estudiante_id: string; aula_id: string; estudiante: unknown }) => {
+            const est = Array.isArray(row.estudiante) ? row.estudiante[0] : row.estudiante
+            return {
+              id: row.estudiante_id,
+              aula_id: row.aula_id,
+              created_at: (est as { created_at?: string })?.created_at,
+            }
+          })
+        }
+        if (soloAulasIds && soloAulasIds.length > 0) {
+          const permitidas = new Set(soloAulasIds)
+          estudiantesData = estudiantesData.filter((e: { aula_id?: string }) => e.aula_id && permitidas.has(e.aula_id))
+        }
       } else {
         // Para meses actuales/futuros, cargar todos los estudiantes activos de la FCP
         const { data: estudiantesDataQuery, error: estudiantesError } = await supabase
@@ -416,7 +446,9 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null }: Report
           throw estudiantesError
         }
 
-        estudiantesData = estudiantesDataQuery || []
+        estudiantesData = (estudiantesDataQuery || []).filter(
+          (e: { aula_id?: string }) => e.aula_id && aulaIdsTipo.has(e.aula_id)
+        )
         if (soloAulasIds && soloAulasIds.length > 0) {
           const permitidas = new Set(soloAulasIds)
           estudiantesData = estudiantesData.filter((e: any) => e.aula_id && permitidas.has(e.aula_id))
@@ -462,7 +494,7 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null }: Report
           throw aulasError
         }
 
-        aulasData = aulasDataQuery || []
+        aulasData = (aulasDataQuery || []).filter((a: { id: string }) => aulaIdsTipo.has(a.id))
         
         console.log('🏫 [ReporteMensual] Aulas cargadas (mes actual/futuro):', {
           total: aulasData.length

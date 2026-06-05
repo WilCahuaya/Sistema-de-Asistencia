@@ -46,7 +46,9 @@ import {
   ESTADO_INTERVENCION_LABEL,
   formatTemporada,
   intervencionTemporadaVencida,
+  SEGMENT_AULA_TIPO,
 } from '@/lib/utils/aulaIntervencion'
+import { SegmentedControl } from '@/components/ui/segmented-control'
 
 interface TutorInfo {
   id?: string
@@ -705,26 +707,11 @@ export function AulaList() {
         )}
         
         <div className="flex items-center gap-4 flex-wrap">
-          <div className="inline-flex rounded-lg border p-0.5 bg-muted/50">
-            <button
-              type="button"
-              className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                vistaTipo === 'REGULAR' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground'
-              }`}
-              onClick={() => setVistaTipo('REGULAR')}
-            >
-              Regulares
-            </button>
-            <button
-              type="button"
-              className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-                vistaTipo === 'INTERVENTION' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground'
-              }`}
-              onClick={() => setVistaTipo('INTERVENTION')}
-            >
-              Intervenciones
-            </button>
-          </div>
+          <SegmentedControl
+            value={vistaTipo}
+            onChange={setVistaTipo}
+            options={SEGMENT_AULA_TIPO}
+          />
 
           {/* Toggle para mostrar aulas inactivas - solo para directores y secretarios */}
           {canManageAulas && (
