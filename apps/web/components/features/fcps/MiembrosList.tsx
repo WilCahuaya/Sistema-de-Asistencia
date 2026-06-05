@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Plus, Users, Edit, Search, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Users, Edit, Search, ChevronDown, ChevronUp, Eye, EyeOff, Building2 } from 'lucide-react'
 import {
   Table,
   TableBody,
@@ -57,11 +57,26 @@ interface Miembro {
   aulas?: Array<{
     id: string
     nombre: string
+    /** Nombre de la sucursal del aula (para diferenciar de qué sucursal es). */
+    sucursalNombre?: string
+    /** true si el aula pertenece a la sucursal predeterminada ("Principal"). */
+    esPrincipal?: boolean
   }>
 }
 
 interface MiembrosListProps {
   fcpId: string
+}
+
+/** Normaliza el aula de Supabase (con join a sucursales) a la forma usada en la lista. */
+function mapAulaConSucursal(aula: any): { id: string; nombre: string; sucursalNombre?: string; esPrincipal?: boolean } {
+  const suc = Array.isArray(aula?.sucursal) ? aula.sucursal[0] : aula?.sucursal
+  return {
+    id: aula.id,
+    nombre: aula.nombre,
+    sucursalNombre: suc?.nombre,
+    esPrincipal: !!suc?.es_predeterminada,
+  }
 }
 
 /** Fila que se pasa a MiembroEditDialog: prioriza tutor si existe; si no, el registro de secretario (p. ej. secretario editándose a sí mismo). */
@@ -91,6 +106,7 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [fcpNombre, setFcpNombre] = useState<string>('')
   const [searchTerm, setSearchTerm] = useState('')
+  const [hideInactive, setHideInactive] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [isMobile, setIsMobile] = useState(false)
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null)
@@ -117,14 +133,18 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  const filteredMiembros = searchTerm.trim()
-    ? miembros.filter((m) => {
-        const email = m.usuario?.email || m.email_pendiente || ''
-        const nombre = m.nombre_display || m.usuario?.nombre_completo || ''
-        const term = searchTerm.toLowerCase()
-        return email.toLowerCase().includes(term) || nombre.toLowerCase().includes(term)
-      })
-    : miembros
+  const esMiembroActivo = (m: Miembro) => (m.roles?.some((r) => r.activo)) ?? m.activo
+
+  const filteredMiembros = miembros.filter((m) => {
+    if (hideInactive && !esMiembroActivo(m)) return false
+    if (!searchTerm.trim()) return true
+    const email = m.usuario?.email || m.email_pendiente || ''
+    const nombre = m.nombre_display || m.usuario?.nombre_completo || ''
+    const term = searchTerm.toLowerCase()
+    return email.toLowerCase().includes(term) || nombre.toLowerCase().includes(term)
+  })
+
+  const inactivosCount = miembros.filter((m) => !esMiembroActivo(m)).length
 
   const itemsPerPage = isMobile ? 8 : 15
   const totalPages = Math.max(1, Math.ceil(filteredMiembros.length / itemsPerPage))
@@ -134,7 +154,7 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
   )
   const shouldShowPagination = filteredMiembros.length > itemsPerPage
 
-  useEffect(() => setCurrentPage(1), [searchTerm])
+  useEffect(() => setCurrentPage(1), [searchTerm, hideInactive])
 
   const loadFCPNombre = async () => {
     if (!fcpId) return
@@ -231,7 +251,7 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
         
         // Cargar las aulas asignadas si el miembro tiene rol de tutor
         // O si el usuario tiene otro registro como tutor en esta FCP
-        let aulasAsignadas: Array<{ id: string; nombre: string }> = []
+        let aulasAsignadas: Array<{ id: string; nombre: string; sucursalNombre?: string; esPrincipal?: boolean }> = []
         
         // Primero intentar cargar aulas del registro actual si es tutor
         if (miembro.rol === 'tutor' && miembro.activo) {
@@ -242,7 +262,8 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                 aula_id,
                 aula:aulas!inner(
                   id,
-                  nombre
+                  nombre,
+                  sucursal:sucursales(nombre, es_predeterminada)
                 )
               `)
               .eq('fcp_miembro_id', miembro.id)
@@ -255,6 +276,7 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
               aulasAsignadas = tutorAulas
                 .map((ta: any) => ta.aula)
                 .filter((aula: any) => aula !== null && aula !== undefined)
+                .map(mapAulaConSucursal)
             }
           } catch (err) {
             console.error('Error en consulta de aulas del tutor:', err)
@@ -283,7 +305,8 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                   aula_id,
                   aula:aulas!inner(
                     id,
-                    nombre
+                    nombre,
+                    sucursal:sucursales(nombre, es_predeterminada)
                   )
                 `)
                 .in('fcp_miembro_id', tutorIds)
@@ -294,10 +317,11 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                 aulasAsignadas = tutorAulas
                   .map((ta: any) => ta.aula)
                   .filter((aula: any) => aula !== null && aula !== undefined)
+                  .map(mapAulaConSucursal)
                 
                 // Eliminar duplicados por ID de aula
-                const aulasUnicas = new Map<string, { id: string; nombre: string }>()
-                aulasAsignadas.forEach((aula: { id: string; nombre: string }) => {
+                const aulasUnicas = new Map<string, { id: string; nombre: string; sucursalNombre?: string; esPrincipal?: boolean }>()
+                aulasAsignadas.forEach((aula) => {
                   if (!aulasUnicas.has(aula.id)) {
                     aulasUnicas.set(aula.id, aula)
                   }
@@ -476,8 +500,8 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
             </div>
           ) : (
             <>
-              <div className="mb-4">
-                <div className="relative max-w-md">
+              <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="relative w-full max-w-md">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     placeholder="Buscar por nombre o email..."
@@ -486,6 +510,23 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                     className="pl-10"
                   />
                 </div>
+                {inactivosCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setHideInactive(!hideInactive)}
+                    className={`group inline-flex items-center gap-2 px-4 py-2 rounded-full border transition-all duration-300 ease-in-out
+                               focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-2
+                               ${hideInactive
+                                 ? 'bg-primary/10 border-primary/50 text-primary hover:bg-primary/20'
+                                 : 'bg-muted/50 border-border text-muted-foreground hover:bg-muted hover:text-foreground'
+                               }`}
+                  >
+                    {hideInactive ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    <span className="text-sm font-medium whitespace-nowrap">
+                      {hideInactive ? 'Inactivos ocultos' : 'Ocultar inactivos'}
+                    </span>
+                  </button>
+                )}
               </div>
               {isMobile ? (
                 <div className="space-y-3">
@@ -537,7 +578,17 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                                 <p className="text-sm text-muted-foreground">Asignado: {new Date(miembro.fecha_asignacion).toLocaleDateString('es-ES')}</p>
                                 {miembro.aulas && miembro.aulas.length > 0 && (
                                   <div className="flex flex-wrap gap-1">
-                                    {miembro.aulas.map((a) => <Badge key={a.id} variant="outline" className="text-xs">{a.nombre}</Badge>)}
+                                    {miembro.aulas.map((a) => (
+                                      <Badge key={a.id} variant="outline" className="text-xs">
+                                        {a.nombre}
+                                        {!a.esPrincipal && a.sucursalNombre && (
+                                          <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] font-medium text-primary">
+                                            <Building2 className="h-2.5 w-2.5" />
+                                            {a.sucursalNombre}
+                                          </span>
+                                        )}
+                                      </Badge>
+                                    ))}
                                   </div>
                                 )}
                                 {isSecretario ? (rolesActivos.some((r: any) => r.rol === 'tutor') || secretarioPuedeEditarse) && (
@@ -605,7 +656,17 @@ export function MiembrosList({ fcpId }: MiembrosListProps) {
                               <TableCell>
                                 {miembro.aulas && miembro.aulas.length > 0 ? (
                                   <div className="flex flex-wrap gap-1">
-                                    {miembro.aulas.map((a) => <Badge key={a.id} variant="secondary" className="text-xs">{a.nombre}</Badge>)}
+                                    {miembro.aulas.map((a) => (
+                                      <Badge key={a.id} variant="secondary" className="text-xs">
+                                        {a.nombre}
+                                        {!a.esPrincipal && a.sucursalNombre && (
+                                          <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] font-medium text-primary">
+                                            <Building2 className="h-2.5 w-2.5" />
+                                            {a.sucursalNombre}
+                                          </span>
+                                        )}
+                                      </Badge>
+                                    ))}
                                   </div>
                                 ) : <span className="text-xs text-muted-foreground">-</span>}
                               </TableCell>
