@@ -1403,6 +1403,7 @@ export function AsistenciaCalendarView({
           fecha: fechaStr,
           estado: 'presente',
           fcp_id: fcpId,
+          aula_id: selectedAula,
           ...existingAsistencia,
         } as Asistencia)
       })
@@ -1417,7 +1418,15 @@ export function AsistenciaCalendarView({
     
     // Separar actualizaciones e inserciones para mayor eficiencia
     const toUpdate: Array<{ id: string; estudiante_id: string }> = []
-    const toInsert: Array<{ estudiante_id: string; fecha: string; estado: string; fcp_id: string; created_by?: string | null; updated_by?: string | null }> = []
+    const toInsert: Array<{
+      estudiante_id: string
+      fecha: string
+      estado: string
+      fcp_id: string
+      aula_id: string
+      created_by?: string | null
+      updated_by?: string | null
+    }> = []
 
     estudiantes.forEach((estudiante) => {
       const key = `${estudiante.id}_${fechaStr}`
@@ -1426,11 +1435,20 @@ export function AsistenciaCalendarView({
       if (existingAsistencia?.id && !existingAsistencia.id.startsWith('temp-')) {
         toUpdate.push({ id: existingAsistencia.id, estudiante_id: estudiante.id })
       } else {
-        const insertItem: any = {
+        const insertItem: {
+          estudiante_id: string
+          fecha: string
+          estado: string
+          fcp_id: string
+          aula_id: string
+          created_by?: string
+          updated_by?: string
+        } = {
           estudiante_id: estudiante.id,
           fecha: fechaStr,
           estado: 'presente',
           fcp_id: fcpId,
+          aula_id: selectedAula,
         }
         
         // Agregar campos de auditoría si hay usuario
@@ -1554,7 +1572,8 @@ export function AsistenciaCalendarView({
                     .eq('estudiante_id', item.estudiante_id)
                     .eq('fecha', item.fecha)
                     .eq('fcp_id', item.fcp_id)
-                    .single()
+                    .eq('aula_id', selectedAula)
+                    .maybeSingle()
 
                   if (existing) {
                     const { error: updateError } = await supabase
