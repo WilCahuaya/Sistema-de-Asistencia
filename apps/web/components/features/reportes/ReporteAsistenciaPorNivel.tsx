@@ -84,6 +84,7 @@ interface TutorData {
   totalFalto: number
   totalRegistros: number // Cantidad de estudiantes del salón
   diasDeAtencion: number // Días completos de atención
+  oportunidadesAsistencia: number // estudiantes × días completos (igual que ReporteMensual)
   asistenPromed: number // Asis.Pro.m = totalPresente / diasDeAtencion
 }
 
@@ -95,6 +96,7 @@ interface NivelGroup {
   totalFalto: number
   totalRegistros: number
   totalDiasAtencion: number // Total de días de atención del nivel
+  totalOportunidadesAsistencia: number
   asistenPromed: number // Asis.Pro.m = totalPresente / totalDiasAtencion
   diasIncompletos: Array<{ fecha: string; aulaId: string; tutorNombre: string; marcados: number; total: number }> // Días donde no todos los estudiantes están marcados
 }
@@ -107,6 +109,13 @@ interface DiaIncompleto {
   marcados: number
   total: number
   aulaId: string
+}
+
+function pctAsistencia(parte: number, oportunidades: number): string {
+  if (oportunidades <= 0) return '0.00'
+  const pct = (parte / oportunidades) * 100
+  if (isNaN(pct) || !isFinite(pct)) return '0.00'
+  return pct.toFixed(2)
 }
 
 export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULAR' }: ReporteAsistenciaPorNivelProps) {
@@ -739,6 +748,15 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
         let totalPermiso = 0
         let totalFalto = 0
         let diasDeAtencion = 0 // Contar días completos de atención
+        let oportunidadesAsistencia = 0
+
+        const buscarAsistencia = (estudianteId: string, fecha: string) =>
+          asistenciasData?.find(
+            (a: { estudiante_id: string; fecha: string; aula_id?: string; estado?: string }) =>
+              a.estudiante_id === estudianteId &&
+              a.fecha === fecha &&
+              (!esIntervencion || a.aula_id === aula.id)
+          )
 
         // 1. Primero procesar TODAS las asistencias por fecha usando aula_id de la asistencia
         estudiantesDeAula.forEach(estudiante => {
@@ -806,31 +824,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
               totalEstudiantesEnFecha,
               tutorNombre
             })
-            
-            // Días incompletos: se obtienen del RPC dias_incompletos_por_aula (no agregar aquí)
-            
-            // NO marcar para eliminar - mostrar todas las fechas con asistencias
-            // fechasParaEliminar.push(fecha)
-            
-            // Agregar a totales incluso si es un día incompleto (para mostrar todas las asistencias)
-            const asistenciaFechaIncompleta = asistenciasPorFecha[fecha]
-            if (asistenciaFechaIncompleta) {
-              // Recalcular usando todos los estudiantes del aula
-              let presente = 0
-              let permiso = 0
-              let falto = 0
-              estudiantesDeAula.forEach(est => {
-                const asist = asistenciasData?.find(a => a.estudiante_id === est.id && a.fecha === fecha)
-                if (asist) {
-                  if (asist.estado === 'presente') presente++
-                  else if (asist.estado === 'permiso') permiso++
-                  else if (asist.estado === 'falto') falto++
-                }
-              })
-              totalPresente += presente
-              totalPermiso += permiso
-              totalFalto += falto
-            }
+            // Días incompletos: no suman a totales (misma regla que ReporteMensual)
           } else if (marcadosEnFecha === totalEstudiantesEnFecha && totalEstudiantesEnFecha > 0) {
             // Día completo: todos los estudiantes que existían están marcados
             console.log('✅ [ReporteAsistenciaPorNivel] Día completo detectado:', {
@@ -843,41 +837,23 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
             })
             // fechasSet ya contiene todas las fechas, no necesitamos agregarla aquí
             diasDeAtencion++ // Contar como día de atención
-            
-            // Agregar a totales solo si es un día completo
-            // IMPORTANTE: Usar solo las asistencias de estudiantes que existían en esa fecha
-            const asistenciaFecha = asistenciasPorFecha[fecha]
-            if (asistenciaFecha) {
-              // Verificar que el total de asistenciasPorFecha coincida con marcadosEnFecha
-              // Si no coincide, recalcular usando solo estudiantes que existían
-              if (asistenciaFecha.total !== marcadosEnFecha) {
-                console.warn('⚠️ [ReporteAsistenciaPorNivel] Discrepancia detectada:', {
-                  fecha,
-                  aula: aula.nombre,
-                  asistenciasPorFechaTotal: asistenciaFecha.total,
-                  marcadosEnFecha
-                })
-                // Recalcular usando todos los estudiantes del aula
-                let presente = 0
-                let permiso = 0
-                let falto = 0
-                estudiantesDeAula.forEach(est => {
-                  const asist = asistenciasData?.find(a => a.estudiante_id === est.id && a.fecha === fecha)
-                  if (asist) {
-                    if (asist.estado === 'presente') presente++
-                    else if (asist.estado === 'permiso') permiso++
-                    else if (asist.estado === 'falto') falto++
-                  }
-                })
-                totalPresente += presente
-                totalPermiso += permiso
-                totalFalto += falto
-              } else {
-                totalPresente += asistenciaFecha.presente
-                totalPermiso += asistenciaFecha.permiso
-                totalFalto += asistenciaFecha.falto
+            oportunidadesAsistencia += totalEstudiantesEnFecha
+
+            // Agregar a totales solo si es un día completo (igual que ReporteMensual)
+            let presente = 0
+            let permiso = 0
+            let falto = 0
+            estudiantesDeAula.forEach((est) => {
+              const asist = buscarAsistencia(est.id, fecha)
+              if (asist) {
+                if (asist.estado === 'presente') presente++
+                else if (asist.estado === 'permiso') permiso++
+                else if (asist.estado === 'falto') falto++
               }
-            }
+            })
+            totalPresente += presente
+            totalPermiso += permiso
+            totalFalto += falto
           }
           // Si marcadosEnFecha === 0 y totalEstudiantesEnFecha === 0, es un día sin estudiantes (no se cuenta)
           // Si marcadosEnFecha === 0 pero totalEstudiantesEnFecha > 0, es un día sin clases (no se cuenta como día de atención)
@@ -904,6 +880,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
             totalFalto: 0,
             totalRegistros: 0,
             totalDiasAtencion: 0,
+            totalOportunidadesAsistencia: 0,
             asistenPromed: 0,
           })
         }
@@ -920,6 +897,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
           totalFalto,
           totalRegistros: totalEstudiantes, // Reg.Pro.m = cantidad de estudiantes del salón
           diasDeAtencion,
+          oportunidadesAsistencia,
           asistenPromed,
         })
 
@@ -928,6 +906,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
         nivelGroup.totalFalto += totalFalto
         nivelGroup.totalRegistros += totalEstudiantes // Sumar estudiantes, no registros
         nivelGroup.totalDiasAtencion += diasDeAtencion
+        nivelGroup.totalOportunidadesAsistencia += oportunidadesAsistencia
       }
 
       // Filtrar y ordenar fechas: solo las del mes seleccionado, ordenadas por fecha
@@ -1048,20 +1027,10 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
           row.push(Number(aula.asistenPromed.toFixed(2))) // Asis.Pro.m = totalPresente / diasDeAtencion
           row.push(aula.totalRegistros) // Reg.Pro.m = cantidad de estudiantes del salón
           
-          // Porcentajes basados en el total de registros (presente + permiso + falto)
-          const totalRegistrosAsistencia = aula.totalPresente + aula.totalPermiso + aula.totalFalto
-          const porcentajeAsistio = totalRegistrosAsistencia > 0
-            ? ((aula.totalPresente / totalRegistrosAsistencia) * 100).toFixed(2)
-            : '0.00'
-          const porcentajePermiso = totalRegistrosAsistencia > 0
-            ? ((aula.totalPermiso / totalRegistrosAsistencia) * 100).toFixed(2)
-            : '0.00'
-          const porcentajeFalto = totalRegistrosAsistencia > 0
-            ? ((aula.totalFalto / totalRegistrosAsistencia) * 100).toFixed(2)
-            : '0.00'
-          row.push(`${porcentajeAsistio}%`)
-          row.push(`${porcentajePermiso}%`)
-          row.push(`${porcentajeFalto}%`)
+          // Porcentajes: presente / oportunidades (misma fórmula que ReporteMensual)
+          row.push(`${pctAsistencia(aula.totalPresente, aula.oportunidadesAsistencia)}%`)
+          row.push(`${pctAsistencia(aula.totalPermiso, aula.oportunidadesAsistencia)}%`)
+          row.push(`${pctAsistencia(aula.totalFalto, aula.oportunidadesAsistencia)}%`)
 
           rows.push(row)
         })
@@ -1083,19 +1052,9 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
         subtotalRow.push(Number(nivel.asistenPromed.toFixed(2))) // Asis.Pro.m = totalPresente / totalDiasAtencion
         subtotalRow.push(nivel.totalRegistros) // Reg.Pro.m = cantidad de estudiantes del nivel
         
-        const totalRegistrosAsistenciaNivel = nivel.totalPresente + nivel.totalPermiso + nivel.totalFalto
-        const porcentajeAsistioNivel = totalRegistrosAsistenciaNivel > 0
-          ? ((nivel.totalPresente / totalRegistrosAsistenciaNivel) * 100).toFixed(2)
-          : '0.00'
-        const porcentajePermisoNivel = totalRegistrosAsistenciaNivel > 0
-          ? ((nivel.totalPermiso / totalRegistrosAsistenciaNivel) * 100).toFixed(2)
-          : '0.00'
-        const porcentajeFaltoNivel = totalRegistrosAsistenciaNivel > 0
-          ? ((nivel.totalFalto / totalRegistrosAsistenciaNivel) * 100).toFixed(2)
-          : '0.00'
-        subtotalRow.push(`${porcentajeAsistioNivel}%`)
-        subtotalRow.push(`${porcentajePermisoNivel}%`)
-        subtotalRow.push(`${porcentajeFaltoNivel}%`)
+        subtotalRow.push(`${pctAsistencia(nivel.totalPresente, nivel.totalOportunidadesAsistencia)}%`)
+        subtotalRow.push(`${pctAsistencia(nivel.totalPermiso, nivel.totalOportunidadesAsistencia)}%`)
+        subtotalRow.push(`${pctAsistencia(nivel.totalFalto, nivel.totalOportunidadesAsistencia)}%`)
 
         subtotalRows.push(rows.length) // Guardar índice de fila de subtotal
         rows.push(subtotalRow)
@@ -1131,19 +1090,13 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
       totalGeneralRow.push(Number(totalGeneralAsistenPromed.toFixed(2))) // Asis.Pro.m = totalPresente / totalDiasAtencion
       totalGeneralRow.push(totalGeneralRegistros) // Reg.Pro.m = cantidad total de estudiantes
       
-      const totalGeneralRegistrosAsistencia = totalGeneralPresente + totalGeneralPermiso + totalGeneralFalto
-      const porcentajeAsistioGeneral = totalGeneralRegistrosAsistencia > 0
-        ? ((totalGeneralPresente / totalGeneralRegistrosAsistencia) * 100).toFixed(2)
-        : '0.00'
-      const porcentajePermisoGeneral = totalGeneralRegistrosAsistencia > 0
-        ? ((totalGeneralPermiso / totalGeneralRegistrosAsistencia) * 100).toFixed(2)
-        : '0.00'
-      const porcentajeFaltoGeneral = totalGeneralRegistrosAsistencia > 0
-        ? ((totalGeneralFalto / totalGeneralRegistrosAsistencia) * 100).toFixed(2)
-        : '0.00'
-      totalGeneralRow.push(`${porcentajeAsistioGeneral}%`)
-      totalGeneralRow.push(`${porcentajePermisoGeneral}%`)
-      totalGeneralRow.push(`${porcentajeFaltoGeneral}%`)
+      const totalGeneralOportunidades = reporteData.niveles.reduce(
+        (sum, nivel) => sum + nivel.totalOportunidadesAsistencia,
+        0
+      )
+      totalGeneralRow.push(`${pctAsistencia(totalGeneralPresente, totalGeneralOportunidades)}%`)
+      totalGeneralRow.push(`${pctAsistencia(totalGeneralPermiso, totalGeneralOportunidades)}%`)
+      totalGeneralRow.push(`${pctAsistencia(totalGeneralFalto, totalGeneralOportunidades)}%`)
 
       const totalGeneralRowIndex = rows.length
       rows.push(totalGeneralRow)
@@ -1337,20 +1290,10 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
           row.push(aula.asistenPromed.toFixed(2)) // Asis.Pro.m = totalPresente / diasDeAtencion
           row.push(aula.totalRegistros.toString()) // Reg.Pro.m = cantidad de estudiantes del salón
           
-          // Porcentajes basados en el total de registros (presente + permiso + falto)
-          const totalRegistrosAsistencia = aula.totalPresente + aula.totalPermiso + aula.totalFalto
-          const porcentajeAsistio = totalRegistrosAsistencia > 0
-            ? ((aula.totalPresente / totalRegistrosAsistencia) * 100).toFixed(2)
-            : '0.00'
-          const porcentajePermiso = totalRegistrosAsistencia > 0
-            ? ((aula.totalPermiso / totalRegistrosAsistencia) * 100).toFixed(2)
-            : '0.00'
-          const porcentajeFalto = totalRegistrosAsistencia > 0
-            ? ((aula.totalFalto / totalRegistrosAsistencia) * 100).toFixed(2)
-            : '0.00'
-          row.push(`${porcentajeAsistio}%`)
-          row.push(`${porcentajePermiso}%`)
-          row.push(`${porcentajeFalto}%`)
+          // Porcentajes: presente / oportunidades (misma fórmula que ReporteMensual)
+          row.push(`${pctAsistencia(aula.totalPresente, aula.oportunidadesAsistencia)}%`)
+          row.push(`${pctAsistencia(aula.totalPermiso, aula.oportunidadesAsistencia)}%`)
+          row.push(`${pctAsistencia(aula.totalFalto, aula.oportunidadesAsistencia)}%`)
 
           body.push(row)
         })
@@ -1372,19 +1315,9 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
         subtotalRow.push(nivel.asistenPromed.toFixed(2)) // Asis.Pro.m = totalPresente / totalDiasAtencion
         subtotalRow.push(nivel.totalRegistros.toString()) // Reg.Pro.m = cantidad de estudiantes del nivel
 
-        const totalRegistrosAsistenciaNivel = nivel.totalPresente + nivel.totalPermiso + nivel.totalFalto
-        const porcentajeAsistioNivel = totalRegistrosAsistenciaNivel > 0
-          ? ((nivel.totalPresente / totalRegistrosAsistenciaNivel) * 100).toFixed(2)
-          : '0.00'
-        const porcentajePermisoNivel = totalRegistrosAsistenciaNivel > 0
-          ? ((nivel.totalPermiso / totalRegistrosAsistenciaNivel) * 100).toFixed(2)
-          : '0.00'
-        const porcentajeFaltoNivel = totalRegistrosAsistenciaNivel > 0
-          ? ((nivel.totalFalto / totalRegistrosAsistenciaNivel) * 100).toFixed(2)
-          : '0.00'
-        subtotalRow.push(`${porcentajeAsistioNivel}%`)
-        subtotalRow.push(`${porcentajePermisoNivel}%`)
-        subtotalRow.push(`${porcentajeFaltoNivel}%`)
+        subtotalRow.push(`${pctAsistencia(nivel.totalPresente, nivel.totalOportunidadesAsistencia)}%`)
+        subtotalRow.push(`${pctAsistencia(nivel.totalPermiso, nivel.totalOportunidadesAsistencia)}%`)
+        subtotalRow.push(`${pctAsistencia(nivel.totalFalto, nivel.totalOportunidadesAsistencia)}%`)
 
         body.push(subtotalRow)
       })
@@ -1419,19 +1352,13 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
       totalGeneralRow.push(totalGeneralAsistenPromed.toFixed(2)) // Asis.Pro.m = totalPresente / totalDiasAtencion
       totalGeneralRow.push(totalGeneralRegistros.toString()) // Reg.Pro.m = cantidad total de estudiantes
 
-      const totalGeneralRegistrosAsistencia = totalGeneralPresente + totalGeneralPermiso + totalGeneralFalto
-      const porcentajeAsistioGeneral = totalGeneralRegistrosAsistencia > 0
-        ? ((totalGeneralPresente / totalGeneralRegistrosAsistencia) * 100).toFixed(2)
-        : '0.00'
-      const porcentajePermisoGeneral = totalGeneralRegistrosAsistencia > 0
-        ? ((totalGeneralPermiso / totalGeneralRegistrosAsistencia) * 100).toFixed(2)
-        : '0.00'
-      const porcentajeFaltoGeneral = totalGeneralRegistrosAsistencia > 0
-        ? ((totalGeneralFalto / totalGeneralRegistrosAsistencia) * 100).toFixed(2)
-        : '0.00'
-      totalGeneralRow.push(`${porcentajeAsistioGeneral}%`)
-      totalGeneralRow.push(`${porcentajePermisoGeneral}%`)
-      totalGeneralRow.push(`${porcentajeFaltoGeneral}%`)
+      const totalGeneralOportunidades = reporteData.niveles.reduce(
+        (sum, nivel) => sum + nivel.totalOportunidadesAsistencia,
+        0
+      )
+      totalGeneralRow.push(`${pctAsistencia(totalGeneralPresente, totalGeneralOportunidades)}%`)
+      totalGeneralRow.push(`${pctAsistencia(totalGeneralPermiso, totalGeneralOportunidades)}%`)
+      totalGeneralRow.push(`${pctAsistencia(totalGeneralFalto, totalGeneralOportunidades)}%`)
 
       body.push(totalGeneralRow)
 
@@ -1952,52 +1879,13 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
                             {aula.totalRegistros}
                           </td>
                           <td className="border border-border p-2 text-center font-semibold text-foreground">
-                            {(() => {
-                              try {
-                                const presente = typeof aula.totalPresente === 'number' ? aula.totalPresente : (Number(aula.totalPresente) || 0)
-                                const permiso = typeof aula.totalPermiso === 'number' ? aula.totalPermiso : (Number(aula.totalPermiso) || 0)
-                                const falto = typeof aula.totalFalto === 'number' ? aula.totalFalto : (Number(aula.totalFalto) || 0)
-                                const totalRegistrosAsistencia = presente + permiso + falto
-                                if (totalRegistrosAsistencia === 0) return '0.00'
-                                const porcentaje = (presente / totalRegistrosAsistencia) * 100
-                                if (isNaN(porcentaje) || !isFinite(porcentaje)) return '0.00'
-                                return porcentaje.toFixed(2)
-                              } catch (e) {
-                                return '0.00'
-                              }
-                            })()}%
+                            {pctAsistencia(aula.totalPresente, aula.oportunidadesAsistencia)}%
                           </td>
                           <td className="border border-border p-2 text-center font-semibold text-foreground">
-                            {(() => {
-                              try {
-                                const presente = typeof aula.totalPresente === 'number' ? aula.totalPresente : (Number(aula.totalPresente) || 0)
-                                const permiso = typeof aula.totalPermiso === 'number' ? aula.totalPermiso : (Number(aula.totalPermiso) || 0)
-                                const falto = typeof aula.totalFalto === 'number' ? aula.totalFalto : (Number(aula.totalFalto) || 0)
-                                const totalRegistrosAsistencia = presente + permiso + falto
-                                if (totalRegistrosAsistencia === 0) return '0.00'
-                                const porcentaje = (permiso / totalRegistrosAsistencia) * 100
-                                if (isNaN(porcentaje) || !isFinite(porcentaje)) return '0.00'
-                                return porcentaje.toFixed(2)
-                              } catch (e) {
-                                return '0.00'
-                              }
-                            })()}%
+                            {pctAsistencia(aula.totalPermiso, aula.oportunidadesAsistencia)}%
                           </td>
                           <td className="border border-border p-2 text-center font-semibold text-foreground">
-                            {(() => {
-                              try {
-                                const presente = typeof aula.totalPresente === 'number' ? aula.totalPresente : (Number(aula.totalPresente) || 0)
-                                const permiso = typeof aula.totalPermiso === 'number' ? aula.totalPermiso : (Number(aula.totalPermiso) || 0)
-                                const falto = typeof aula.totalFalto === 'number' ? aula.totalFalto : (Number(aula.totalFalto) || 0)
-                                const totalRegistrosAsistencia = presente + permiso + falto
-                                if (totalRegistrosAsistencia === 0) return '0.00'
-                                const porcentaje = (falto / totalRegistrosAsistencia) * 100
-                                if (isNaN(porcentaje) || !isFinite(porcentaje)) return '0.00'
-                                return porcentaje.toFixed(2)
-                              } catch (e) {
-                                return '0.00'
-                              }
-                            })()}%
+                            {pctAsistencia(aula.totalFalto, aula.oportunidadesAsistencia)}%
                           </td>
                         </tr>
                       ))}
@@ -2022,52 +1910,13 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
                         <td className="border border-border p-2 text-center text-foreground">{nivel.asistenPromed.toFixed(2)}</td>
                         <td className="border border-border p-2 text-center text-foreground">{nivel.totalRegistros}</td>
                         <td className="border border-border p-2 text-center text-foreground">
-                          {(() => {
-                            try {
-                              const presente = typeof nivel.totalPresente === 'number' ? nivel.totalPresente : (Number(nivel.totalPresente) || 0)
-                              const permiso = typeof nivel.totalPermiso === 'number' ? nivel.totalPermiso : (Number(nivel.totalPermiso) || 0)
-                              const falto = typeof nivel.totalFalto === 'number' ? nivel.totalFalto : (Number(nivel.totalFalto) || 0)
-                              const totalRegistrosAsistenciaNivel = presente + permiso + falto
-                              if (totalRegistrosAsistenciaNivel === 0) return '0.00'
-                              const porcentaje = (presente / totalRegistrosAsistenciaNivel) * 100
-                              if (isNaN(porcentaje) || !isFinite(porcentaje)) return '0.00'
-                              return porcentaje.toFixed(2)
-                            } catch (e) {
-                              return '0.00'
-                            }
-                          })()}%
+                          {pctAsistencia(nivel.totalPresente, nivel.totalOportunidadesAsistencia)}%
                         </td>
                         <td className="border border-border p-2 text-center text-foreground">
-                          {(() => {
-                            try {
-                              const presente = typeof nivel.totalPresente === 'number' ? nivel.totalPresente : (Number(nivel.totalPresente) || 0)
-                              const permiso = typeof nivel.totalPermiso === 'number' ? nivel.totalPermiso : (Number(nivel.totalPermiso) || 0)
-                              const falto = typeof nivel.totalFalto === 'number' ? nivel.totalFalto : (Number(nivel.totalFalto) || 0)
-                              const totalRegistrosAsistenciaNivel = presente + permiso + falto
-                              if (totalRegistrosAsistenciaNivel === 0) return '0.00'
-                              const porcentaje = (permiso / totalRegistrosAsistenciaNivel) * 100
-                              if (isNaN(porcentaje) || !isFinite(porcentaje)) return '0.00'
-                              return porcentaje.toFixed(2)
-                            } catch (e) {
-                              return '0.00'
-                            }
-                          })()}%
+                          {pctAsistencia(nivel.totalPermiso, nivel.totalOportunidadesAsistencia)}%
                         </td>
                         <td className="border border-border p-2 text-center text-foreground">
-                          {(() => {
-                            try {
-                              const presente = typeof nivel.totalPresente === 'number' ? nivel.totalPresente : (Number(nivel.totalPresente) || 0)
-                              const permiso = typeof nivel.totalPermiso === 'number' ? nivel.totalPermiso : (Number(nivel.totalPermiso) || 0)
-                              const falto = typeof nivel.totalFalto === 'number' ? nivel.totalFalto : (Number(nivel.totalFalto) || 0)
-                              const totalRegistrosAsistenciaNivel = presente + permiso + falto
-                              if (totalRegistrosAsistenciaNivel === 0) return '0.00'
-                              const porcentaje = (falto / totalRegistrosAsistenciaNivel) * 100
-                              if (isNaN(porcentaje) || !isFinite(porcentaje)) return '0.00'
-                              return porcentaje.toFixed(2)
-                            } catch (e) {
-                              return '0.00'
-                            }
-                          })()}%
+                          {pctAsistencia(nivel.totalFalto, nivel.totalOportunidadesAsistencia)}%
                         </td>
                       </tr>
                     </React.Fragment>
@@ -2083,6 +1932,10 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
                     const totalGeneralAsistenPromed = totalGeneralDiasAtencion > 0
                       ? totalGeneralPresente / totalGeneralDiasAtencion
                       : 0
+                    const totalGeneralOportunidades = reporteData.niveles.reduce(
+                      (sum, nivel) => sum + nivel.totalOportunidadesAsistencia,
+                      0
+                    )
                     
                     return (
                       <tr className="bg-accent font-bold">
@@ -2108,52 +1961,13 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
                         <td className="border border-border p-2 text-center text-foreground">{totalGeneralAsistenPromed.toFixed(2)}</td>
                         <td className="border border-border p-2 text-center text-foreground">{totalGeneralRegistros}</td>
                         <td className="border border-border p-2 text-center text-foreground">
-                          {(() => {
-                            try {
-                              const presente = typeof totalGeneralPresente === 'number' ? totalGeneralPresente : (Number(totalGeneralPresente) || 0)
-                              const permiso = typeof totalGeneralPermiso === 'number' ? totalGeneralPermiso : (Number(totalGeneralPermiso) || 0)
-                              const falto = typeof totalGeneralFalto === 'number' ? totalGeneralFalto : (Number(totalGeneralFalto) || 0)
-                              const totalGeneralRegistrosAsistencia = presente + permiso + falto
-                              if (totalGeneralRegistrosAsistencia === 0) return '0.00'
-                              const porcentaje = (presente / totalGeneralRegistrosAsistencia) * 100
-                              if (isNaN(porcentaje) || !isFinite(porcentaje)) return '0.00'
-                              return porcentaje.toFixed(2)
-                            } catch (e) {
-                              return '0.00'
-                            }
-                          })()}%
+                          {pctAsistencia(totalGeneralPresente, totalGeneralOportunidades)}%
                         </td>
                         <td className="border border-border p-2 text-center text-foreground">
-                          {(() => {
-                            try {
-                              const presente = typeof totalGeneralPresente === 'number' ? totalGeneralPresente : (Number(totalGeneralPresente) || 0)
-                              const permiso = typeof totalGeneralPermiso === 'number' ? totalGeneralPermiso : (Number(totalGeneralPermiso) || 0)
-                              const falto = typeof totalGeneralFalto === 'number' ? totalGeneralFalto : (Number(totalGeneralFalto) || 0)
-                              const totalGeneralRegistrosAsistencia = presente + permiso + falto
-                              if (totalGeneralRegistrosAsistencia === 0) return '0.00'
-                              const porcentaje = (permiso / totalGeneralRegistrosAsistencia) * 100
-                              if (isNaN(porcentaje) || !isFinite(porcentaje)) return '0.00'
-                              return porcentaje.toFixed(2)
-                            } catch (e) {
-                              return '0.00'
-                            }
-                          })()}%
+                          {pctAsistencia(totalGeneralPermiso, totalGeneralOportunidades)}%
                         </td>
                         <td className="border border-border p-2 text-center text-foreground">
-                          {(() => {
-                            try {
-                              const presente = typeof totalGeneralPresente === 'number' ? totalGeneralPresente : (Number(totalGeneralPresente) || 0)
-                              const permiso = typeof totalGeneralPermiso === 'number' ? totalGeneralPermiso : (Number(totalGeneralPermiso) || 0)
-                              const falto = typeof totalGeneralFalto === 'number' ? totalGeneralFalto : (Number(totalGeneralFalto) || 0)
-                              const totalGeneralRegistrosAsistencia = presente + permiso + falto
-                              if (totalGeneralRegistrosAsistencia === 0) return '0.00'
-                              const porcentaje = (falto / totalGeneralRegistrosAsistencia) * 100
-                              if (isNaN(porcentaje) || !isFinite(porcentaje)) return '0.00'
-                              return porcentaje.toFixed(2)
-                            } catch (e) {
-                              return '0.00'
-                            }
-                          })()}%
+                          {pctAsistencia(totalGeneralFalto, totalGeneralOportunidades)}%
                         </td>
                       </tr>
                     )
