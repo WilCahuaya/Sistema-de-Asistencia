@@ -26,7 +26,8 @@ interface AsistenciaCalendarioModalProps {
   getEstado: (estudianteId: string, fechaStr: string) => 'presente' | 'falto' | 'permiso' | null
   onDayTap: (estudianteId: string, fechaStr: string) => void
   isSaving: (estudianteId: string, fechaStr: string) => boolean
-  puedeEditar: boolean
+  /** Si es función, evalúa por fecha (p. ej. intervalo de intervención). */
+  puedeEditar: boolean | ((fechaStr: string) => boolean)
 }
 
 export function AsistenciaCalendarioModal({
@@ -40,6 +41,11 @@ export function AsistenciaCalendarioModal({
   isSaving,
   puedeEditar,
 }: AsistenciaCalendarioModalProps) {
+  const puedeEditarDia = (fechaStr: string) =>
+    typeof puedeEditar === 'function' ? puedeEditar(fechaStr) : puedeEditar
+
+  const algunaFechaEditable = daysInMonth.some((d) => puedeEditarDia(d.fechaStr))
+
   const getEstadoIcon = (estado: 'presente' | 'falto' | 'permiso' | null, saving: boolean) => {
     if (saving) return <Clock className="h-5 w-5 animate-spin text-muted-foreground" />
     switch (estado) {
@@ -86,9 +92,9 @@ export function AsistenciaCalendarioModal({
         </DialogHeader>
         <p className="text-sm text-muted-foreground mb-4">{monthLabel}</p>
         <p className="text-xs text-muted-foreground mb-3">
-          {puedeEditar
+          {algunaFechaEditable
             ? 'Toca cada día para marcar: presente → faltó → permiso → presente'
-            : 'Solo lectura'}
+            : 'Solo lectura (fuera del intervalo o intervención cerrada)'}
         </p>
         <div className="overflow-x-auto">
           <div className="min-w-[280px]">
@@ -109,17 +115,19 @@ export function AsistenciaCalendarioModal({
                   }
                   const estado = getEstado(estudiante.id, dayInfo.fechaStr)
                   const saving = isSaving(estudiante.id, dayInfo.fechaStr)
+                  const editable = puedeEditarDia(dayInfo.fechaStr)
                   return (
                     <button
                       key={di}
                       type="button"
-                      onClick={() => puedeEditar && onDayTap(estudiante.id, dayInfo.fechaStr)}
-                      disabled={!puedeEditar}
+                      onClick={() => editable && onDayTap(estudiante.id, dayInfo.fechaStr)}
+                      disabled={!editable}
                       className={`aspect-square min-w-[36px] flex items-center justify-center rounded-lg transition-colors touch-manipulation ${
-                        puedeEditar
+                        editable
                           ? 'active:scale-95 hover:bg-accent/50'
-                          : 'cursor-default opacity-80'
+                          : 'cursor-not-allowed opacity-50 bg-muted/30'
                       }`}
+                      title={editable ? undefined : 'Fuera del intervalo de la intervención'}
                     >
                       <div className="flex flex-col items-center gap-0.5">
                         <span className="text-xs font-medium">{dayInfo.day}</span>

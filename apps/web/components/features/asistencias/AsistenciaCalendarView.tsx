@@ -342,6 +342,31 @@ export function AsistenciaCalendarView({
       ) return true
       return false
     })()
+
+  const mensajeFueraEdicion = () =>
+    ctxIntervencion
+      ? 'Solo se puede registrar asistencia dentro del intervalo de fechas de la intervención, mientras esté activa.'
+      : 'Fuera del plazo de gracia y sin ventana de corrección ni permiso anual activo para esta FCP.'
+
+  const puedeEditarFecha = (fechaStr: string) => {
+    const [fy, fm] = fechaStr.split('-').map(Number)
+    return (
+      puedeEditarMes &&
+      ventanaEdicionParaFechaMes(fy, fm) &&
+      fechaEnTemporadaIntervencion(aulaSeleccionada, fechaStr)
+    )
+  }
+
+  const tituloCeldaSoloLectura = (fechaStr: string) => {
+    if (ctxIntervencion && !fechaEnTemporadaIntervencion(aulaSeleccionada, fechaStr)) {
+      return 'Fuera del intervalo de la intervención'
+    }
+    if (ctxIntervencion && intervencionSoloLectura(aulaSeleccionada)) {
+      return 'Intervención finalizada o suspendida — solo consulta'
+    }
+    return 'Solo lectura'
+  }
+
   const showHabilitarCorreccion =
     role === 'facilitador' &&
     esMesPasadoVista &&
@@ -912,6 +937,7 @@ export function AsistenciaCalendarView({
           registro_tardio
         `)
         .eq('fcp_id', fcpId)
+        .eq('aula_id', selectedAula)
         .in('estudiante_id', estudianteIds)
         .gte('fecha', firstDay)
         .lte('fecha', lastDay)
@@ -1039,10 +1065,7 @@ export function AsistenciaCalendarView({
 
     const [fy, fm] = fechaStr.split('-').map(Number)
     if (!ventanaEdicionParaFechaMes(fy, fm)) {
-      toast.warning(
-        'No se puede editar esta fecha',
-        'Fuera del plazo de gracia y sin ventana de corrección ni permiso anual activo para esta FCP.'
-      )
+      toast.warning('No se puede editar esta fecha', mensajeFueraEdicion())
       return
     }
 
@@ -1119,9 +1142,11 @@ export function AsistenciaCalendarView({
               .eq('estudiante_id', estudianteId)
               .eq('fecha', fechaStr)
               .eq('fcp_id', fcpId)
-              .single()
+              .eq('aula_id', selectedAula)
+              .maybeSingle()
 
             if (fetchError) throw fetchError
+            if (!existingData) throw error
 
             // Actualizar la asistencia existente
             const { data: updatedData, error: updateError } = await supabase
@@ -1186,12 +1211,14 @@ export function AsistenciaCalendarView({
   const deleteAsistencia = async (estudianteId: string, fechaStr: string) => {
     if (!puedeEditarMes) return
 
+    if (ctxIntervencion && !fechaEnTemporadaIntervencion(aulaSeleccionada, fechaStr)) {
+      toast.warning('Fuera de la temporada', 'Esta fecha está fuera del intervalo de la intervención.')
+      return
+    }
+
     const [fyDel, fmDel] = fechaStr.split('-').map(Number)
     if (!ventanaEdicionParaFechaMes(fyDel, fmDel)) {
-      toast.warning(
-        'No se puede editar esta fecha',
-        'Fuera del plazo de gracia y sin ventana de corrección ni permiso anual activo para esta FCP.'
-      )
+      toast.warning('No se puede editar esta fecha', mensajeFueraEdicion())
       return
     }
 
@@ -1350,11 +1377,12 @@ export function AsistenciaCalendarView({
   const handleMarkAllPresente = async (fechaStr: string) => {
     if (!puedeEditarMes || !selectedAula) return
 
-    const [fyM, fmM] = fechaStr.split('-').map(Number)
-    if (!ventanaEdicionParaFechaMes(fyM, fmM)) {
+    if (!puedeEditarFecha(fechaStr)) {
       toast.warning(
-        'No se puede editar esta fecha',
-        'Fuera del plazo de gracia y sin ventana de corrección ni permiso anual activo para esta FCP.'
+        ctxIntervencion ? 'Fuera de la temporada' : 'No se puede editar esta fecha',
+        ctxIntervencion && !fechaEnTemporadaIntervencion(aulaSeleccionada, fechaStr)
+          ? 'Esta fecha está fuera del intervalo de la intervención.'
+          : mensajeFueraEdicion()
       )
       return
     }
@@ -1609,11 +1637,12 @@ export function AsistenciaCalendarView({
   const handleEliminarTodasAsistencias = (fechaStr: string) => {
     if (!puedeEditarMes || !selectedAula) return
 
-    const [fyE, fmE] = fechaStr.split('-').map(Number)
-    if (!ventanaEdicionParaFechaMes(fyE, fmE)) {
+    if (!puedeEditarFecha(fechaStr)) {
       toast.warning(
-        'No se puede editar esta fecha',
-        'Fuera del plazo de gracia y sin ventana de corrección ni permiso anual activo para esta FCP.'
+        ctxIntervencion ? 'Fuera de la temporada' : 'No se puede editar esta fecha',
+        ctxIntervencion && !fechaEnTemporadaIntervencion(aulaSeleccionada, fechaStr)
+          ? 'Esta fecha está fuera del intervalo de la intervención.'
+          : mensajeFueraEdicion()
       )
       return
     }
@@ -1640,6 +1669,7 @@ export function AsistenciaCalendarView({
         .from('asistencias')
         .delete()
         .eq('fcp_id', fcpId)
+        .eq('aula_id', selectedAula)
         .eq('fecha', fechaStr)
         .in('estudiante_id', estudianteIds)
 
@@ -2128,11 +2158,7 @@ export function AsistenciaCalendarView({
               return `${parseInt(day, 10)} - ${monthName} - ${y}`
             }
 
-            const [fyMob, fmMob] = fechaStr.split('-').map(Number)
-            const puedeEditarEstaFecha =
-              puedeEditarMes &&
-              ventanaEdicionParaFechaMes(fyMob, fmMob) &&
-              fechaEnTemporadaIntervencion(aulaSeleccionada, fechaStr)
+            const puedeEditarEstaFecha = puedeEditarFecha(fechaStr)
 
             const filteredEstudiantes = sortByNombreCompleto(
               mobileSearch.trim()
@@ -2379,7 +2405,7 @@ export function AsistenciaCalendarView({
                     getEstado={getAsistenciaEstado}
                     onDayTap={(eid, fechaStr) => handleCellClick(eid, fechaStr, false)}
                     isSaving={(eid, fechaStr) => saving.has(`${eid}_${fechaStr}`)}
-                    puedeEditar={puedeEditarMes}
+                    puedeEditar={(fechaStr) => puedeEditarFecha(fechaStr)}
                   />
                 )}
               </div>
@@ -2517,7 +2543,7 @@ export function AsistenciaCalendarView({
                               Sin atención
                             </span>
                           )}
-                          {puedeEditarMes && (
+                          {puedeEditarFecha(fechaStr) && (
                             <div className="flex items-center gap-0.5">
                               <Button
                                 variant="ghost"
@@ -2528,7 +2554,7 @@ export function AsistenciaCalendarView({
                                   handleMarkAllPresente(fechaStr)
                                 }}
                                 title="Marcar todos como presentes"
-                                disabled={!puedeEditarMes || estudiantes.length === 0 || savingDates.has(fechaStr)}
+                                disabled={estudiantes.length === 0 || savingDates.has(fechaStr)}
                               >
                                 {savingDates.has(fechaStr) ? (
                                   <Clock className="h-3.5 w-3.5 animate-spin" />
@@ -2611,20 +2637,18 @@ export function AsistenciaCalendarView({
                       const estado = getAsistenciaEstado(estudiante.id, fechaStr)
                       const key = `${estudiante.id}_${fechaStr}`
                       const isSaving = saving.has(key)
-                      const [fyCell, fmCell] = fechaStr.split('-').map(Number)
-                      const puedeEditarEstaCelda =
-                        puedeEditarMes &&
-                        ventanaEdicionParaFechaMes(fyCell, fmCell) &&
-                        fechaEnTemporadaIntervencion(aulaSeleccionada, fechaStr)
+                      const puedeEditarEstaCelda = puedeEditarFecha(fechaStr)
+                      const fueraTemporada =
+                        ctxIntervencion && !fechaEnTemporadaIntervencion(aulaSeleccionada, fechaStr)
 
                       return (
                         <td
                           key={day}
                           className={`border border-border p-1 text-center transition-colors ${
                             puedeEditarEstaCelda ? '' : 'cursor-not-allowed opacity-60'
-                          }`}
+                          } ${fueraTemporada ? 'bg-muted/50' : ''}`}
                           style={{ width: '80px', minWidth: '80px' }}
-                          title={puedeEditarEstaCelda ? undefined : 'Solo lectura'}
+                          title={puedeEditarEstaCelda ? undefined : tituloCeldaSoloLectura(fechaStr)}
                         >
                           <div className="flex min-h-[2.75rem] w-full items-start justify-center gap-0.5">
                             {puedeEditarEstaCelda ? (

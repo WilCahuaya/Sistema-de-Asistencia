@@ -29,17 +29,25 @@ export const toast = {
   saved: (entity?: string) =>
     sonnerToast.success(entity ? `${entity} guardado correctamente` : 'Guardado correctamente'),
 
-  /** Actualizado exitosamente */
+  /** Creado exitosamente (sustantivo masculino) */
+  created: (entity?: string) =>
+    sonnerToast.success(entity ? `${entity} creado correctamente` : 'Creado correctamente'),
+
+  /** Creado exitosamente (sustantivo femenino, p. ej. Intervención) */
+  createdFem: (entity?: string) =>
+    sonnerToast.success(entity ? `${entity} creada correctamente` : 'Creada correctamente'),
+
+  /** Actualizado exitosamente (sustantivo masculino) */
   updated: (entity?: string) =>
     sonnerToast.success(entity ? `${entity} actualizado correctamente` : 'Actualizado correctamente'),
+
+  /** Actualizado exitosamente (sustantivo femenino) */
+  updatedFem: (entity?: string) =>
+    sonnerToast.success(entity ? `${entity} actualizada correctamente` : 'Actualizada correctamente'),
 
   /** Eliminado exitosamente */
   deleted: (entity?: string) =>
     sonnerToast.success(entity ? `${entity} eliminado correctamente` : 'Eliminado correctamente'),
-
-  /** Creado exitosamente */
-  created: (entity?: string) =>
-    sonnerToast.success(entity ? `${entity} creado correctamente` : 'Creado correctamente'),
 
   /** Promesa (loading → success/error) */
   promise: sonnerToast.promise,

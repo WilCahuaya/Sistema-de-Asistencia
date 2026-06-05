@@ -24,7 +24,7 @@ import { useForm } from 'react-hook-form'
 import { toast } from '@/lib/toast'
 import { SucursalField, NUEVA_SUCURSAL, resolverSucursalId } from './SucursalField'
 import type { AulaTipo, EstadoIntervencion } from '@/lib/utils/aulaIntervencion'
-import { SEGMENT_AULA_TIPO } from '@/lib/utils/aulaIntervencion'
+import { SEGMENT_AULA_TIPO, ESTADO_INTERVENCION_LABEL } from '@/lib/utils/aulaIntervencion'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 
 interface AulaFormData {
@@ -130,7 +130,11 @@ export function AulaDialog({
       reset()
       setSucursalId('')
       setNuevaSucursal('')
-      toast.created(esIntervencion ? 'Intervención' : 'Aula')
+      if (esIntervencion) {
+        toast.createdFem('Intervención')
+      } else {
+        toast.created('Aula')
+      }
       onAulaCreated?.(nuevaAula)
       onSuccess()
     } catch (error: any) {
@@ -220,7 +224,9 @@ export function AulaDialog({
                     onValueChange={(v) => setEstadoIntervencion(v as EstadoIntervencion)}
                   >
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder="Seleccionar estado">
+                        {ESTADO_INTERVENCION_LABEL[estadoIntervencion]}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="ACTIVA">Activa</SelectItem>

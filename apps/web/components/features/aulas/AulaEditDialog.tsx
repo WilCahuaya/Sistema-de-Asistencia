@@ -24,7 +24,7 @@ import { useForm } from 'react-hook-form'
 import { toast } from '@/lib/toast'
 import { SucursalField, resolverSucursalId } from './SucursalField'
 import type { AulaTipo, EstadoIntervencion } from '@/lib/utils/aulaIntervencion'
-import { esIntervencion } from '@/lib/utils/aulaIntervencion'
+import { esIntervencion, ESTADO_INTERVENCION_LABEL } from '@/lib/utils/aulaIntervencion'
 
 interface AulaFormData {
   nombre: string
@@ -136,7 +136,11 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, fcpId, i
       if (updateError) throw updateError
 
       reset()
-      toast.updated(esInt ? 'Intervención' : 'Aula')
+      if (esInt) {
+        toast.updatedFem('Intervención')
+      } else {
+        toast.updated('Aula')
+      }
       onSuccess()
       onOpenChange(false)
     } catch (error: any) {
@@ -236,7 +240,9 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, fcpId, i
                     disabled={initialData.estado_intervencion === 'FINALIZADA'}
                   >
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder="Seleccionar estado">
+                        {ESTADO_INTERVENCION_LABEL[estadoIntervencion]}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="ACTIVA">Activa</SelectItem>
