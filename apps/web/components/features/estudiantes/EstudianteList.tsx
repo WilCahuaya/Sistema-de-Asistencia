@@ -5,9 +5,12 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Plus, GraduationCap, Upload, Search, ArrowRight, UserX, UserCheck, Edit, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, GraduationCap, Upload, Search, ArrowRight, UserX, UserCheck, Edit, ChevronDown, ChevronUp, Info, UserMinus } from 'lucide-react'
 import { EstudianteDialog } from './EstudianteDialog'
 import { EstudianteEditDialog } from './EstudianteEditDialog'
+import { AgregarEstudianteIntervencionDialog } from './AgregarEstudianteIntervencionDialog'
+import { EstudianteIntervencionUploadDialog } from './EstudianteIntervencionUploadDialog'
+import { EstudianteDetalleDialog } from './EstudianteDetalleDialog'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Table,
@@ -40,6 +43,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  SelectGroup,
+  SelectLabel,
 } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
@@ -47,6 +52,9 @@ import { Building2 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { sortByNombreCompleto } from '@/lib/utils/sortEstudiantes'
 import { SUCURSAL_SELECT, extraerSucursal, SucursalTag } from '@/lib/utils/aulaSucursal'
+import { esIntervencion, esIntervencionActiva, formatTemporada, ESTADO_INTERVENCION_LABEL } from '@/lib/utils/aulaIntervencion'
+import type { AulaTipo, EstadoIntervencion } from '@/lib/utils/aulaIntervencion'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 interface Estudiante {
   id: string
@@ -82,7 +90,7 @@ export function EstudianteList() {
   const [selectedAula, setSelectedAula] = useState<string | null>(null)
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
   const [loadingFCPs, setLoadingFCPs] = useState(true)
-  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null; sucursalNombre?: string; esPrincipal?: boolean }>>([])
+  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null; sucursalNombre?: string; esPrincipal?: boolean; tipo?: AulaTipo; fecha_inicio?: string | null; fecha_fin?: string | null; estado_intervencion?: EstadoIntervencion | null }>>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [includeInactivos, setIncludeInactivos] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
@@ -96,6 +104,12 @@ export function EstudianteList() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isMovimientoMasivoDialogOpen, setIsMovimientoMasivoDialogOpen] = useState(false)
   const [isMoverExcelDialogOpen, setIsMoverExcelDialogOpen] = useState(false)
+  const [isAgregarIntervencionOpen, setIsAgregarIntervencionOpen] = useState(false)
+  const [isIntervencionUploadOpen, setIsIntervencionUploadOpen] = useState(false)
+  const [isDetalleOpen, setIsDetalleOpen] = useState(false)
+  const [selectedForDetalle, setSelectedForDetalle] = useState<Estudiante | null>(null)
+  const [quitarIntervencionEst, setQuitarIntervencionEst] = useState<Estudiante | null>(null)
+  const [quitarIntervencionLoading, setQuitarIntervencionLoading] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
   const aulaIdFromUrl = searchParams.get('aulaId')
@@ -133,7 +147,14 @@ export function EstudianteList() {
     !userRoleLoading &&
     !membershipsLoading &&
     ((roleInFcp !== null && (roleInFcp === 'director' || roleInFcp === 'secretario')) ||
-      rolesInFcp.some((r) => r === 'director' || r === 'secretario'))
+      rolesInFcp.some((r) => r === 'director' || r === 'secretario') ||
+      isTutorState)
+
+  const aulaSeleccionada = selectedAula ? aulas.find((a) => a.id === selectedAula) : null
+  const ctxIntervencion = esIntervencion(aulaSeleccionada)
+  const intervencionEditable = esIntervencionActiva(aulaSeleccionada)
+  const aulasRegulares = aulas.filter((a) => (a.tipo ?? 'REGULAR') === 'REGULAR')
+  const aulasIntervencion = aulas.filter((a) => a.tipo === 'INTERVENTION')
   const cardRef = useRef<HTMLDivElement>(null)
   const defaultWidthRef = useRef<number | null>(null) // Ancho por defecto del contenedor
 
@@ -434,7 +455,7 @@ export function EstudianteList() {
             .select(`
               aula_id,
               fcp_id,
-              aula:aulas!inner(id, nombre, activa, fcp_id, codigo_aula, ${SUCURSAL_SELECT}),
+              aula:aulas!inner(id, nombre, activa, fcp_id, codigo_aula, tipo, fecha_inicio, fecha_fin, estado_intervencion, ${SUCURSAL_SELECT}),
               fcp_miembro:fcp_miembros(nombre_display, email_pendiente, usuario:usuarios(nombre_completo, email))
             `)
             .in('fcp_miembro_id', tutorMiembroIds)
@@ -499,7 +520,7 @@ export function EstudianteList() {
         
         const { data: aulasData, error: aulasError } = await supabase
           .from('aulas')
-          .select(`id, nombre, codigo_aula, ${SUCURSAL_SELECT}`)
+          .select(`id, nombre, codigo_aula, tipo, fecha_inicio, fecha_fin, estado_intervencion, ${SUCURSAL_SELECT}`)
           .eq('fcp_id', fcpIdToUse)
           .eq('activa', true)
           .order('nombre', { ascending: true })
@@ -597,6 +618,42 @@ export function EstudianteList() {
       const { data: { user }, error: userError } = await supabase.auth.getUser()
       if (userError || !user) {
         console.error('Error obteniendo usuario:', userError)
+        setLoading(false)
+        return
+      }
+
+      // Intervención: roster desde intervencion_estudiantes
+      let esIntCtx = ctxIntervencion
+      if (selectedAula && !esIntCtx) {
+        const { data: am } = await supabase.from('aulas').select('tipo').eq('id', selectedAula).maybeSingle()
+        esIntCtx = am?.tipo === 'INTERVENTION'
+      }
+
+      if (esIntCtx && selectedAula) {
+        const { data: rows, error: intErr } = await supabase
+          .from('intervencion_estudiantes')
+          .select(`
+            estudiante:estudiantes(
+              *,
+              aula:aulas(id, nombre),
+              fcp:fcps(razon_social)
+            )
+          `)
+          .eq('aula_id', selectedAula)
+          .eq('activo', true)
+
+        if (intErr) throw intErr
+
+        const estudiantesCargados = (rows || [])
+          .map((r: { estudiante: Estudiante | Estudiante[] | null }) => {
+            const e = Array.isArray(r.estudiante) ? r.estudiante[0] : r.estudiante
+            return e
+          })
+          .filter((e): e is Estudiante => !!e)
+
+        setEstudiantesCompletos(estudiantesCargados)
+        setTotalEstudiantes(estudiantesCargados.length)
+        setEstudiantes(estudiantesCargados)
         setLoading(false)
         return
       }
@@ -874,6 +931,31 @@ export function EstudianteList() {
     setIsUploadDialogOpen(false)
   }
 
+  const handleQuitarIntervencion = (est: Estudiante) => {
+    setQuitarIntervencionEst(est)
+  }
+
+  const confirmQuitarIntervencion = async () => {
+    if (!quitarIntervencionEst || !selectedAula) return
+    setQuitarIntervencionLoading(true)
+    try {
+      const supabase = createClient()
+      const { error } = await supabase
+        .from('intervencion_estudiantes')
+        .delete()
+        .eq('aula_id', selectedAula)
+        .eq('estudiante_id', quitarIntervencionEst.id)
+      if (error) throw error
+      toast.success('Estudiante quitado', 'Se removió de la intervención. Su aula principal no cambió.')
+      loadEstudiantes()
+      setQuitarIntervencionEst(null)
+    } catch (e: unknown) {
+      toast.error('Error', e instanceof Error ? e.message : 'No se pudo quitar el estudiante.')
+    } finally {
+      setQuitarIntervencionLoading(false)
+    }
+  }
+
   const handleRetirar = (est: Estudiante) => {
     setSelectedEstudianteForRetirar(est)
     setIsRetirarDialogOpen(true)
@@ -1000,13 +1082,30 @@ export function EstudianteList() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all__">Todas las aulas</SelectItem>
-              {aulas.map((aula) => (
-                  <SelectItem key={aula.id} value={aula.id}>
-                    {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
-                    {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
-                    <SucursalTag sucursalNombre={aula.sucursalNombre} esPrincipal={aula.esPrincipal} />
-                  </SelectItem>
-              ))}
+                {aulasRegulares.length > 0 && (
+                  <SelectGroup>
+                    <SelectLabel>Aulas regulares</SelectLabel>
+                    {aulasRegulares.map((aula) => (
+                      <SelectItem key={aula.id} value={aula.id}>
+                        {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
+                        {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
+                        <SucursalTag sucursalNombre={aula.sucursalNombre} esPrincipal={aula.esPrincipal} />
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
+                {aulasIntervencion.length > 0 && (
+                  <SelectGroup>
+                    <SelectLabel>Intervenciones</SelectLabel>
+                    {aulasIntervencion.map((aula) => (
+                      <SelectItem key={aula.id} value={aula.id}>
+                        {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
+                        {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
+                        <SucursalTag sucursalNombre={aula.sucursalNombre} esPrincipal={aula.esPrincipal} />
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
               </SelectContent>
             </Select>
           </div>
@@ -1024,6 +1123,21 @@ export function EstudianteList() {
             </Label>
           </div>
         </div>
+
+        {ctxIntervencion && aulaSeleccionada && (
+          <div className="mb-4 p-3 rounded-lg border bg-muted/30 text-sm">
+            <p className="font-medium">
+              Intervención: {aulaSeleccionada.nombre}
+              {aulaSeleccionada.codigo_aula && (
+                <span className="text-muted-foreground ml-1">({aulaSeleccionada.codigo_aula})</span>
+              )}
+            </p>
+            <p className="text-muted-foreground text-xs mt-1">
+              Temporada: {formatTemporada(aulaSeleccionada)} ·{' '}
+              {ESTADO_INTERVENCION_LABEL[aulaSeleccionada.estado_intervencion ?? 'ACTIVA']}
+            </p>
+          </div>
+        )}
 
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="flex-1 max-w-md">
@@ -1048,40 +1162,50 @@ export function EstudianteList() {
           <div className="flex flex-wrap gap-2">
             {canManageEstudiantes && (
               <>
-                {selectedIds.size > 0 && (
+                {!ctxIntervencion && selectedIds.size > 0 && (
                   <Button
                     variant="outline"
                     onClick={() => setIsMovimientoMasivoDialogOpen(true)}
-                    disabled={aulas.length <= 1}
+                    disabled={aulasRegulares.length <= 1}
                     title="Mover los alumnos seleccionados a otro salón"
                   >
                     <ArrowRight className="mr-2 h-4 w-4" />
                     Mover {selectedIds.size} seleccionado(s)
                   </Button>
                 )}
+                {!ctxIntervencion && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsMoverExcelDialogOpen(true)}
+                    disabled={!selectedFCP || aulasRegulares.length < 2}
+                    title="Mover estudiantes a nuevos salones desde un archivo Excel"
+                  >
+                    <ArrowRight className="mr-2 h-4 w-4" />
+                    Mover desde Excel
+                  </Button>
+                )}
                 <Button
                   variant="outline"
-                  onClick={() => setIsMoverExcelDialogOpen(true)}
-                  disabled={!selectedFCP || aulas.length < 2}
-                  title="Mover estudiantes a nuevos salones desde un archivo Excel"
-                >
-                  <ArrowRight className="mr-2 h-4 w-4" />
-                  Mover desde Excel
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => setIsUploadDialogOpen(true)}
-                  disabled={!selectedFCP || aulas.length === 0}
+                  onClick={() =>
+                    ctxIntervencion ? setIsIntervencionUploadOpen(true) : setIsUploadDialogOpen(true)
+                  }
+                  disabled={!selectedFCP || aulas.length === 0 || (ctxIntervencion && !intervencionEditable)}
                 >
                   <Upload className="mr-2 h-4 w-4" />
                   Cargar Excel
                 </Button>
                 <Button
-                  onClick={() => setIsDialogOpen(true)}
-                  disabled={!selectedFCP || aulas.length === 0}
+                  onClick={() =>
+                    ctxIntervencion ? setIsAgregarIntervencionOpen(true) : setIsDialogOpen(true)
+                  }
+                  disabled={
+                    !selectedFCP ||
+                    aulas.length === 0 ||
+                    (ctxIntervencion && (!selectedAula || !intervencionEditable))
+                  }
                 >
                   <Plus className="mr-2 h-4 w-4" />
-                  Nuevo Estudiante
+                  {ctxIntervencion ? 'Agregar Estudiante' : 'Nuevo Estudiante'}
                 </Button>
               </>
             )}
@@ -1202,7 +1326,7 @@ export function EstudianteList() {
                           onClick={() => setExpandedCardId(isExpanded ? null : estudiante.id)}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            {canManageEstudiantes ? (
+                            {canManageEstudiantes && !ctxIntervencion ? (
                               <div onClick={(e) => e.stopPropagation()} className="shrink-0 pt-0.5">
                                 <Checkbox
                                   checked={selectedIds.has(estudiante.id)}
@@ -1237,31 +1361,59 @@ export function EstudianteList() {
                           {isExpanded && (
                             <div className="mt-3 pt-3 border-t space-y-2" onClick={(e) => e.stopPropagation()}>
                               <p className="text-sm text-muted-foreground">
-                                <span className="font-medium text-foreground">Aula:</span> {estudiante.aula?.nombre || 'Sin aula'}
+                                <span className="font-medium text-foreground">
+                                  {ctxIntervencion ? 'Aula principal:' : 'Aula:'}
+                                </span>{' '}
+                                {estudiante.aula?.nombre || 'Sin aula'}
                               </p>
-                              <p className="text-sm text-muted-foreground">
-                                <span className="font-medium text-foreground">Tutor:</span> {estudiante.tutor || 'Sin tutor'}
-                              </p>
-                              {canManageEstudiantes && (
-                                <div className="flex gap-2 pt-2">
-                                  <Button variant="outline" size="sm" className="flex-1" onClick={() => { setSelectedEstudianteForEdit(estudiante); setIsEditDialogOpen(true) }}>
-                                    <Edit className="h-4 w-4 mr-1" />
-                                    Editar
-                                  </Button>
-                                  {estudiante.activo ? (
-                                    <Button variant="outline" size="sm" onClick={() => handleRetirar(estudiante)} title="Retirar estudiante">
-                                      <UserX className="h-4 w-4" />
-                                    </Button>
-                                  ) : (
-                                    <Button variant="outline" size="sm" onClick={() => handleReactivar(estudiante)} title="Reactivar en salón">
-                                      <UserCheck className="h-4 w-4" />
-                                    </Button>
-                                  )}
-                                  <Button variant="outline" size="sm" onClick={() => { setSelectedEstudianteForMovimiento(estudiante); setIsMovimientoDialogOpen(true) }} disabled={!estudiante.activo || aulas.length <= 1} title="Cambiar de salón">
-                                    <ArrowRight className="h-4 w-4" />
-                                  </Button>
-                                </div>
+                              {!ctxIntervencion && (
+                                <p className="text-sm text-muted-foreground">
+                                  <span className="font-medium text-foreground">Tutor:</span> {estudiante.tutor || 'Sin tutor'}
+                                </p>
                               )}
+                              <div className="flex gap-2 pt-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedForDetalle(estudiante)
+                                    setIsDetalleOpen(true)
+                                  }}
+                                  title="Ver detalle"
+                                >
+                                  <Info className="h-4 w-4" />
+                                </Button>
+                                {canManageEstudiantes && (
+                                  <>
+                                    <Button variant="outline" size="sm" className="flex-1" onClick={() => { setSelectedEstudianteForEdit(estudiante); setIsEditDialogOpen(true) }}>
+                                      <Edit className="h-4 w-4 mr-1" />
+                                      Editar
+                                    </Button>
+                                    {ctxIntervencion ? (
+                                      intervencionEditable && (
+                                        <Button variant="outline" size="sm" onClick={() => handleQuitarIntervencion(estudiante)} title="Quitar de la intervención">
+                                          <UserMinus className="h-4 w-4" />
+                                        </Button>
+                                      )
+                                    ) : (
+                                      <>
+                                        {estudiante.activo ? (
+                                          <Button variant="outline" size="sm" onClick={() => handleRetirar(estudiante)} title="Retirar estudiante">
+                                            <UserX className="h-4 w-4" />
+                                          </Button>
+                                        ) : (
+                                          <Button variant="outline" size="sm" onClick={() => handleReactivar(estudiante)} title="Reactivar en salón">
+                                            <UserCheck className="h-4 w-4" />
+                                          </Button>
+                                        )}
+                                        <Button variant="outline" size="sm" onClick={() => { setSelectedEstudianteForMovimiento(estudiante); setIsMovimientoDialogOpen(true) }} disabled={!estudiante.activo || aulasRegulares.length <= 1} title="Cambiar de salón">
+                                          <ArrowRight className="h-4 w-4" />
+                                        </Button>
+                                      </>
+                                    )}
+                                  </>
+                                )}
+                              </div>
                             </div>
                           )}
                         </div>
@@ -1278,7 +1430,7 @@ export function EstudianteList() {
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-10">
-                          {canManageEstudiantes ? (
+                          {canManageEstudiantes && !ctxIntervencion ? (
                             <Checkbox
                               checked={displayEstudiantes.length > 0 && displayEstudiantes.every((e) => selectedIds.has(e.id))}
                               onCheckedChange={(v) => {
@@ -1294,8 +1446,8 @@ export function EstudianteList() {
                         </TableHead>
                         <TableHead>Código</TableHead>
                         <TableHead>Nombre Completo</TableHead>
-                        <TableHead>Aula</TableHead>
-                        <TableHead>Tutor</TableHead>
+                        <TableHead>{ctxIntervencion ? 'Aula principal' : 'Aula'}</TableHead>
+                        {!ctxIntervencion && <TableHead>Tutor</TableHead>}
                         <TableHead>Estado</TableHead>
                         <TableHead>Acciones</TableHead>
                       </TableRow>
@@ -1311,7 +1463,7 @@ export function EstudianteList() {
                         displayEstudiantes.map((estudiante) => (
                           <TableRow key={estudiante.id}>
                             <TableCell className="w-10">
-                              {canManageEstudiantes ? (
+                              {canManageEstudiantes && !ctxIntervencion ? (
                                 <Checkbox
                                   checked={selectedIds.has(estudiante.id)}
                                   onCheckedChange={(v) => {
@@ -1330,7 +1482,9 @@ export function EstudianteList() {
                             <TableCell className="font-mono">{estudiante.codigo}</TableCell>
                             <TableCell>{estudiante.nombre_completo}</TableCell>
                             <TableCell>{estudiante.aula?.nombre || 'Sin aula'}</TableCell>
-                            <TableCell className="text-muted-foreground">{estudiante.tutor || 'Sin tutor'}</TableCell>
+                            {!ctxIntervencion && (
+                              <TableCell className="text-muted-foreground">{estudiante.tutor || 'Sin tutor'}</TableCell>
+                            )}
                             <TableCell>
                               <span
                                 className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
@@ -1343,27 +1497,48 @@ export function EstudianteList() {
                               </span>
                             </TableCell>
                             <TableCell>
-                              {canManageEstudiantes ? (
-                                <div className="flex items-center gap-1">
-                                  <Button variant="ghost" size="sm" onClick={() => { setSelectedEstudianteForEdit(estudiante); setIsEditDialogOpen(true) }} title="Editar datos del estudiante">
-                                    <Edit className="h-4 w-4" />
-                                  </Button>
-                                  {estudiante.activo ? (
-                                    <Button variant="ghost" size="sm" onClick={() => handleRetirar(estudiante)} title="Retirar estudiante">
-                                      <UserX className="h-4 w-4" />
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedForDetalle(estudiante)
+                                    setIsDetalleOpen(true)
+                                  }}
+                                  title="Ver detalle"
+                                >
+                                  <Info className="h-4 w-4" />
+                                </Button>
+                                {canManageEstudiantes && (
+                                  <>
+                                    <Button variant="ghost" size="sm" onClick={() => { setSelectedEstudianteForEdit(estudiante); setIsEditDialogOpen(true) }} title="Editar datos del estudiante">
+                                      <Edit className="h-4 w-4" />
                                     </Button>
-                                  ) : (
-                                    <Button variant="ghost" size="sm" onClick={() => handleReactivar(estudiante)} title="Reactivar en salón">
-                                      <UserCheck className="h-4 w-4" />
-                                    </Button>
-                                  )}
-                                  <Button variant="ghost" size="sm" onClick={() => { setSelectedEstudianteForMovimiento(estudiante); setIsMovimientoDialogOpen(true) }} disabled={!estudiante.activo || aulas.length <= 1} title="Cambiar de salón">
-                                    <ArrowRight className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              ) : (
-                                <span className="text-sm text-muted-foreground">Solo lectura</span>
-                              )}
+                                    {ctxIntervencion ? (
+                                      intervencionEditable && (
+                                        <Button variant="ghost" size="sm" onClick={() => handleQuitarIntervencion(estudiante)} title="Quitar de la intervención">
+                                          <UserMinus className="h-4 w-4" />
+                                        </Button>
+                                      )
+                                    ) : (
+                                      <>
+                                        {estudiante.activo ? (
+                                          <Button variant="ghost" size="sm" onClick={() => handleRetirar(estudiante)} title="Retirar estudiante">
+                                            <UserX className="h-4 w-4" />
+                                          </Button>
+                                        ) : (
+                                          <Button variant="ghost" size="sm" onClick={() => handleReactivar(estudiante)} title="Reactivar en salón">
+                                            <UserCheck className="h-4 w-4" />
+                                          </Button>
+                                        )}
+                                        <Button variant="ghost" size="sm" onClick={() => { setSelectedEstudianteForMovimiento(estudiante); setIsMovimientoDialogOpen(true) }} disabled={!estudiante.activo || aulasRegulares.length <= 1} title="Cambiar de salón">
+                                          <ArrowRight className="h-4 w-4" />
+                                        </Button>
+                                      </>
+                                    )}
+                                  </>
+                                )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))
@@ -1564,7 +1739,60 @@ export function EstudianteList() {
           setIsMoverExcelDialogOpen(false)
         }}
         fcpId={selectedFCP || ''}
-        aulas={aulas}
+        aulas={aulasRegulares}
+      />
+
+      {ctxIntervencion && selectedAula && aulaSeleccionada && (
+        <>
+          <AgregarEstudianteIntervencionDialog
+            open={isAgregarIntervencionOpen}
+            onOpenChange={setIsAgregarIntervencionOpen}
+            onSuccess={loadEstudiantes}
+            fcpId={selectedFCP || fcpIdFromRole || ''}
+            aulaId={selectedAula}
+            aulaNombre={aulaSeleccionada.nombre}
+          />
+          <EstudianteIntervencionUploadDialog
+            open={isIntervencionUploadOpen}
+            onOpenChange={setIsIntervencionUploadOpen}
+            onSuccess={loadEstudiantes}
+            fcpId={selectedFCP || fcpIdFromRole || ''}
+            aulaId={selectedAula}
+            aulaCodigo={aulaSeleccionada.codigo_aula}
+            aulaNombre={aulaSeleccionada.nombre}
+          />
+        </>
+      )}
+
+      {selectedForDetalle && (
+        <EstudianteDetalleDialog
+          open={isDetalleOpen}
+          onOpenChange={(open) => {
+            setIsDetalleOpen(open)
+            if (!open) setSelectedForDetalle(null)
+          }}
+          estudianteId={selectedForDetalle.id}
+          estudianteNombre={selectedForDetalle.nombre_completo}
+          fcpId={selectedFCP || fcpIdFromRole || selectedForDetalle.fcp_id}
+        />
+      )}
+
+      <ConfirmDialog
+        open={!!quitarIntervencionEst}
+        onOpenChange={(open) => {
+          if (!open) setQuitarIntervencionEst(null)
+        }}
+        title="Quitar de la intervención"
+        message={
+          quitarIntervencionEst
+            ? `¿Quitar a "${quitarIntervencionEst.nombre_completo}" de esta intervención? No se eliminará del sistema ni cambiará su aula principal.`
+            : ''
+        }
+        confirmLabel="Quitar"
+        cancelLabel="Cancelar"
+        variant="destructive"
+        loading={quitarIntervencionLoading}
+        onConfirm={confirmQuitarIntervencion}
       />
     </div>
   )

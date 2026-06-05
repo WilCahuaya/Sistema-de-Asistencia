@@ -13,9 +13,17 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useForm } from 'react-hook-form'
 import { toast } from '@/lib/toast'
 import { SucursalField, NUEVA_SUCURSAL, resolverSucursalId } from './SucursalField'
+import type { AulaTipo, EstadoIntervencion } from '@/lib/utils/aulaIntervencion'
 
 interface AulaFormData {
   nombre: string
@@ -27,26 +35,50 @@ interface AulaDialogProps {
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
   fcpId: string
-  /** Si se provee, se llama con el aula creada (útil para asignarla de inmediato desde otro diálogo) */
+  /** Tipo inicial al abrir (desde listado Regulares / Intervenciones) */
+  defaultTipo?: AulaTipo
   onAulaCreated?: (aula: { id: string; nombre: string; codigo_aula?: string | null }) => void
 }
 
-export function AulaDialog({ open, onOpenChange, onSuccess, fcpId, onAulaCreated }: AulaDialogProps) {
+export function AulaDialog({
+  open,
+  onOpenChange,
+  onSuccess,
+  fcpId,
+  defaultTipo = 'REGULAR',
+  onAulaCreated,
+}: AulaDialogProps) {
   const [loading, setLoading] = useState(false)
+  const [tipo, setTipo] = useState<AulaTipo>(defaultTipo)
   const [sucursalId, setSucursalId] = useState('')
   const [nuevaSucursal, setNuevaSucursal] = useState('')
+  const [fechaInicio, setFechaInicio] = useState('')
+  const [fechaFin, setFechaFin] = useState('')
+  const [estadoIntervencion, setEstadoIntervencion] = useState<EstadoIntervencion>('ACTIVA')
   const { register, handleSubmit, reset, formState: { errors } } = useForm<AulaFormData>()
 
   useEffect(() => {
-    if (!open) {
+    if (open) {
+      setTipo(defaultTipo)
+    } else {
       setSucursalId('')
       setNuevaSucursal('')
+      setFechaInicio('')
+      setFechaFin('')
+      setEstadoIntervencion('ACTIVA')
     }
-  }, [open])
+  }, [open, defaultTipo])
+
+  const esIntervencion = tipo === 'INTERVENTION'
 
   const onSubmit = async (data: AulaFormData) => {
     if (!fcpId) {
       toast.warning('Selecciona una ONG', 'Por favor, selecciona una ONG primero.')
+      return
+    }
+
+    if (esIntervencion && !fechaInicio) {
+      toast.warning('Fecha requerida', 'Indica la fecha de inicio de la temporada.')
       return
     }
 
@@ -69,16 +101,25 @@ export function AulaDialog({ open, onOpenChange, onSuccess, fcpId, onAulaCreated
         userId: user.id,
       })
 
+      const payload: Record<string, unknown> = {
+        nombre: data.nombre,
+        descripcion: data.descripcion || null,
+        fcp_id: fcpId,
+        sucursal_id: sucursalFinalId,
+        activa: true,
+        tipo,
+        created_by: user.id,
+      }
+
+      if (esIntervencion) {
+        payload.fecha_inicio = fechaInicio
+        payload.fecha_fin = fechaFin || null
+        payload.estado_intervencion = estadoIntervencion
+      }
+
       const { data: nuevaAula, error } = await supabase
         .from('aulas')
-        .insert({
-          nombre: data.nombre,
-          descripcion: data.descripcion || null,
-          fcp_id: fcpId,
-          sucursal_id: sucursalFinalId,
-          activa: true,
-          created_by: user.id,
-        })
+        .insert(payload)
         .select('id, nombre, codigo_aula')
         .single()
 
@@ -87,12 +128,12 @@ export function AulaDialog({ open, onOpenChange, onSuccess, fcpId, onAulaCreated
       reset()
       setSucursalId('')
       setNuevaSucursal('')
-      toast.created('Aula')
+      toast.created(esIntervencion ? 'Intervención' : 'Aula')
       onAulaCreated?.(nuevaAula)
       onSuccess()
     } catch (error: any) {
       console.error('Error creating aula:', error)
-      toast.error('Error al crear el aula', error?.message || 'Intenta nuevamente.')
+      toast.error('Error al crear', error?.message || 'Intenta nuevamente.')
     } finally {
       setLoading(false)
     }
@@ -102,19 +143,44 @@ export function AulaDialog({ open, onOpenChange, onSuccess, fcpId, onAulaCreated
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Crear Nueva Aula</DialogTitle>
+          <DialogTitle>{esIntervencion ? 'Crear Intervención' : 'Crear Nueva Aula'}</DialogTitle>
           <DialogDescription>
-            Completa la información para crear una nueva aula
+            {esIntervencion
+              ? 'Grupo temporal para refuerzo, taller o acompañamiento'
+              : 'Completa la información para crear una nueva aula'}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)}>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
+              <Label>Tipo</Label>
+              <div className="inline-flex rounded-lg border p-0.5 bg-muted/50">
+                <button
+                  type="button"
+                  className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                    tipo === 'REGULAR' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground'
+                  }`}
+                  onClick={() => setTipo('REGULAR')}
+                >
+                  Regular
+                </button>
+                <button
+                  type="button"
+                  className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                    tipo === 'INTERVENTION' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground'
+                  }`}
+                  onClick={() => setTipo('INTERVENTION')}
+                >
+                  Intervención
+                </button>
+              </div>
+            </div>
+            <div className="grid gap-2">
               <Label htmlFor="nombre">Nombre *</Label>
               <Input
                 id="nombre"
                 {...register('nombre', { required: 'El nombre es requerido' })}
-                placeholder="Ej: Aula 1, Primaria A, etc."
+                placeholder={esIntervencion ? 'Ej: Refuerzo Matemático' : 'Ej: Aula 1, Primaria A, etc.'}
               />
               {errors.nombre && (
                 <p className="text-sm text-red-500">{errors.nombre.message}</p>
@@ -136,6 +202,50 @@ export function AulaDialog({ open, onOpenChange, onSuccess, fcpId, onAulaCreated
                 placeholder="Breve descripción (opcional)"
               />
             </div>
+            {esIntervencion && (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-2">
+                    <Label htmlFor="fecha_inicio">Inicio temporada *</Label>
+                    <Input
+                      id="fecha_inicio"
+                      type="date"
+                      value={fechaInicio}
+                      onChange={(e) => setFechaInicio(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="fecha_fin">Fin temporada</Label>
+                    <Input
+                      id="fecha_fin"
+                      type="date"
+                      value={fechaFin}
+                      onChange={(e) => setFechaFin(e.target.value)}
+                      min={fechaInicio || undefined}
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Estado inicial</Label>
+                  <Select
+                    value={estadoIntervencion}
+                    onValueChange={(v) => setEstadoIntervencion(v as EstadoIntervencion)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ACTIVA">Activa</SelectItem>
+                      <SelectItem value="SUSPENDIDA">Suspendida</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  El código INT-01 se asignará automáticamente. Asigna tutores/responsables desde el listado.
+                </p>
+              </>
+            )}
           </div>
           <DialogFooter>
             <Button
@@ -149,7 +259,7 @@ export function AulaDialog({ open, onOpenChange, onSuccess, fcpId, onAulaCreated
               Cancelar
             </Button>
             <Button type="submit" disabled={loading || !fcpId}>
-              {loading ? 'Creando...' : 'Crear Aula'}
+              {loading ? 'Creando...' : esIntervencion ? 'Crear Intervención' : 'Crear Aula'}
             </Button>
           </DialogFooter>
         </form>

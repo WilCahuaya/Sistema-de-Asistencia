@@ -23,6 +23,8 @@ import {
 import { useForm } from 'react-hook-form'
 import { toast } from '@/lib/toast'
 import { SucursalField, resolverSucursalId } from './SucursalField'
+import type { AulaTipo, EstadoIntervencion } from '@/lib/utils/aulaIntervencion'
+import { esIntervencion } from '@/lib/utils/aulaIntervencion'
 
 interface AulaFormData {
   nombre: string
@@ -37,7 +39,13 @@ interface AulaEditDialogProps {
   onSuccess: () => void
   aulaId: string
   fcpId: string
-  initialData: AulaFormData & { sucursal_id?: string }
+  initialData: AulaFormData & {
+    sucursal_id?: string
+    tipo?: AulaTipo
+    fecha_inicio?: string | null
+    fecha_fin?: string | null
+    estado_intervencion?: EstadoIntervencion | null
+  }
 }
 
 export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, fcpId, initialData }: AulaEditDialogProps) {
@@ -46,28 +54,41 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, fcpId, i
   const [activa, setActiva] = useState(initialData.activa ?? true)
   const [sucursalId, setSucursalId] = useState(initialData.sucursal_id ?? '')
   const [nuevaSucursal, setNuevaSucursal] = useState('')
+  const [fechaInicio, setFechaInicio] = useState(initialData.fecha_inicio ?? '')
+  const [fechaFin, setFechaFin] = useState(initialData.fecha_fin ?? '')
+  const [estadoIntervencion, setEstadoIntervencion] = useState<EstadoIntervencion>(
+    initialData.estado_intervencion ?? 'ACTIVA'
+  )
   const { register, handleSubmit, reset, formState: { errors } } = useForm<AulaFormData>({
     defaultValues: initialData,
   })
 
-  // Actualizar el formulario cuando cambian los datos iniciales
+  const esInt = esIntervencion(initialData)
+
   useEffect(() => {
     if (open && initialData) {
       reset(initialData)
       setActiva(initialData.activa ?? true)
       setSucursalId(initialData.sucursal_id ?? '')
       setNuevaSucursal('')
+      setFechaInicio(initialData.fecha_inicio ?? '')
+      setFechaFin(initialData.fecha_fin ?? '')
+      setEstadoIntervencion(initialData.estado_intervencion ?? 'ACTIVA')
     }
   }, [open, initialData, reset])
 
   const onSubmit = async (data: AulaFormData) => {
+    if (esInt && !fechaInicio) {
+      toast.warning('Fecha requerida', 'Indica la fecha de inicio de la temporada.')
+      return
+    }
+
     try {
       setLoading(true)
       setError(null)
 
       const supabase = createClient()
       
-      // Verificar autenticación
       const { data: { user }, error: userError } = await supabase.auth.getUser()
       if (userError || !user) {
         setError('Error de autenticación. Por favor, inicia sesión nuevamente.')
@@ -76,9 +97,7 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, fcpId, i
         return
       }
 
-      // Si se va a inactivar el aula, verificar si tiene tutor asignado
       if (!activa) {
-        // Desasignar el tutor si existe
         const { error: deleteTutorError } = await supabase
           .from('tutor_aula')
           .delete()
@@ -86,7 +105,6 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, fcpId, i
 
         if (deleteTutorError) {
           console.error('Error al desasignar tutor:', deleteTutorError)
-          // Continuar de todos modos
         }
       }
 
@@ -97,28 +115,35 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, fcpId, i
         userId: user.id,
       })
 
-      // Actualizar aula
+      const updatePayload: Record<string, unknown> = {
+        nombre: data.nombre,
+        descripcion: data.descripcion || null,
+        activa: activa,
+        sucursal_id: sucursalFinalId,
+      }
+
+      if (esInt) {
+        updatePayload.fecha_inicio = fechaInicio
+        updatePayload.fecha_fin = fechaFin || null
+        updatePayload.estado_intervencion = estadoIntervencion
+      }
+
       const { error: updateError } = await supabase
         .from('aulas')
-        .update({
-          nombre: data.nombre,
-          descripcion: data.descripcion || null,
-          activa: activa,
-          sucursal_id: sucursalFinalId,
-        })
+        .update(updatePayload)
         .eq('id', aulaId)
 
       if (updateError) throw updateError
 
       reset()
-      toast.updated('Aula')
+      toast.updated(esInt ? 'Intervención' : 'Aula')
       onSuccess()
       onOpenChange(false)
     } catch (error: any) {
       console.error('Error updating aula:', error)
       const msg = error?.message || 'Error desconocido'
-      setError(`Error al actualizar el aula: ${msg}`)
-      toast.error('Error al actualizar el aula', msg)
+      setError(`Error al actualizar: ${msg}`)
+      toast.error('Error al actualizar', msg)
     } finally {
       setLoading(false)
     }
@@ -128,9 +153,9 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, fcpId, i
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Editar Aula</DialogTitle>
+          <DialogTitle>{esInt ? 'Editar Intervención' : 'Editar Aula'}</DialogTitle>
           <DialogDescription>
-            Modifica la información del aula
+            Modifica la información {esInt ? 'de la intervención' : 'del aula'}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)}>
@@ -141,16 +166,17 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, fcpId, i
           )}
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label>Código de salón</Label>
+              <Label>Código</Label>
               <Input
-                id="codigo_aula"
                 value={initialData.codigo_aula || '—'}
                 readOnly
                 disabled
                 className="bg-muted font-mono"
               />
               <p className="text-xs text-muted-foreground">
-                Se asigna automáticamente (A01, A02…) según el orden en la FCP. Al guardar el nombre o al reordenar salones con el mismo nombre, puede actualizarse.
+                {esInt
+                  ? 'Código INT-01 asignado automáticamente según el orden en la FCP.'
+                  : 'Se asigna automáticamente (A01, A02…) según el orden en la FCP.'}
               </p>
             </div>
             <div className="grid gap-2">
@@ -158,7 +184,6 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, fcpId, i
               <Input
                 id="nombre"
                 {...register('nombre', { required: 'El nombre es requerido' })}
-                placeholder="Ej: Aula 1, Primaria A, etc."
               />
               {errors.nombre && (
                 <p className="text-sm text-red-500">{errors.nombre.message}</p>
@@ -166,11 +191,7 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, fcpId, i
             </div>
             <div className="grid gap-2">
               <Label htmlFor="descripcion">Descripción</Label>
-              <Input
-                id="descripcion"
-                {...register('descripcion')}
-                placeholder="Breve descripción (opcional)"
-              />
+              <Input id="descripcion" {...register('descripcion')} />
             </div>
 
             <SucursalField
@@ -182,8 +203,58 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, fcpId, i
               disabled={loading}
             />
 
+            {esInt && (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-2">
+                    <Label htmlFor="fecha_inicio">Inicio temporada *</Label>
+                    <Input
+                      id="fecha_inicio"
+                      type="date"
+                      value={fechaInicio}
+                      onChange={(e) => setFechaInicio(e.target.value)}
+                      disabled={estadoIntervencion === 'FINALIZADA'}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="fecha_fin">Fin temporada</Label>
+                    <Input
+                      id="fecha_fin"
+                      type="date"
+                      value={fechaFin}
+                      onChange={(e) => setFechaFin(e.target.value)}
+                      min={fechaInicio || undefined}
+                      disabled={estadoIntervencion === 'FINALIZADA'}
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Estado de la temporada</Label>
+                  <Select
+                    value={estadoIntervencion}
+                    onValueChange={(v) => setEstadoIntervencion(v as EstadoIntervencion)}
+                    disabled={initialData.estado_intervencion === 'FINALIZADA'}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ACTIVA">Activa</SelectItem>
+                      <SelectItem value="SUSPENDIDA">Suspendida</SelectItem>
+                      <SelectItem value="FINALIZADA">Finalizada (cierre definitivo)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {estadoIntervencion === 'FINALIZADA' && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      Al finalizar no se podrán modificar asistencias ni el roster.
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+
             <div className="grid gap-2">
-              <Label htmlFor="estado">Estado</Label>
+              <Label htmlFor="estado">Estado en plataforma</Label>
               <Select
                 value={activa ? 'activo' : 'inactivo'}
                 onValueChange={(value) => setActiva(value === 'activo')}
@@ -198,7 +269,7 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, fcpId, i
               </Select>
               {!activa && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
-                  Al inactivar el aula, se desasignará el tutor si existe y el aula no aparecerá en las listas de asistencia.
+                  Al inactivar, se desasignará el tutor y no aparecerá en listas de asistencia.
                 </p>
               )}
             </div>
@@ -225,4 +296,3 @@ export function AulaEditDialog({ open, onOpenChange, onSuccess, aulaId, fcpId, i
     </Dialog>
   )
 }
-

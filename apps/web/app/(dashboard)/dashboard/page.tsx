@@ -5,6 +5,7 @@ import { Building2, Users, GraduationCap, ClipboardList, CheckCircle2, TrendingU
 import Link from 'next/link'
 import { ReportesMensualesResumen } from '@/components/features/dashboard/ReportesMensualesResumen'
 import { ReporteMensualResumen } from '@/components/features/dashboard/ReporteMensualResumen'
+import { IntervencionesPendientesBanner } from '@/components/features/dashboard/IntervencionesPendientesBanner'
 import { getUserHighestRoleFromDB } from '@/lib/utils/get-user-highest-role'
 import {
   getCurrentMonthYearInAppTimezone,
@@ -743,6 +744,10 @@ export default async function DashboardPage() {
           Bienvenido, {usuario?.nombre_completo || user.user_metadata?.full_name || user.user_metadata?.name || user.email}
         </p>
       </div>
+
+      {(isDirector || isSecretario) && selectedRoleInfo?.fcpId && (
+        <IntervencionesPendientesBanner fcpId={selectedRoleInfo.fcpId} />
+      )}
 
       <div className={`grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 ${(isDirector || isSecretario) ? 'lg:grid-cols-2' : 'lg:grid-cols-4'}`}>
         {/* Card de FCPs - Solo para usuarios que no son director ni secretario */}

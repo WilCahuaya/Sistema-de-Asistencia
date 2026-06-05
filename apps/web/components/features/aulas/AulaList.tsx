@@ -40,6 +40,13 @@ import { useRouter } from 'next/navigation'
 import { useUserRole } from '@/hooks/useUserRole'
 import { toast } from '@/lib/toast'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
+import type { AulaTipo, EstadoIntervencion } from '@/lib/utils/aulaIntervencion'
+import {
+  ESTADO_INTERVENCION_CLASS,
+  ESTADO_INTERVENCION_LABEL,
+  formatTemporada,
+  intervencionTemporadaVencida,
+} from '@/lib/utils/aulaIntervencion'
 
 interface TutorInfo {
   id?: string
@@ -59,10 +66,10 @@ function ordenNumerico(orden: unknown): number {
   return 0
 }
 
-/** Salones de una sucursal en el mismo orden que usa el listado (orden → nombre → id). */
-function aulasDeSucursalOrdenadas(list: Aula[], sucursalId: string): Aula[] {
+/** Salones de una sucursal y tipo en el mismo orden que usa el listado (orden → nombre → id). */
+function aulasDeSucursalOrdenadas(list: Aula[], sucursalId: string, tipo?: AulaTipo): Aula[] {
   return list
-    .filter((a) => a.sucursal_id === sucursalId)
+    .filter((a) => a.sucursal_id === sucursalId && (!tipo || (a.tipo ?? 'REGULAR') === tipo))
     .sort((a, b) => {
       const oa = ordenNumerico(a.orden)
       const ob = ordenNumerico(b.orden)
@@ -91,6 +98,10 @@ interface Aula {
   /** ID de la fila tutor_aula para actualizar puede_registrar_asistencia */
   tutorAulaId?: string
   tutorPuedeRegistrarAsistencia?: boolean
+  tipo?: AulaTipo
+  fecha_inicio?: string | null
+  fecha_fin?: string | null
+  estado_intervencion?: EstadoIntervencion | null
 }
 
 export function AulaList() {
@@ -117,6 +128,7 @@ export function AulaList() {
   const [currentPage, setCurrentPage] = useState(1)
   const [isMobile, setIsMobile] = useState(false)
   const [reordenandoId, setReordenandoId] = useState<string | null>(null)
+  const [vistaTipo, setVistaTipo] = useState<AulaTipo>('REGULAR')
   const router = useRouter()
   const { selectedRole } = useSelectedRole()
   
@@ -174,15 +186,18 @@ export function AulaList() {
     return () => window.removeEventListener('resize', check)
   }, [])
 
+  const aulasPorVista = aulas.filter((a) => (a.tipo ?? 'REGULAR') === vistaTipo)
+
   const filteredAulas = searchTerm.trim()
-    ? aulas.filter((a) => {
+    ? aulasPorVista.filter((a) => {
         const term = searchTerm.toLowerCase()
         const nombre = a.nombre?.toLowerCase() || ''
         const desc = a.descripcion?.toLowerCase() || ''
+        const codigo = a.codigo_aula?.toLowerCase() || ''
         const tutor = a.tutor?.displayName?.toLowerCase() || a.tutor?.nombre_completo?.toLowerCase() || a.tutor?.email?.toLowerCase() || ''
-        return nombre.includes(term) || desc.includes(term) || tutor.includes(term)
+        return nombre.includes(term) || desc.includes(term) || tutor.includes(term) || codigo.includes(term)
       })
-    : aulas
+    : aulasPorVista
 
   /** Datos de la sucursal de un aula (desde la lista cargada o desde el join). */
   const sucursalDeAula = (a: Aula): Sucursal | undefined =>
@@ -216,7 +231,7 @@ export function AulaList() {
   const displayAulas = orderedAulas.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
   const shouldShowPagination = orderedAulas.length > itemsPerPage
 
-  useEffect(() => setCurrentPage(1), [searchTerm])
+  useEffect(() => setCurrentPage(1), [searchTerm, vistaTipo])
 
   const loadUserFCPs = async () => {
     setLoadingFCPs(true)
@@ -545,7 +560,7 @@ export function AulaList() {
   /** Reordenar salones dentro de la sucursal (intercambia `orden` con el vecino del grupo; recalcula códigos en BD). */
   const handleMoveOrden = async (aula: Aula, dir: 'up' | 'down') => {
     if (!aula.sucursal_id) return
-    const siblings = aulasDeSucursalOrdenadas(aulas, aula.sucursal_id)
+    const siblings = aulasDeSucursalOrdenadas(aulas, aula.sucursal_id, aula.tipo ?? 'REGULAR')
     if (siblings.length <= 1) return
     const idx = siblings.findIndex((a) => a.id === aula.id)
     const j = dir === 'up' ? idx - 1 : idx + 1
@@ -689,7 +704,28 @@ export function AulaList() {
           </div>
         )}
         
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="inline-flex rounded-lg border p-0.5 bg-muted/50">
+            <button
+              type="button"
+              className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                vistaTipo === 'REGULAR' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground'
+              }`}
+              onClick={() => setVistaTipo('REGULAR')}
+            >
+              Regulares
+            </button>
+            <button
+              type="button"
+              className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                vistaTipo === 'INTERVENTION' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground'
+              }`}
+              onClick={() => setVistaTipo('INTERVENTION')}
+            >
+              Intervenciones
+            </button>
+          </div>
+
           {/* Toggle para mostrar aulas inactivas - solo para directores y secretarios */}
           {canManageAulas && (
             <button
@@ -716,25 +752,29 @@ export function AulaList() {
           {canManageAulas && (
             <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedFCP}>
               <Plus className="mr-2 h-4 w-4" />
-              Crear Aula
+              {vistaTipo === 'INTERVENTION' ? 'Crear Intervención' : 'Crear Aula'}
             </Button>
           )}
         </div>
       </div>
 
-      {aulas.length === 0 ? (
+      {aulasPorVista.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <GraduationCap className="h-12 w-12 text-muted-foreground mb-4" />
             <p className="text-muted-foreground mb-4 text-center">
               {isTutor
-                ? 'No tienes aulas asignadas. Contacta a un facilitador para que te asigne las aulas que debes gestionar.'
-                : 'No hay aulas registradas para esta FCP.'}
+                ? vistaTipo === 'INTERVENTION'
+                  ? 'No tienes intervenciones asignadas.'
+                  : 'No tienes aulas asignadas. Contacta a un facilitador para que te asigne las aulas que debes gestionar.'
+                : vistaTipo === 'INTERVENTION'
+                  ? 'No hay intervenciones registradas para esta FCP.'
+                  : 'No hay aulas registradas para esta FCP.'}
             </p>
             {canManageAulas && (
               <Button onClick={() => setIsDialogOpen(true)} disabled={!selectedFCP}>
                 <Plus className="mr-2 h-4 w-4" />
-                Crear primera aula
+                {vistaTipo === 'INTERVENTION' ? 'Crear primera intervención' : 'Crear primera aula'}
               </Button>
             )}
           </CardContent>
@@ -762,6 +802,8 @@ export function AulaList() {
                 const handleVerEstudiantes = () => router.push(`/estudiantes?aulaId=${aula.id}&fcpId=${aula.fcp_id}`)
                 const prev = i > 0 ? displayAulas[i - 1] : null
                 const suc = sucursalDeAula(aula)
+                const esInt = (aula.tipo ?? 'REGULAR') === 'INTERVENTION'
+                const estadoInt = aula.estado_intervencion ?? 'ACTIVA'
                 const showHeader =
                   (!prev || prev.sucursal_id !== aula.sucursal_id) && !!suc && !suc.es_predeterminada
                 return (
@@ -808,14 +850,26 @@ export function AulaList() {
                             </div>
                             <span
                               className={`shrink-0 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                                aula.activa
-                                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                                  : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
+                                esInt
+                                  ? ESTADO_INTERVENCION_CLASS[estadoInt]
+                                  : aula.activa
+                                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                    : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
                               }`}
                             >
-                              {aula.activa ? 'Activa' : 'Inactiva'}
+                              {esInt ? ESTADO_INTERVENCION_LABEL[estadoInt] : aula.activa ? 'Activa' : 'Inactiva'}
                             </span>
                           </div>
+                          {esInt && (
+                            <p className="text-xs text-muted-foreground">
+                              Temporada: {formatTemporada(aula)}
+                            </p>
+                          )}
+                          {esInt && intervencionTemporadaVencida(aula) && (
+                            <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                              Temporada finalizada — pendiente de cierre
+                            </p>
+                          )}
                           {aula.descripcion && (
                             <p className="text-sm text-muted-foreground">{aula.descripcion}</p>
                           )}
@@ -858,7 +912,7 @@ export function AulaList() {
                           {canManageAulas && (
                             <div className="flex flex-wrap items-center gap-2 pt-1">
                               {(() => {
-                                const siblings = aulasDeSucursalOrdenadas(aulas, aula.sucursal_id || '')
+                                const siblings = aulasDeSucursalOrdenadas(aulas, aula.sucursal_id || '', aula.tipo ?? 'REGULAR')
                                 if (siblings.length <= 1) return null
                                 const idx = siblings.findIndex((a) => a.id === aula.id)
                                 return (
@@ -931,16 +985,18 @@ export function AulaList() {
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                                  <DropdownMenuItem
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setVaciarSalonAula(aula)
-                                    }}
-                                    className="text-destructive focus:text-destructive"
-                                  >
-                                    <Trash2 className="mr-2 h-4 w-4" />
-                                    Vaciar salón
-                                  </DropdownMenuItem>
+                                  {!esInt && (
+                                    <DropdownMenuItem
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setVaciarSalonAula(aula)
+                                      }}
+                                      className="text-destructive focus:text-destructive"
+                                    >
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      Vaciar salón
+                                    </DropdownMenuItem>
+                                  )}
                                   <DropdownMenuItem
                                     onClick={(e) => {
                                       e.stopPropagation()
@@ -949,7 +1005,7 @@ export function AulaList() {
                                     className="text-destructive focus:text-destructive"
                                   >
                                     <XCircle className="mr-2 h-4 w-4" />
-                                    Eliminar aula
+                                    {esInt ? 'Eliminar intervención' : 'Eliminar aula'}
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -1030,6 +1086,7 @@ export function AulaList() {
         onOpenChange={setIsDialogOpen}
         onSuccess={handleAulaCreated}
         fcpId={selectedFCP || ''}
+        defaultTipo={vistaTipo}
       />
 
       {selectedAulaForTutor && (
@@ -1060,6 +1117,10 @@ export function AulaList() {
             activa: editingAula.activa,
             codigo_aula: editingAula.codigo_aula,
             sucursal_id: editingAula.sucursal_id,
+            tipo: editingAula.tipo,
+            fecha_inicio: editingAula.fecha_inicio,
+            fecha_fin: editingAula.fecha_fin,
+            estado_intervencion: editingAula.estado_intervencion,
           }}
         />
       )}

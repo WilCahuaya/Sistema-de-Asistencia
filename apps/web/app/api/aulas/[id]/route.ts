@@ -5,9 +5,10 @@ import { NextResponse } from 'next/server'
 
 /**
  * DELETE /api/aulas/[id]
- * Elimina un aula y todas sus referencias.
+ * Elimina un aula o intervención y referencias asociadas.
  * Solo director o secretario de la FCP del aula.
- * Requiere que el aula esté vacía (sin estudiantes).
+ * Regulares: debe estar vacía (sin estudiantes en aula_id).
+ * Intervenciones: elimina roster intervencion_estudiantes (no exige vacío en estudiantes.aula_id).
  */
 export async function DELETE(
   _request: Request,
@@ -35,13 +36,15 @@ export async function DELETE(
 
     const { data: aula, error: aulaError } = await supabase
       .from('aulas')
-      .select('id, fcp_id, nombre')
+      .select('id, fcp_id, nombre, tipo')
       .eq('id', aulaId)
       .single()
 
     if (aulaError || !aula) {
       return NextResponse.json({ error: 'Aula no encontrada.' }, { status: 404 })
     }
+
+    const esIntervencion = aula.tipo === 'INTERVENTION'
 
     const { data: miembro, error: miembroError } = await supabase
       .from('fcp_miembros')
@@ -60,23 +63,22 @@ export async function DELETE(
       )
     }
 
-    // Verificar que no haya estudiantes en el aula
-    const { count: countEstudiantes } = await supabase
-      .from('estudiantes')
-      .select('id', { count: 'exact', head: true })
-      .eq('aula_id', aulaId)
+    if (!esIntervencion) {
+      const { count: countEstudiantes } = await supabase
+        .from('estudiantes')
+        .select('id', { count: 'exact', head: true })
+        .eq('aula_id', aulaId)
 
-    if (countEstudiantes && countEstudiantes > 0) {
-      return NextResponse.json(
-        {
-          error: 'No se puede eliminar: el aula tiene estudiantes. Vacíe el salón primero.',
-        },
-        { status: 400 }
-      )
+      if (countEstudiantes && countEstudiantes > 0) {
+        return NextResponse.json(
+          {
+            error: 'No se puede eliminar: el aula tiene estudiantes. Vacíe el salón primero.',
+          },
+          { status: 400 }
+        )
+      }
     }
 
-    // Eliminar en orden por restricciones FK:
-    // 1. tutor_aula (CASCADE lo haría al borrar aula, pero lo hacemos explícito)
     const { error: tutorError } = await supabase
       .from('tutor_aula')
       .delete()
@@ -90,21 +92,34 @@ export async function DELETE(
       )
     }
 
-    // 2. estudiante_periodos (períodos históricos que referencian este aula)
-    const { error: periodosError } = await supabase
-      .from('estudiante_periodos')
+    const { error: intervError } = await supabase
+      .from('intervencion_estudiantes')
       .delete()
       .eq('aula_id', aulaId)
 
-    if (periodosError) {
-      console.error('Error eliminando estudiante_periodos:', periodosError)
+    if (intervError) {
+      console.error('Error eliminando intervencion_estudiantes:', intervError)
       return NextResponse.json(
-        { error: periodosError.message || 'Error al eliminar períodos.' },
+        { error: intervError.message || 'Error al eliminar participantes.' },
         { status: 500 }
       )
     }
 
-    // 3. asistencias (por si quedó alguna huérfana)
+    if (!esIntervencion) {
+      const { error: periodosError } = await supabase
+        .from('estudiante_periodos')
+        .delete()
+        .eq('aula_id', aulaId)
+
+      if (periodosError) {
+        console.error('Error eliminando estudiante_periodos:', periodosError)
+        return NextResponse.json(
+          { error: periodosError.message || 'Error al eliminar períodos.' },
+          { status: 500 }
+        )
+      }
+    }
+
     const { error: asistenciasError } = await supabase
       .from('asistencias')
       .delete()
@@ -118,7 +133,6 @@ export async function DELETE(
       )
     }
 
-    // 4. Eliminar el aula
     const { error: deleteError } = await supabase
       .from('aulas')
       .delete()
@@ -134,7 +148,9 @@ export async function DELETE(
 
     return NextResponse.json({
       success: true,
-      message: `Aula "${aula.nombre}" eliminada correctamente.`,
+      message: esIntervencion
+        ? `Intervención "${aula.nombre}" eliminada correctamente.`
+        : `Aula "${aula.nombre}" eliminada correctamente.`,
     })
   } catch (e) {
     console.error('Error en DELETE aula:', e)

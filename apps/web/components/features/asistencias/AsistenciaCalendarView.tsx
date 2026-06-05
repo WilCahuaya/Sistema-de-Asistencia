@@ -18,6 +18,17 @@ import {
 import { sortByNombreCompleto } from '@/lib/utils/sortEstudiantes'
 import { SUCURSAL_SELECT, extraerSucursal, SucursalTag } from '@/lib/utils/aulaSucursal'
 import {
+  esIntervencion,
+  esIntervencionActiva,
+  intervencionSoloLectura,
+  intervencionTemporadaVencida,
+  formatTemporada,
+  ESTADO_INTERVENCION_LABEL,
+} from '@/lib/utils/aulaIntervencion'
+import type { AulaTipo, EstadoIntervencion } from '@/lib/utils/aulaIntervencion'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { toast } from '@/lib/toast'
+import {
   downloadRegistroAsistenciaMensualPdf,
   collectFechasAtendidasMes,
 } from '@/lib/utils/registroAsistenciaMensualPdf'
@@ -28,6 +39,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  SelectGroup,
+  SelectLabel,
 } from '@/components/ui/select'
 import { MonthPicker } from '@/components/ui/month-picker'
 import { AsistenciaHistorialDialog } from './AsistenciaHistorialDialog'
@@ -41,8 +54,6 @@ import { Unlock, UserPlus, User, ArrowRightLeft, UserMinus } from 'lucide-react'
 import { AgregarEstudianteMesDialog } from './AgregarEstudianteMesDialog'
 import { QuitarEstudianteMesDialog } from './QuitarEstudianteMesDialog'
 import { MoverEstudianteMesDialog } from './MoverEstudianteMesDialog'
-import { toast } from '@/lib/toast'
-import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { MobileAsistenciaDatePickerDialog } from './MobileAsistenciaDatePickerDialog'
 import {
   DropdownMenu,
@@ -123,7 +134,9 @@ export function AsistenciaCalendarView({
   const [selectedMonth, setSelectedMonth] = useState(initialMonth !== null && initialMonth !== undefined ? initialMonth : new Date().getMonth())
   const [selectedYear, setSelectedYear] = useState(initialYear !== null && initialYear !== undefined ? initialYear : new Date().getFullYear())
   const [selectedAula, setSelectedAula] = useState<string | null>(aulaId || null)
-  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null; sucursalNombre?: string; esPrincipal?: boolean }>>([])
+  const [aulas, setAulas] = useState<Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null; sucursalNombre?: string; esPrincipal?: boolean; tipo?: AulaTipo; fecha_inicio?: string | null; fecha_fin?: string | null; estado_intervencion?: EstadoIntervencion | null }>>([])
+  const [cerrarTemporadaOpen, setCerrarTemporadaOpen] = useState(false)
+  const [cerrarTemporadaLoading, setCerrarTemporadaLoading] = useState(false)
   const [tutorNombre, setTutorNombre] = useState<string | null>(null)
   const [fcpPdfMeta, setFcpPdfMeta] = useState<{ numero_identificacion: string; razon_social: string } | null>(null)
   const [exportingPdf, setExportingPdf] = useState(false)
@@ -297,8 +310,13 @@ export function AsistenciaCalendarView({
   const enGraciaRegistro = mesPermiteRegistroSinCorreccionFacilitador(selectedYear, selectedMonth)
   /** Puede registrar/corregir como director o secretario aunque en el menú esté seleccionado otro rol (p. ej. tutor). */
   const esDirectorOSecretarioEnFcp = hasDirectorMembership || hasSecretarioMembership
+  const aulaSeleccionada = selectedAula ? aulas.find((a) => a.id === selectedAula) : null
+  const ctxIntervencion = esIntervencion(aulaSeleccionada)
   const puedeEditarMes =
-    (() => {
+    ctxIntervencion
+      ? esIntervencionActiva(aulaSeleccionada) &&
+        (esDirectorOSecretarioEnFcp || (role === 'tutor' && tutorPuedeRegistrar))
+      : (() => {
       const { year: cy, month: cm0 } = getCurrentMonthYearInAppTimezone()
       const vista = selectedYear * 12 + selectedMonth
       const actual = cy * 12 + cm0
@@ -325,6 +343,7 @@ export function AsistenciaCalendarView({
     (correccionMes?.estado === 'cerrado' || correccionMes?.estado === 'bloqueado')
 
   const showAgregarEstudianteMes =
+    !ctxIntervencion &&
     esMesPasadoVista &&
     (correccionHabilitada || permisoAnualActivo || enGraciaRegistro) &&
     esDirectorOSecretarioEnFcp &&
@@ -528,7 +547,7 @@ export function AsistenciaCalendarView({
         return
       }
 
-      let aulasData: Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null; sucursalNombre?: string; esPrincipal?: boolean }> = []
+      let aulasData: Array<{ id: string; nombre: string; codigo_aula?: string; tutor_display?: string | null; sucursalNombre?: string; esPrincipal?: boolean; tipo?: AulaTipo; fecha_inicio?: string | null; fecha_fin?: string | null; estado_intervencion?: EstadoIntervencion | null }> = []
 
       // Si es tutor, cargar solo las aulas asignadas a él
       if (role === 'tutor') {
@@ -548,7 +567,7 @@ export function AsistenciaCalendarView({
             .from('tutor_aula')
             .select(`
               aula_id,
-              aula:aulas(id, nombre, activa, codigo_aula, ${SUCURSAL_SELECT}),
+              aula:aulas(id, nombre, activa, codigo_aula, tipo, fecha_inicio, fecha_fin, estado_intervencion, ${SUCURSAL_SELECT}),
               fcp_miembro:fcp_miembros(nombre_display, email_pendiente, usuario:usuarios(nombre_completo, email))
             `)
             .in('fcp_miembro_id', tutorMiembroIds)
@@ -564,7 +583,17 @@ export function AsistenciaCalendarView({
               const usuario = fm?.usuario
               const displayName =
                 (fm?.nombre_display?.trim() || usuario?.nombre_completo?.trim() || usuario?.email || fm?.email_pendiente) ?? null
-              return { id: aula.id, nombre: aula.nombre, codigo_aula: aula.codigo_aula, tutor_display: displayName, ...extraerSucursal(aula) }
+              return {
+                id: aula.id,
+                nombre: aula.nombre,
+                codigo_aula: aula.codigo_aula,
+                tipo: aula.tipo,
+                fecha_inicio: aula.fecha_inicio,
+                fecha_fin: aula.fecha_fin,
+                estado_intervencion: aula.estado_intervencion,
+                tutor_display: displayName,
+                ...extraerSucursal(aula),
+              }
             })
             .filter((a): a is NonNullable<typeof a> => a !== null)
             .sort((a, b) => a.nombre.localeCompare(b.nombre))
@@ -572,7 +601,7 @@ export function AsistenciaCalendarView({
       } else {
         const { data, error } = await supabase
           .from('aulas')
-          .select(`id, nombre, codigo_aula, ${SUCURSAL_SELECT}`)
+          .select(`id, nombre, codigo_aula, tipo, fecha_inicio, fecha_fin, estado_intervencion, ${SUCURSAL_SELECT}`)
           .eq('fcp_id', fcpId)
           .eq('activa', true)
           .order('nombre', { ascending: true })
@@ -666,6 +695,38 @@ export function AsistenciaCalendarView({
     try {
       setLoading(true)
       const supabase = createClient()
+
+      const aulaMeta = aulaSeleccionada ?? (await supabase.from('aulas').select('tipo, fecha_inicio, fecha_fin, estado_intervencion').eq('id', selectedAula).maybeSingle()).data
+      const esInt = aulaMeta?.tipo === 'INTERVENTION'
+
+      if (esInt) {
+        setPeriodosQuitables(new Map())
+        const { data: idsRango, error: rangoError } = await supabase.rpc('estudiantes_de_intervencion', {
+          p_aula_id: selectedAula,
+        })
+        if (rangoError) throw rangoError
+        const ids = (idsRango || []).flatMap((x: unknown) => {
+          if (typeof x === 'string') return [x]
+          if (x && typeof x === 'object') {
+            const v = (x as Record<string, unknown>)['estudiante_id'] ?? Object.values(x as object)[0]
+            return typeof v === 'string' ? [v] : []
+          }
+          return []
+        })
+        let nuevosEstudiantes: Estudiante[] = []
+        if (ids.length > 0) {
+          const { data: estData, error: errEst } = await supabase
+            .from('estudiantes')
+            .select('id, codigo, nombre_completo')
+            .in('id', ids)
+            .order('nombre_completo', { ascending: true })
+          if (errEst) throw errEst
+          nuevosEstudiantes = estData || []
+        }
+        setEstudiantes(sortByNombreCompleto(nuevosEstudiantes))
+        setLoading(false)
+        return
+      }
       
       // Determinar si estamos consultando un mes anterior
       const fechaActual = new Date()
@@ -1687,6 +1748,58 @@ export function AsistenciaCalendarView({
     return `${monthNames[month]} ${year}`
   }
 
+  const handleCerrarTemporada = async () => {
+    if (!selectedAula) return
+    setCerrarTemporadaLoading(true)
+    try {
+      const supabase = createClient()
+      const { error } = await supabase
+        .from('aulas')
+        .update({ estado_intervencion: 'FINALIZADA' })
+        .eq('id', selectedAula)
+      if (error) throw error
+      toast.success('Temporada cerrada', 'La intervención quedó finalizada. Ya no se podrán modificar asistencias.')
+      setCerrarTemporadaOpen(false)
+      await loadAulas()
+    } catch (e: unknown) {
+      toast.error('Error', e instanceof Error ? e.message : 'No se pudo cerrar la temporada.')
+    } finally {
+      setCerrarTemporadaLoading(false)
+    }
+  }
+
+  const aulasRegularesSelect = aulas.filter((a) => (a.tipo ?? 'REGULAR') === 'REGULAR')
+  const aulasIntervencionSelect = aulas.filter((a) => a.tipo === 'INTERVENTION')
+
+  const renderAulaSelectItems = () => (
+    <>
+      {aulasRegularesSelect.length > 0 && (
+        <SelectGroup>
+          <SelectLabel>Aulas regulares</SelectLabel>
+          {aulasRegularesSelect.map((aula) => (
+            <SelectItem key={aula.id} value={aula.id}>
+              {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
+              {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
+              <SucursalTag sucursalNombre={aula.sucursalNombre} esPrincipal={aula.esPrincipal} />
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      )}
+      {aulasIntervencionSelect.length > 0 && (
+        <SelectGroup>
+          <SelectLabel>Intervenciones</SelectLabel>
+          {aulasIntervencionSelect.map((aula) => (
+            <SelectItem key={aula.id} value={aula.id}>
+              {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
+              {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
+              <SucursalTag sucursalNombre={aula.sucursalNombre} esPrincipal={aula.esPrincipal} />
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      )}
+    </>
+  )
+
   if (!selectedAula) {
     return (
       <Card>
@@ -1715,13 +1828,7 @@ export function AsistenciaCalendarView({
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {aulas.map((aula) => (
-                  <SelectItem key={aula.id} value={aula.id}>
-                    {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
-                    {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
-                    <SucursalTag sucursalNombre={aula.sucursalNombre} esPrincipal={aula.esPrincipal} />
-                  </SelectItem>
-                ))}
+                {renderAulaSelectItems()}
               </SelectContent>
             </Select>
           )}
@@ -1807,13 +1914,7 @@ export function AsistenciaCalendarView({
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {aulas.map((aula) => (
-                    <SelectItem key={aula.id} value={aula.id}>
-                      {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
-                      {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
-                      <SucursalTag sucursalNombre={aula.sucursalNombre} esPrincipal={aula.esPrincipal} />
-                    </SelectItem>
-                  ))}
+                  {renderAulaSelectItems()}
                 </SelectContent>
               </Select>
 
@@ -1894,7 +1995,30 @@ export function AsistenciaCalendarView({
             </div>
           </div>
         )}
-        {esMesPasadoVista && !enGraciaRegistro && !correccionLoading && (
+        {ctxIntervencion && aulaSeleccionada && (
+          <div className="mb-4 space-y-2">
+            <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm">
+              <p className="font-medium">
+                Intervención · {formatTemporada(aulaSeleccionada)} ·{' '}
+                {ESTADO_INTERVENCION_LABEL[aulaSeleccionada.estado_intervencion ?? 'ACTIVA']}
+              </p>
+              {intervencionSoloLectura(aulaSeleccionada) && (
+                <p className="text-xs text-muted-foreground mt-1">Solo consulta — no se pueden modificar asistencias.</p>
+              )}
+              {intervencionTemporadaVencida(aulaSeleccionada) && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  La temporada ha finalizado. Registre las asistencias pendientes y cierre la intervención.
+                </p>
+              )}
+            </div>
+            {intervencionTemporadaVencida(aulaSeleccionada) && esDirectorOSecretarioEnFcp && (
+              <Button variant="outline" size="sm" onClick={() => setCerrarTemporadaOpen(true)}>
+                Cerrar temporada
+              </Button>
+            )}
+          </div>
+        )}
+        {esMesPasadoVista && !ctxIntervencion && !enGraciaRegistro && !correccionLoading && (
           <>
             {puedeEditarMes && correccionHabilitada && correccionMes ? (
               <CorreccionMesBanner
@@ -2769,6 +2893,18 @@ export function AsistenciaCalendarView({
         variant="destructive"
         onConfirm={doEliminarTodasAsistencias}
         loading={!!fechaParaEliminar && savingDates.has(fechaParaEliminar)}
+      />
+
+      <ConfirmDialog
+        open={cerrarTemporadaOpen}
+        onOpenChange={setCerrarTemporadaOpen}
+        title="Cerrar temporada"
+        message="¿Confirmas que registraste todas las asistencias? Al cerrar la intervención no podrás corregir asistencias ni modificar el roster."
+        confirmLabel="Cerrar temporada"
+        cancelLabel="Cancelar"
+        variant="destructive"
+        loading={cerrarTemporadaLoading}
+        onConfirm={handleCerrarTemporada}
       />
     </Card>
   )

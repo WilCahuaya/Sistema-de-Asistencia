@@ -37,6 +37,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  SelectGroup,
+  SelectLabel,
 } from '@/components/ui/select'
 import { Building2 } from 'lucide-react'
 import { SUCURSAL_SELECT, extraerSucursal, SucursalTag } from '@/lib/utils/aulaSucursal'
@@ -181,7 +183,7 @@ export function AsistenciaList() {
       const supabase = createClient()
       const { data, error } = await supabase
         .from('aulas')
-        .select(`id, nombre, codigo_aula, ${SUCURSAL_SELECT}`)
+        .select(`id, nombre, codigo_aula, tipo, ${SUCURSAL_SELECT}`)
         .eq('fcp_id', selectedFCP)
         .eq('activa', true)
         .order('nombre', { ascending: true })
@@ -418,14 +420,31 @@ export function AsistenciaList() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all__">Todas las aulas</SelectItem>
-            {aulas.map((aula) => (
-                <SelectItem key={aula.id} value={aula.id}>
-                  {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
-                  {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
-                  <SucursalTag sucursalNombre={aula.sucursalNombre} esPrincipal={aula.esPrincipal} />
-                </SelectItem>
-            ))}
-            </SelectContent>
+                {aulas.filter((a) => (a.tipo ?? 'REGULAR') === 'REGULAR').length > 0 && (
+                  <SelectGroup>
+                    <SelectLabel>Aulas regulares</SelectLabel>
+                    {aulas.filter((a) => (a.tipo ?? 'REGULAR') === 'REGULAR').map((aula) => (
+                      <SelectItem key={aula.id} value={aula.id}>
+                        {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
+                        {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
+                        <SucursalTag sucursalNombre={aula.sucursalNombre} esPrincipal={aula.esPrincipal} />
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
+                {aulas.filter((a) => a.tipo === 'INTERVENTION').length > 0 && (
+                  <SelectGroup>
+                    <SelectLabel>Intervenciones</SelectLabel>
+                    {aulas.filter((a) => a.tipo === 'INTERVENTION').map((aula) => (
+                      <SelectItem key={aula.id} value={aula.id}>
+                        {aula.nombre} | {aula.tutor_display || 'Sin tutor'}
+                        {aula.codigo_aula ? ` | ${aula.codigo_aula}` : ''}
+                        <SucursalTag sucursalNombre={aula.sucursalNombre} esPrincipal={aula.esPrincipal} />
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
+              </SelectContent>
           </Select>
         </div>
 
