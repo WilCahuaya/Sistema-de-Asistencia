@@ -48,6 +48,9 @@ import {
 } from '@/lib/reportes/asistenciasReporteQueries'
 import type { AulaTipo } from '@/lib/utils/aulaIntervencion'
 import { fetchAulaIdsPorTipo } from '@/lib/utils/aulaIntervencion'
+import { SucursalReporteSelect } from '@/components/features/reportes/SucursalReporteSelect'
+import { useSucursalReporteFilter } from '@/hooks/useSucursalReporteFilter'
+import { SUCURSAL_TODAS, etiquetaAulaConSucursal } from '@/lib/reportes/sucursalReporte'
 
 interface ReporteListProps {
   tipoAula?: AulaTipo
@@ -101,6 +104,7 @@ interface ReporteData {
     marcados: number
     total: number
   }>
+  sucursalNombre?: string | null
 }
 
 interface DiaIncompleto {
@@ -129,6 +133,16 @@ export function ReporteList({ tipoAula = 'REGULAR' }: ReporteListProps) {
   // Determinar el fcpId a usar: el seleccionado o el del facilitador (se actualizará después del useEffect)
   const [fcpIdFinal, setFcpIdFinal] = useState<string | null>(fcpIdParaReporte || null)
   const { canViewReports, loading: roleLoading, isFacilitador: isFacilitadorFromHook, role } = useUserRole(fcpIdFinal)
+  const {
+    sucursales,
+    selectedSucursalId,
+    setSelectedSucursalId,
+    aulaMetaMap,
+    loading: loadingSucursales,
+    mostrarSelector: mostrarSelectorSucursal,
+    mostrarEtiquetaSucursal,
+    sucursalNombre: sucursalNombreFiltro,
+  } = useSucursalReporteFilter(fcpIdFinal, tipoAula)
 
   // Scroll horizontal: Shift+scroll o click sostenido (igual que en Asistencias)
   const tableContainerRef = useRef<HTMLDivElement>(null)
@@ -748,6 +762,23 @@ export function ReporteList({ tipoAula = 'REGULAR' }: ReporteListProps) {
         }))
       })
 
+      for (const [aulaId] of [...aulasMap.entries()]) {
+        if (selectedSucursalId !== SUCURSAL_TODAS && aulaMetaMap.get(aulaId)?.sucursalId !== selectedSucursalId) {
+          aulasMap.delete(aulaId)
+        }
+      }
+      for (const [aulaId, aula] of [...aulasMap.entries()]) {
+        aulasMap.set(aulaId, {
+          ...aula,
+          aulaNombre: etiquetaAulaConSucursal(aula.aulaNombre, aulaId, aulaMetaMap, mostrarEtiquetaSucursal),
+        })
+      }
+      if (aulasMap.size === 0) {
+        toast.warning('Sin aulas', 'No hay aulas en la sucursal seleccionada para este reporte.')
+        setLoading(false)
+        return
+      }
+
       // Para meses anteriores: usar RPC (SECURITY DEFINER) para evitar problemas de RLS con facilitadores
       const aulaIdsReporte = Array.from(aulasMap.keys())
       const totalPorAulaFechaReporte = new Map<string, number>() // key: `${aulaId}|${fechaStr}`
@@ -945,7 +976,7 @@ export function ReporteList({ tipoAula = 'REGULAR' }: ReporteListProps) {
             diasIncompletosGlobales.push({
               fecha: fechaStr,
               fechaFormateada: fechaDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' }),
-              nivel: row.aula_nombre || 'Sin aula',
+              nivel: etiquetaAulaConSucursal(row.aula_nombre || 'Sin aula', row.aula_id, aulaMetaMap, mostrarEtiquetaSucursal),
               aulaId: row.aula_id,
               marcados: Number(row.marcados) || 0,
               total: Number(row.total) || 0,
@@ -1076,6 +1107,7 @@ export function ReporteList({ tipoAula = 'REGULAR' }: ReporteListProps) {
         reporteDetallado,
         fechasUnicas,
         diasIncompletos: diasIncompletosGlobales.sort((a, b) => a.fecha.localeCompare(b.fecha)),
+        sucursalNombre: sucursalNombreFiltro,
       }
       
       // Mostrar días incompletos de forma destacada en la consola
@@ -1583,6 +1615,17 @@ export function ReporteList({ tipoAula = 'REGULAR' }: ReporteListProps) {
                 className="w-full"
               />
             </div>
+            {mostrarSelectorSucursal && (
+              <SucursalReporteSelect
+                sucursales={sucursales}
+                value={selectedSucursalId}
+                onChange={(value) => {
+                  setSelectedSucursalId(value)
+                  setReporteData(null)
+                }}
+                loading={loadingSucursales}
+              />
+            )}
           </div>
 
           <RoleGuard fcpId={fcpIdFinal || undefined} allowedRoles={['facilitador', 'director', 'secretario']}>
@@ -1680,6 +1723,9 @@ export function ReporteList({ tipoAula = 'REGULAR' }: ReporteListProps) {
                   <p><strong>PROYECTO:</strong> {reporteData.fcp.numero_identificacion || ''} {reporteData.fcp.razon_social}</p>
                   <p><strong>AÑO:</strong> {selectedYear}</p>
                   <p><strong>MES:</strong> {new Date(selectedYear, selectedMonth).toLocaleDateString('es-ES', { month: 'long' }).toUpperCase()}</p>
+                  {reporteData.sucursalNombre && (
+                    <p><strong>SUCURSAL:</strong> {reporteData.sucursalNombre.toUpperCase()}</p>
+                  )}
                   {responsable && (
                     <>
                       <p><strong>RESPONSABLE:</strong> {responsable.nombre.toUpperCase()}</p>

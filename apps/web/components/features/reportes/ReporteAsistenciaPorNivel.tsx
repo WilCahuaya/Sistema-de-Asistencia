@@ -49,6 +49,9 @@ import {
 } from '@/lib/reportes/asistenciasReporteQueries'
 import type { AulaTipo } from '@/lib/utils/aulaIntervencion'
 import { fetchAulaIdsPorTipo } from '@/lib/utils/aulaIntervencion'
+import { SucursalReporteSelect } from '@/components/features/reportes/SucursalReporteSelect'
+import { useSucursalReporteFilter } from '@/hooks/useSucursalReporteFilter'
+import { filtrarAulasPorSucursal, etiquetaAulaConSucursal } from '@/lib/reportes/sucursalReporte'
 
 interface ReporteAsistenciaPorNivelProps {
   fcpId: string | null
@@ -132,12 +135,23 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
     niveles: NivelGroup[]
     fechasUnicas: string[] // Solo fechas completas (todos marcados o día sin atención)
     diasIncompletos: DiaIncompleto[] // Días que no se completaron
+    sucursalNombre?: string | null
   } | null>(null)
   const [responsable, setResponsable] = useState<{ nombre: string; email: string; rol: string } | null>(null)
   const [isFacilitador, setIsFacilitador] = useState(false)
   const { canViewReports, loading: roleLoading, role } = useUserRole(selectedFCP)
   const router = useRouter()
   const { selectedRole } = useSelectedRole()
+  const {
+    sucursales,
+    selectedSucursalId,
+    setSelectedSucursalId,
+    aulaMetaMap,
+    loading: loadingSucursales,
+    mostrarSelector: mostrarSelectorSucursal,
+    mostrarEtiquetaSucursal,
+    sucursalNombre: sucursalNombreFiltro,
+  } = useSucursalReporteFilter(selectedFCP, tipoAula)
 
   // Scroll horizontal y resize (igual que Reporte General)
   const tableContainerRef = useRef<HTMLDivElement>(null)
@@ -491,7 +505,13 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
 
       const aulasFiltradas = aulas.filter((a) => aulaIdsTipo.has(a.id))
       aulas.length = 0
-      aulas.push(...aulasFiltradas)
+      aulas.push(...filtrarAulasPorSucursal(aulasFiltradas, selectedSucursalId, aulaMetaMap))
+
+      if (aulas.length === 0) {
+        toast.warning('Sin aulas', 'No hay aulas en la sucursal seleccionada para este reporte.')
+        setLoading(false)
+        return
+      }
 
       console.log('📚 Aulas cargadas en reporte:', {
         total: aulas.length,
@@ -689,7 +709,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
             diasIncompletosGlobales.push({
               fecha: fechaStr,
               fechaFormateada: fechaDate.toLocaleDateString('es-PE', { day: 'numeric', month: 'long', timeZone: 'America/Lima' }),
-              nivel: row.aula_nombre || 'Sin aula',
+              nivel: etiquetaAulaConSucursal(row.aula_nombre || 'Sin aula', row.aula_id, aulaMetaMap, mostrarEtiquetaSucursal),
               tutorNombre: aulaTutorMapNivel.get(row.aula_id) || 'Sin tutor asignado',
               marcados: Number(row.marcados) || 0,
               total: Number(row.total) || 0,
@@ -871,9 +891,11 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
           ? totalPresente / diasDeAtencion
           : 0
 
-        if (!nivelesMap.has(aula.nombre)) {
-          nivelesMap.set(aula.nombre, {
-            nivel: aula.nombre,
+        const nombreNivel = etiquetaAulaConSucursal(aula.nombre, aula.id, aulaMetaMap, mostrarEtiquetaSucursal)
+
+        if (!nivelesMap.has(nombreNivel)) {
+          nivelesMap.set(nombreNivel, {
+            nivel: nombreNivel,
             aulas: [],
             totalPresente: 0,
             totalPermiso: 0,
@@ -885,12 +907,12 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
           })
         }
 
-        const nivelGroup = nivelesMap.get(aula.nombre)!
+        const nivelGroup = nivelesMap.get(nombreNivel)!
         nivelGroup.aulas.push({
           tutorId,
           tutorNombre,
           aulaId: aula.id,
-          aulaNombre: aula.nombre,
+          aulaNombre: nombreNivel,
           asistencias: asistenciasPorFecha,
           totalPresente,
           totalPermiso,
@@ -947,6 +969,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
         })).sort((a, b) => a.nivel.localeCompare(b.nivel)),
         fechasUnicas, // Solo fechas completas
         diasIncompletos: diasIncompletosGlobales.sort((a, b) => a.fecha.localeCompare(b.fecha)),
+        sucursalNombre: sucursalNombreFiltro,
       })
     } catch (error) {
       console.error('Error generating report:', error)
@@ -1574,6 +1597,18 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
                 className="w-full"
               />
             </div>
+
+            {mostrarSelectorSucursal && (
+              <SucursalReporteSelect
+                sucursales={sucursales}
+                value={selectedSucursalId}
+                onChange={(value) => {
+                  setSelectedSucursalId(value)
+                  setReporteData(null)
+                }}
+                loading={loadingSucursales}
+              />
+            )}
           </div>
 
           <RoleGuard fcpId={selectedFCP} allowedRoles={['facilitador', 'director', 'secretario']}>
@@ -1639,6 +1674,9 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
                   <p><strong>PROYECTO:</strong> {reporteData.fcp.numero_identificacion || ''} {reporteData.fcp.razon_social}</p>
                   <p><strong>AÑO:</strong> {reporteData.year}</p>
                   <p><strong>MES:</strong> {formatMonthYear(reporteData.month, reporteData.year).split(' ')[0].toUpperCase()}</p>
+                  {reporteData.sucursalNombre && (
+                    <p><strong>SUCURSAL:</strong> {reporteData.sucursalNombre.toUpperCase()}</p>
+                  )}
                   {responsable && (
                     <>
                       <p><strong>RESPONSABLE:</strong> {responsable.nombre.toUpperCase()}</p>

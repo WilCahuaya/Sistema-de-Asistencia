@@ -44,6 +44,9 @@ import {
 } from '@/lib/reportes/asistenciasReporteQueries'
 import type { AulaTipo } from '@/lib/utils/aulaIntervencion'
 import { fetchAulaIdsPorTipo } from '@/lib/utils/aulaIntervencion'
+import { SucursalReporteSelect } from '@/components/features/reportes/SucursalReporteSelect'
+import { useSucursalReporteFilter } from '@/hooks/useSucursalReporteFilter'
+import { filtrarAulasPorSucursal, etiquetaAulaConSucursal } from '@/lib/reportes/sucursalReporte'
 
 interface ReporteMensualProps {
   fcpId: string | null
@@ -78,6 +81,7 @@ interface ReporteData {
   totalRegistrados: number
   totalPorcentaje: number
   diasIncompletos: DiaIncompleto[]
+  sucursalNombre?: string | null
 }
 
 export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula = 'REGULAR' }: ReporteMensualProps) {
@@ -109,6 +113,16 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
     (role === 'tutor' && Array.isArray(soloAulasIds) && soloAulasIds.length > 0)
   const router = useRouter()
   const { selectedRole } = useSelectedRole()
+  const {
+    sucursales,
+    selectedSucursalId,
+    setSelectedSucursalId,
+    aulaMetaMap,
+    loading: loadingSucursales,
+    mostrarSelector: mostrarSelectorSucursal,
+    mostrarEtiquetaSucursal,
+    sucursalNombre: sucursalNombreFiltro,
+  } = useSucursalReporteFilter(selectedFCP, tipoAula)
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 640)
@@ -498,6 +512,13 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
         aulasData = aulasData.filter((a: any) => permitidas.has(a.id))
       }
 
+      aulasData = filtrarAulasPorSucursal(aulasData, selectedSucursalId, aulaMetaMap)
+      if (aulasData.length === 0) {
+        toast.warning('Sin aulas', 'No hay aulas en la sucursal seleccionada para este reporte.')
+        setLoading(false)
+        return
+      }
+
       // Cargar tutores de las aulas para el reporte
       const aulaIds = aulasData?.map((a: any) => a.id) || []
       const aulaTutorMap = new Map<string, string>()
@@ -557,7 +578,7 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
           diasIncompletosGlobales.push({
             fecha: fechaStr,
             fechaFormateada: fechaDate.toLocaleDateString('es-PE', { day: 'numeric', month: 'long', timeZone: 'America/Lima' }),
-            nivel: row.aula_nombre || 'Sin aula',
+            nivel: etiquetaAulaConSucursal(row.aula_nombre || 'Sin aula', row.aula_id, aulaMetaMap, mostrarEtiquetaSucursal),
             aulaId: row.aula_id,
             marcados: Number(row.marcados) || 0,
             total: Number(row.total) || 0,
@@ -702,7 +723,7 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
         const porcentaje = oportunidadesAsistencia > 0 ? (totalAsistenciasPresente / oportunidadesAsistencia) * 100 : 0
 
         niveles.push({
-          nivel: aula.nombre,
+          nivel: etiquetaAulaConSucursal(aula.nombre, aula.id, aulaMetaMap, mostrarEtiquetaSucursal),
           tutor: aulaTutorMap.get(aula.id) || 'Sin tutor',
           asistenPromed,
           registrados,
@@ -743,6 +764,7 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
         totalRegistrados,
         totalPorcentaje,
         diasIncompletos: diasIncompletosGlobales.sort((a, b) => a.fecha.localeCompare(b.fecha)),
+        sucursalNombre: sucursalNombreFiltro,
       })
     } catch (error) {
       console.error('Error generating report:', error)
@@ -801,6 +823,10 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
         doc.text(`RESPONSABLE: ${responsable.nombre.toUpperCase()}`, col1, y)
         doc.text(`EMAIL: ${responsable.email.toUpperCase()}`, col2, y)
         doc.text(`ROL: ${responsable.rol.toUpperCase()}`, col3, y)
+        y += 4
+      }
+      if (reporteData.sucursalNombre) {
+        doc.text(`SUCURSAL: ${reporteData.sucursalNombre.toUpperCase()}`, col1, y)
         y += 4
       }
       y += 4
@@ -1111,6 +1137,18 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
                 className="w-full"
               />
             </div>
+
+            {mostrarSelectorSucursal && (
+              <SucursalReporteSelect
+                sucursales={sucursales}
+                value={selectedSucursalId}
+                onChange={(value) => {
+                  setSelectedSucursalId(value)
+                  setReporteData(null)
+                }}
+                loading={loadingSucursales}
+              />
+            )}
           </div>
 
           {puedeVerEsteReporte && (
@@ -1163,6 +1201,9 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
                 <p><strong>PROYECTO:</strong> {reporteData.fcp.numero_identificacion || ''} {reporteData.fcp.razon_social}</p>
                 <p><strong>AÑO:</strong> {reporteData.year}</p>
                 <p><strong>MES:</strong> {monthNames[reporteData.month].toUpperCase()}</p>
+                {reporteData.sucursalNombre && (
+                  <p><strong>SUCURSAL:</strong> {reporteData.sucursalNombre.toUpperCase()}</p>
+                )}
                 {responsable && (
                   <>
                     <p><strong>RESPONSABLE:</strong> {responsable.nombre.toUpperCase()}</p>

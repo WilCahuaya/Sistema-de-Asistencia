@@ -34,6 +34,9 @@ import {
 } from '@/lib/utils/aulaIntervencion'
 import type { EstadoIntervencion } from '@/lib/utils/aulaIntervencion'
 import { compareNombreCompleto } from '@/lib/utils/sortEstudiantes'
+import { SucursalReporteSelect } from '@/components/features/reportes/SucursalReporteSelect'
+import { useSucursalReporteFilter } from '@/hooks/useSucursalReporteFilter'
+import { filtrarAulasPorSucursal } from '@/lib/reportes/sucursalReporte'
 import {
   getPDFHeaderStyles,
   getPDFBodyStyles,
@@ -80,6 +83,7 @@ interface ReporteData {
   diasCompletos: number
   filas: FilaEstudiante[]
   diasIncompletos: DiaIncompleto[]
+  sucursalNombre?: string | null
 }
 
 function calcularPorcentaje(presente: number, permiso: number, diasCompletos: number): number {
@@ -153,11 +157,6 @@ export function ReporteIntervencionAcumulado({
           lista = lista.filter((a) => permitidas.has(a.id))
         }
         setIntervenciones(lista)
-        setSelectedIntervencionId((prev) => {
-          if (lista.length === 0) return ''
-          if (lista.some((a) => a.id === prev)) return prev
-          return lista[0].id
-        })
       } catch (e) {
         console.error(e)
         if (!cancelled) toast.error('Error', 'No se pudieron cargar las intervenciones.')
@@ -170,7 +169,37 @@ export function ReporteIntervencionAcumulado({
     }
   }, [fcpId, soloAulasIds])
 
-  const intervencionSeleccionada = intervenciones.find((a) => a.id === selectedIntervencionId)
+  const {
+    sucursales,
+    selectedSucursalId,
+    setSelectedSucursalId,
+    aulaMetaMap,
+    loading: loadingSucursales,
+    mostrarSelector: mostrarSelectorSucursal,
+    sucursalNombre: sucursalNombreFiltro,
+  } = useSucursalReporteFilter(fcpId, 'INTERVENTION')
+
+  const intervencionesVisibles = useMemo(() => {
+    let lista = intervenciones
+    if (soloAulasIds && soloAulasIds.length > 0) {
+      const permitidas = new Set(soloAulasIds)
+      lista = lista.filter((a) => permitidas.has(a.id))
+    }
+    return filtrarAulasPorSucursal(lista, selectedSucursalId, aulaMetaMap)
+  }, [intervenciones, soloAulasIds, selectedSucursalId, aulaMetaMap])
+
+  useEffect(() => {
+    if (intervencionesVisibles.length === 0) {
+      setSelectedIntervencionId('')
+      return
+    }
+    setSelectedIntervencionId((prev) => {
+      if (intervencionesVisibles.some((a) => a.id === prev)) return prev
+      return intervencionesVisibles[0].id
+    })
+  }, [intervencionesVisibles])
+
+  const intervencionSeleccionada = intervencionesVisibles.find((a) => a.id === selectedIntervencionId)
 
   const generarReporte = async () => {
     if (!fcpId || !intervencionSeleccionada) {
@@ -320,6 +349,7 @@ export function ReporteIntervencionAcumulado({
         diasCompletos: diasCompletosGlobales,
         filas,
         diasIncompletos: diasIncompletos.sort((a, b) => a.fecha.localeCompare(b.fecha)),
+        sucursalNombre: sucursalNombreFiltro,
       })
     } catch (e) {
       console.error(e)
@@ -542,6 +572,16 @@ export function ReporteIntervencionAcumulado({
     )
   }
 
+  if (intervencionesVisibles.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center text-muted-foreground">
+          No hay intervenciones en la sucursal seleccionada.
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <Card>
@@ -564,7 +604,7 @@ export function ReporteIntervencionAcumulado({
                   <SelectValue placeholder="Seleccionar intervención" />
                 </SelectTrigger>
                 <SelectContent>
-                  {intervenciones.map((a) => (
+                  {intervencionesVisibles.map((a) => (
                     <SelectItem key={a.id} value={a.id}>
                       {a.nombre}
                       {a.codigo_aula ? ` (${a.codigo_aula})` : ''}
@@ -573,6 +613,18 @@ export function ReporteIntervencionAcumulado({
                 </SelectContent>
               </Select>
             </div>
+            {mostrarSelectorSucursal && (
+              <SucursalReporteSelect
+                sucursales={sucursales}
+                value={selectedSucursalId}
+                onChange={(value) => {
+                  setSelectedSucursalId(value)
+                  setReporte(null)
+                }}
+                loading={loadingSucursales}
+                className="grid gap-2 flex-1 min-w-[200px]"
+              />
+            )}
             {intervencionSeleccionada && (
               <p className="text-xs text-muted-foreground sm:pb-2">
                 Temporada: {formatTemporada(intervencionSeleccionada)} ·{' '}
@@ -602,6 +654,7 @@ export function ReporteIntervencionAcumulado({
                 Del {reporte.fechaInicio} al {reporte.fechaFin} · {reporte.filas.length} estudiante
                 {reporte.filas.length !== 1 ? 's' : ''} · {reporte.diasCompletos} día
                 {reporte.diasCompletos !== 1 ? 's' : ''} de atención
+                {reporte.sucursalNombre ? ` · Sucursal: ${reporte.sucursalNombre}` : ''}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
