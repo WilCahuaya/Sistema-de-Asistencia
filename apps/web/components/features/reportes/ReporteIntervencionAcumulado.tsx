@@ -202,7 +202,6 @@ export function ReporteIntervencionAcumulado({
         .from('intervencion_estudiantes')
         .select(`
           estudiante_id,
-          fecha_inscripcion,
           estudiante:estudiantes(id, codigo, nombre_completo)
         `)
         .eq('fcp_id', fcpId)
@@ -211,14 +210,13 @@ export function ReporteIntervencionAcumulado({
 
       if (inscErr) throw inscErr
 
-      const estudiantesMap = new Map<string, { codigo: string; nombreCompleto: string; fechaInscripcion: string }>()
+      const estudiantesMap = new Map<string, { codigo: string; nombreCompleto: string }>()
       for (const row of inscripciones || []) {
         const est = Array.isArray(row.estudiante) ? row.estudiante[0] : row.estudiante
         if (!est?.id) continue
         estudiantesMap.set(est.id, {
           codigo: est.codigo || '—',
           nombreCompleto: est.nombre_completo || '—',
-          fechaInscripcion: normalizarFecha(row.fecha_inscripcion) ?? fechaInicio,
         })
       }
 
@@ -249,25 +247,20 @@ export function ReporteIntervencionAcumulado({
         marcadosPorFecha.get(fecha)!.add(a.estudiante_id)
       }
 
-      const inscritosEnFecha = (fecha: string): string[] =>
-        [...estudiantesMap.entries()]
-          .filter(([, meta]) => meta.fechaInscripcion <= fecha)
-          .map(([id]) => id)
-
+      const rosterIds = [...estudiantesMap.keys()]
+      const registrados = rosterIds.length
       const diasIncompletos: DiaIncompleto[] = []
       let diasCompletosGlobales = 0
 
       for (const fecha of enumerarFechas(fechaInicio, fechaFin)) {
-        const inscritosIds = inscritosEnFecha(fecha)
-        const registrados = inscritosIds.length
-        if (registrados === 0) continue
+        if (registrados === 0) break
 
         const marcadosSet = marcadosPorFecha.get(fecha) ?? new Set()
-        const marcados = inscritosIds.filter((id) => marcadosSet.has(id)).length
+        const marcados = rosterIds.filter((id) => marcadosSet.has(id)).length
 
         if (marcados === registrados) {
           diasCompletosGlobales++
-          for (const estudianteId of inscritosIds) {
+          for (const estudianteId of rosterIds) {
             const rec = registroPorEstudianteFecha.get(`${estudianteId}|${fecha}`)
             if (!rec) continue
             const s = stats.get(estudianteId)!
