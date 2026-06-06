@@ -25,9 +25,13 @@ import { Calendar, FileSpreadsheet, Search, BarChart3 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
-import { fetchAsistenciasRangoFlat } from '@/lib/reportes/asistenciasReporteQueries'
+import { fetchAsistenciasIntervencionRango } from '@/lib/reportes/asistenciasReporteQueries'
 import { toLocalDateString } from '@/lib/utils/dateUtils'
-import { formatTemporada, ESTADO_INTERVENCION_LABEL } from '@/lib/utils/aulaIntervencion'
+import {
+  formatTemporada,
+  ESTADO_INTERVENCION_LABEL,
+  fechaEnTemporadaIntervencion,
+} from '@/lib/utils/aulaIntervencion'
 import type { EstadoIntervencion } from '@/lib/utils/aulaIntervencion'
 import { compareNombreCompleto } from '@/lib/utils/sortEstudiantes'
 import * as XLSX from 'xlsx'
@@ -79,27 +83,15 @@ function calcularPorcentaje(presente: number, permiso: number, diasCompletos: nu
 
 function normalizarFecha(f: string | null | undefined): string | null {
   if (!f) return null
-  return String(f).split('T')[0]
+  const base = String(f).split('T')[0]
+  const parts = base.split('-')
+  if (parts.length !== 3) return base
+  const [y, m, d] = parts
+  return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
 }
 
 function minFecha(a: string, b: string): string {
   return a <= b ? a : b
-}
-
-function enumerarFechas(inicio: string, fin: string): string[] {
-  const [y1, m1, d1] = inicio.split('-').map(Number)
-  const [y2, m2, d2] = fin.split('-').map(Number)
-  const cur = new Date(y1, m1 - 1, d1)
-  const end = new Date(y2, m2 - 1, d2)
-  const fechas: string[] = []
-  while (cur <= end) {
-    const y = cur.getFullYear()
-    const m = String(cur.getMonth() + 1).padStart(2, '0')
-    const day = String(cur.getDate()).padStart(2, '0')
-    fechas.push(`${y}-${m}-${day}`)
-    cur.setDate(cur.getDate() + 1)
-  }
-  return fechas
 }
 
 function formatearFecha(fechaStr: string): string {
@@ -196,7 +188,7 @@ export function ReporteIntervencionAcumulado({
       }
       const finTemporada = normalizarFecha(intervencionSeleccionada.fecha_fin) ?? hoy
       const fechaInicio = inicioTemporada
-      const fechaFin = minFecha(finTemporada, hoy)
+      const fechaFinTemporada = finTemporada
 
       const { data: inscripciones, error: inscErr } = await supabase
         .from('intervencion_estudiantes')
@@ -228,12 +220,13 @@ export function ReporteIntervencionAcumulado({
         stats.set(id, { presente: 0, falto: 0, permiso: 0, diasCompletos: 0 })
       }
 
-      const asistencias = (await fetchAsistenciasRangoFlat(
+      const asistencias = await fetchAsistenciasIntervencionRango(
         supabase,
         fcpId,
+        intervencionSeleccionada.id,
         fechaInicio,
-        fechaFin
-      )).filter((a) => a.aula_id === intervencionSeleccionada.id)
+        fechaFinTemporada
+      )
 
       const registroPorEstudianteFecha = new Map<string, { estado: string }>()
       const marcadosPorFecha = new Map<string, Set<string>>()
@@ -242,6 +235,7 @@ export function ReporteIntervencionAcumulado({
         if (!estudiantesMap.has(a.estudiante_id)) continue
         const fecha = normalizarFecha(a.fecha)
         if (!fecha) continue
+        if (!fechaEnTemporadaIntervencion(intervencionSeleccionada, fecha)) continue
         registroPorEstudianteFecha.set(`${a.estudiante_id}|${fecha}`, { estado: a.estado })
         if (!marcadosPorFecha.has(fecha)) marcadosPorFecha.set(fecha, new Set())
         marcadosPorFecha.get(fecha)!.add(a.estudiante_id)
@@ -252,7 +246,17 @@ export function ReporteIntervencionAcumulado({
       const diasIncompletos: DiaIncompleto[] = []
       let diasCompletosGlobales = 0
 
-      for (const fecha of enumerarFechas(fechaInicio, fechaFin)) {
+      // Solo evaluar fechas con al menos un registro (días con atención), como en el calendario
+      const fechasConMarcas = [...marcadosPorFecha.keys()]
+        .filter(
+          (fecha) =>
+            fecha >= fechaInicio &&
+            fecha <= fechaFinTemporada &&
+            fechaEnTemporadaIntervencion(intervencionSeleccionada, fecha)
+        )
+        .sort()
+
+      for (const fecha of fechasConMarcas) {
         if (registrados === 0) break
 
         const marcadosSet = marcadosPorFecha.get(fecha) ?? new Set()
@@ -294,10 +298,19 @@ export function ReporteIntervencionAcumulado({
         })
         .sort((a, b) => compareNombreCompleto(a.nombreCompleto, b.nombreCompleto))
 
+      const fechasCompletas = fechasConMarcas.filter((fecha) => {
+        const marcadosSet = marcadosPorFecha.get(fecha) ?? new Set()
+        return rosterIds.filter((id) => marcadosSet.has(id)).length === registrados
+      })
+      const fechaFinReporte =
+        fechasCompletas.length > 0
+          ? fechasCompletas[fechasCompletas.length - 1]
+          : minFecha(finTemporada, hoy)
+
       setReporte({
         intervencion: intervencionSeleccionada,
         fechaInicio,
-        fechaFin,
+        fechaFin: fechaFinReporte,
         diasCompletos: diasCompletosGlobales,
         filas,
         diasIncompletos: diasIncompletos.sort((a, b) => a.fecha.localeCompare(b.fecha)),
@@ -536,9 +549,9 @@ export function ReporteIntervencionAcumulado({
               </Table>
             </div>
             <p className="text-xs text-muted-foreground mt-3">
-              Periodo: toda la temporada vigente ({reporte.fechaInicio} – {reporte.fechaFin}). Solo cuentan los
-              días completos (todos los inscritos ese día con registro). % Asistencia = (asistencias + permisos) ÷
-              días completos del estudiante. Los permisos cuentan como asistió.
+              Del {reporte.fechaInicio} al {reporte.fechaFin} (temporada de la intervención). Solo cuentan
+              días completos con atención (2/2 en el calendario). % = (asistencias + permisos) ÷ días
+              completos del estudiante. Los permisos cuentan como asistió.
             </p>
           </CardContent>
         </Card>

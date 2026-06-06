@@ -65,6 +65,40 @@ export async function fetchAsistenciasRangoFlat(
   return all
 }
 
+/** Asistencias de una intervención en rango (misma consulta que el calendario de asistencia). */
+export async function fetchAsistenciasIntervencionRango(
+  supabase: SupabaseClient,
+  fcpId: string,
+  aulaId: string,
+  fechaInicio: string,
+  fechaFin: string,
+  options?: { pageSize?: number }
+): Promise<AsistenciaFlatRow[]> {
+  const pageSize = options?.pageSize ?? DEFAULT_PAGE
+  const selectCols = 'estudiante_id, estado, fecha, aula_id, registro_tardio'
+  let all: AsistenciaFlatRow[] = []
+  let offset = 0
+  let hasMore = true
+  while (hasMore) {
+    const { data: page, error } = await supabase
+      .from('asistencias')
+      .select(selectCols)
+      .eq('fcp_id', fcpId)
+      .eq('aula_id', aulaId)
+      .gte('fecha', fechaInicio)
+      .lte('fecha', fechaFin)
+      .order('fecha', { ascending: true })
+      .range(offset, offset + pageSize - 1)
+
+    if (error) throw error
+    const rows = (page || []) as AsistenciaFlatRow[]
+    all = all.concat(rows)
+    hasMore = rows.length === pageSize
+    offset += pageSize
+  }
+  return all
+}
+
 async function fetchInChunks<T extends { id: string }>(
   supabase: SupabaseClient,
   table: 'estudiantes' | 'aulas',
