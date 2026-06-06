@@ -41,6 +41,7 @@ import {
 import {
   enrichAsistenciasRows,
   fetchAsistenciasRangoFlat,
+  asistenciaCuentaParaAula,
   fetchAulasMapByIds,
   fetchEstudiantesActivosPorAulas,
   fetchEstudiantesMapByIds,
@@ -767,11 +768,10 @@ export function ReporteList({ tipoAula = 'REGULAR' }: ReporteListProps) {
         const totalEstudiantes = aula.estudiantesIds.length
         const asistenciasPorFecha = new Map<string, Set<string>>() // fecha -> Set<estudiante_id>
 
-        // Agrupar asistencias por fecha - MISMA LÓGICA que la vista de Asistencias:
-        // Contar por (estudiante_id, fecha) sin exigir aula_id en la asistencia, para que coincida
-        // con lo que muestra "Ver asistencia" (41/41 cuando todos tienen registro)
+        // Agrupar asistencias por fecha; regular e intervención no se mezclan (mismo aula_id).
         asistenciasData?.forEach((asist: any) => {
           if (!aula.estudiantesIds.includes(asist.estudiante_id)) return
+          if (!asistenciaCuentaParaAula(asist, aulaId)) return
           const fecha = asist.fecha
           if (!asistenciasPorFecha.has(fecha)) asistenciasPorFecha.set(fecha, new Set())
           asistenciasPorFecha.get(fecha)!.add(asist.estudiante_id)
@@ -931,7 +931,7 @@ export function ReporteList({ tipoAula = 'REGULAR' }: ReporteListProps) {
 
         // Detectar días incompletos: usar RPC en BD (única fuente de verdad)
         // Evita desincronización entre reporte y vista Asistencias
-        if (aulaIdsReporte.length > 0 && fcpIdAUsar) {
+        if (aulaIdsReporte.length > 0 && fcpIdAUsar && tipoAula !== 'INTERVENTION') {
           const { data: rpcDiasIncompletos } = await supabase.rpc('dias_incompletos_por_aula', {
             p_aula_ids: aulaIdsReporte,
             p_fecha_inicio: fechaInicioStr,

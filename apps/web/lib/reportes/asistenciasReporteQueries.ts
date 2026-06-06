@@ -20,6 +20,14 @@ export type EstudianteReporteRow = {
   created_at: string | null
 }
 
+/** Solo asistencias de este aula; regular e intervención no se mezclan. */
+export function asistenciaCuentaParaAula(
+  asistencia: { aula_id?: string | null },
+  aulaId: string
+): boolean {
+  return (asistencia.aula_id ?? aulaId) === aulaId
+}
+
 /** Parsea filas devueltas por RPC estudiantes_activos_en_rango (SETOF uuid u objeto). */
 export function parseEstudiantesActivosEnRangoIds(data: unknown): string[] {
   return (data || []).flatMap((x: unknown) => {

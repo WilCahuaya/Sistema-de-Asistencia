@@ -38,6 +38,7 @@ import {
 import {
   enrichAsistenciasParticipantes,
   fetchAsistenciasRangoFlat,
+  asistenciaCuentaParaAula,
   fetchAulasMapByIds,
   fetchEstudiantesActivosPorAulas,
   fetchEstudiantesAulaOnlyMapByIds,
@@ -466,11 +467,15 @@ export function ReporteParticipantesPorMes({ fcpId: fcpIdProp }: ReporteParticip
 
             if (registrados === 0) continue
 
-            // MISMA LÓGICA que vista Asistencias: contar por (estudiante_id, fecha) sin filtrar por aula_id
             const estudiantesAulaIds = new Set(estudiantesAula.map(e => e.id))
             const asistenciasDelMesAula = todasAsistenciasData?.filter((a: any) => {
               const fechaStr = a.fecha
-              return fechaStr >= mesInicioStr && fechaStr <= mesFinStr && estudiantesAulaIds.has(a.estudiante_id)
+              return (
+                fechaStr >= mesInicioStr &&
+                fechaStr <= mesFinStr &&
+                estudiantesAulaIds.has(a.estudiante_id) &&
+                asistenciaCuentaParaAula(a, aula.id)
+              )
             }) || []
             const asistenciasPorFecha = new Map<string, Set<string>>()
             asistenciasDelMesAula.forEach((asistencia: any) => {

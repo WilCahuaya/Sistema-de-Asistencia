@@ -21,7 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Calendar, FileSpreadsheet, Search, BarChart3 } from 'lucide-react'
+import { Calendar, FileSpreadsheet, FileText, Search, BarChart3 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
@@ -34,6 +34,12 @@ import {
 } from '@/lib/utils/aulaIntervencion'
 import type { EstadoIntervencion } from '@/lib/utils/aulaIntervencion'
 import { compareNombreCompleto } from '@/lib/utils/sortEstudiantes'
+import {
+  getPDFHeaderStyles,
+  getPDFBodyStyles,
+  getPDFAlternateRowStyles,
+} from '@/lib/utils/exportStyles'
+import { getAvailableTableWidth, getProportionalColumnStyles, type PDFTableColumnConfig } from '@/lib/utils/pdfTableUtils'
 import * as XLSX from 'xlsx'
 
 interface ReporteIntervencionAcumuladoProps {
@@ -363,6 +369,145 @@ export function ReporteIntervencionAcumulado({
     toast.success('Excel descargado')
   }
 
+  const exportarPDF = async () => {
+    if (!reporte) return
+
+    try {
+      const jsPDF = (await import('jspdf')).default
+      const autotableModule = await import('jspdf-autotable')
+
+      let autoTable: any = null
+      if ((autotableModule as any).autoTable && typeof (autotableModule as any).autoTable === 'function') {
+        autoTable = (autotableModule as any).autoTable
+      } else if ((autotableModule as any).default && typeof (autotableModule as any).default === 'function') {
+        autoTable = (autotableModule as any).default
+      }
+
+      if ((autotableModule as any).applyPlugin && typeof (autotableModule as any).applyPlugin === 'function') {
+        ;(autotableModule as any).applyPlugin(jsPDF)
+      }
+
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const margin = 15
+      let y = 14
+
+      doc.setFontSize(12)
+      doc.setFont('helvetica', 'bold')
+      doc.text('ASISTENCIA ACUMULADA DE LA INTERVENCIÓN', pageWidth / 2, y, { align: 'center' })
+      y += 7
+
+      doc.setFontSize(9)
+      doc.setFont('helvetica', 'normal')
+      const tituloIntervencion = reporte.intervencion.codigo_aula
+        ? `${reporte.intervencion.nombre} (${reporte.intervencion.codigo_aula})`
+        : reporte.intervencion.nombre
+      doc.text(`Intervención: ${tituloIntervencion}`, margin, y)
+      y += 5
+      doc.text(`Periodo: ${reporte.fechaInicio} – ${reporte.fechaFin}`, margin, y)
+      y += 5
+      doc.text(
+        `Estudiantes: ${reporte.filas.length} · Días de atención (completos): ${reporte.diasCompletos}`,
+        margin,
+        y
+      )
+      y += 5
+      if (reporte.intervencion.fecha_inicio) {
+        doc.text(`Temporada: ${formatTemporada(reporte.intervencion)}`, margin, y)
+        y += 5
+      }
+
+      if (reporte.diasIncompletos.length > 0) {
+        y += 2
+        doc.setFont('helvetica', 'bold')
+        doc.setTextColor(180, 83, 9)
+        doc.text('Días con asistencia incompleta (no incluidos en totales):', margin, y)
+        y += 5
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8)
+        for (const dia of reporte.diasIncompletos) {
+          if (y > 270) {
+            doc.addPage()
+            y = 14
+          }
+          doc.text(`• ${dia.fechaFormateada} — Marcados: ${dia.marcados}/${dia.total}`, margin + 2, y)
+          y += 4
+        }
+        doc.setTextColor(0, 0, 0)
+        doc.setFontSize(9)
+        y += 2
+      }
+
+      const headers = ['Estudiante', 'Código', 'Asistencias', 'Faltas', 'Permisos', '% Asistencia']
+      const body = reporte.filas.map((f) => [
+        f.nombreCompleto,
+        f.codigo,
+        String(f.asistencias),
+        String(f.faltas),
+        String(f.permisos),
+        `${f.porcentaje.toFixed(1)}%`,
+      ])
+
+      const availableWidth = getAvailableTableWidth(doc, margin)
+      const columnConfigs: PDFTableColumnConfig[] = [
+        { type: 'text', weight: 2.2, halign: 'left' },
+        { type: 'text', weight: 1, halign: 'left' },
+        { type: 'numeric', weight: 0.8, halign: 'center' },
+        { type: 'numeric', weight: 0.7, halign: 'center' },
+        { type: 'numeric', weight: 0.8, halign: 'center' },
+        { type: 'numeric', weight: 0.9, halign: 'center' },
+      ]
+      const columnStyles = getProportionalColumnStyles(headers.length, availableWidth, columnConfigs)
+
+      const tableOptions = {
+        startY: y,
+        head: [headers],
+        body,
+        theme: 'grid',
+        tableWidth: availableWidth,
+        margin: { left: margin, right: margin },
+        headStyles: getPDFHeaderStyles(),
+        bodyStyles: getPDFBodyStyles(),
+        alternateRowStyles: getPDFAlternateRowStyles(),
+        styles: {
+          cellPadding: 2.5,
+          overflow: 'linebreak',
+          fontSize: 8,
+        },
+        columnStyles,
+      }
+
+      if (typeof (doc as any).autoTable === 'function') {
+        ;(doc as any).autoTable(tableOptions)
+      } else if (typeof autoTable === 'function') {
+        autoTable(doc, tableOptions)
+      } else {
+        throw new Error('autoTable no está disponible. Verifica la instalación de jspdf-autotable.')
+      }
+
+      const finalY = (doc as any).lastAutoTable?.finalY ?? y + 20
+      if (finalY < 270) {
+        doc.setFontSize(7)
+        doc.setFont('helvetica', 'italic')
+        doc.text(
+          'Solo cuentan días completos con atención. % = (asistencias + permisos) ÷ días completos del estudiante.',
+          margin,
+          finalY + 6,
+          { maxWidth: availableWidth }
+        )
+      }
+
+      const slug = (reporte.intervencion.codigo_aula || reporte.intervencion.nombre)
+        .replace(/\s+/g, '_')
+        .slice(0, 30)
+      doc.save(`asistencia_acumulada_${slug}.pdf`)
+      toast.success('PDF descargado')
+    } catch (error) {
+      console.error('Error exporting to PDF:', error)
+      toast.error('Error al exportar a PDF', 'Intenta nuevamente.')
+    }
+  }
+
   if (roleLoading || loadingLista) {
     return <div className="py-12 text-center text-muted-foreground">Cargando intervenciones…</div>
   }
@@ -459,10 +604,16 @@ export function ReporteIntervencionAcumulado({
                 {reporte.diasCompletos !== 1 ? 's' : ''} de atención
               </p>
             </div>
-            <Button variant="outline" size="sm" onClick={exportarExcel}>
-              <FileSpreadsheet className="mr-2 h-4 w-4" />
-              Exportar Excel
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={exportarExcel}>
+                <FileSpreadsheet className="mr-2 h-4 w-4" />
+                Exportar Excel
+              </Button>
+              <Button variant="outline" size="sm" onClick={exportarPDF}>
+                <FileText className="mr-2 h-4 w-4" />
+                Exportar PDF
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {reporte.diasIncompletos.length > 0 && (

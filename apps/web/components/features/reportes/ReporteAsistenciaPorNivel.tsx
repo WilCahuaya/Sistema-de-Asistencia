@@ -41,6 +41,7 @@ import {
 import {
   enrichAsistenciasRows,
   fetchAsistenciasRangoFlat,
+  asistenciaCuentaParaAula,
   fetchAulasMapByIds,
   fetchEstudiantesActivosPorAulas,
   fetchEstudiantesMapByIds,
@@ -734,11 +735,10 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
         
         const totalEstudiantes = estudiantesDeAula.length
         
-        // MISMA LÓGICA que vista Asistencias: contar por (estudiante_id, fecha) sin filtrar por aula_id
         const estudiantesDeAulaIds = new Set(estudiantesDeAula.map(e => e.id))
         const asistenciasDeAula = asistenciasData?.filter((a: any) =>
           estudiantesDeAulaIds.has(a.estudiante_id) &&
-          (!esIntervencion || a.aula_id === aula.id)
+          asistenciaCuentaParaAula(a, aula.id)
         ) || []
         const asistenciasPorFecha: AsistenciaPorFecha = {}
         const tutorNombre = aula.tutor?.nombre_completo || aula.tutor?.email || 'Sin tutor asignado'
@@ -755,7 +755,7 @@ export function ReporteAsistenciaPorNivel({ fcpId: fcpIdProp, tipoAula = 'REGULA
             (a: { estudiante_id: string; fecha: string; aula_id?: string; estado?: string }) =>
               a.estudiante_id === estudianteId &&
               a.fecha === fecha &&
-              (!esIntervencion || a.aula_id === aula.id)
+              asistenciaCuentaParaAula(a, aula.id)
           )
 
         // 1. Primero procesar TODAS las asistencias por fecha usando aula_id de la asistencia

@@ -36,6 +36,7 @@ import { getAvailableTableWidth, getProportionalColumnStyles, type PDFTableColum
 import {
   enrichAsistenciasRowsMinimalEstudiante,
   fetchAsistenciasRangoFlat,
+  asistenciaCuentaParaAula,
   fetchAulasMapByIds,
   fetchEstudiantesActivosPorAulas,
   fetchEstudiantesMinimalMapByIds,
@@ -600,11 +601,10 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
         
         const registrados = estudiantesAula.length
         
-        // MISMA LÓGICA que vista Asistencias: contar por (estudiante_id, fecha) sin filtrar por aula_id
         const asistenciasPorFecha = new Map<string, Set<string>>()
         asistenciasDelMes.forEach((asistencia: any) => {
           if (!estudiantesAulaIds.has(asistencia.estudiante_id)) return
-          if (esIntervencion && asistencia.aula_id !== aula.id) return
+          if (!asistenciaCuentaParaAula(asistencia, aula.id)) return
           const fecha = asistencia.fecha
           if (!asistenciasPorFecha.has(fecha)) asistenciasPorFecha.set(fecha, new Set())
           asistenciasPorFecha.get(fecha)!.add(asistencia.estudiante_id)
@@ -632,7 +632,7 @@ export function ReporteMensual({ fcpId: fcpIdProp, soloAulasIds = null, tipoAula
         const todasAsistenciasPorEstudianteFecha: { [key: string]: string } = {}
         asistenciasDelMes.forEach((asistencia: any) => {
           if (!estudiantesAulaIds.has(asistencia.estudiante_id)) return
-          if (esIntervencion && asistencia.aula_id !== aula.id) return
+          if (!asistenciaCuentaParaAula(asistencia, aula.id)) return
           const key = `${asistencia.estudiante_id}-${asistencia.fecha}`
           todasAsistenciasPorEstudianteFecha[key] = asistencia.estado
         })
