@@ -1,7 +1,102 @@
 export const dynamic = 'force-dynamic'
 
 import { createClient } from '@/lib/supabase/server'
+import { verificarPermisoGestionSucursalesFcp } from '@/lib/server/sucursalAuth'
 import { NextResponse } from 'next/server'
+
+async function obtenerSucursalConPermiso(supabase: Awaited<ReturnType<typeof createClient>>, sucursalId: string) {
+  const { data: sucursal, error: sucursalError } = await supabase
+    .from('sucursales')
+    .select('id, fcp_id, nombre, es_predeterminada')
+    .eq('id', sucursalId)
+    .single()
+
+  if (sucursalError || !sucursal) {
+    return { error: NextResponse.json({ error: 'Sucursal no encontrada.' }, { status: 404 }) }
+  }
+
+  const auth = await verificarPermisoGestionSucursalesFcp(supabase, sucursal.fcp_id)
+  if ('error' in auth && auth.error) return auth
+  const { user } = auth as { user: { id: string } }
+
+  return { user, sucursal }
+}
+
+/**
+ * PATCH /api/sucursales/[id]
+ * Renombra una sucursal (solo el nombre).
+ */
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id: sucursalId } = await params
+
+    if (!sucursalId) {
+      return NextResponse.json({ error: 'ID de sucursal no proporcionado.' }, { status: 400 })
+    }
+
+    const body = await request.json().catch(() => ({}))
+    const nombre = typeof body.nombre === 'string' ? body.nombre.trim() : ''
+
+    if (!nombre) {
+      return NextResponse.json({ error: 'Indica un nombre para la sucursal.' }, { status: 400 })
+    }
+
+    if (nombre.length > 200) {
+      return NextResponse.json({ error: 'El nombre no puede superar 200 caracteres.' }, { status: 400 })
+    }
+
+    const supabase = await createClient()
+    const auth = await obtenerSucursalConPermiso(supabase, sucursalId)
+    if ('error' in auth && auth.error) return auth.error
+    const { user, sucursal } = auth as { user: { id: string }; sucursal: { id: string; es_predeterminada: boolean; nombre: string } }
+
+    if (sucursal.es_predeterminada) {
+      return NextResponse.json(
+        { error: 'No se puede renombrar la sucursal Principal.' },
+        { status: 400 }
+      )
+    }
+
+    const { data: actualizada, error: updateError } = await supabase
+      .from('sucursales')
+      .update({
+        nombre,
+        updated_by: user.id,
+      })
+      .eq('id', sucursalId)
+      .select('id, nombre')
+      .single()
+
+    if (updateError) {
+      if (updateError.code === '23505') {
+        return NextResponse.json(
+          { error: 'Ya existe otra sucursal con ese nombre en el proyecto.' },
+          { status: 400 }
+        )
+      }
+      console.error('Error actualizando sucursal:', updateError)
+      return NextResponse.json(
+        { error: updateError.message || 'Error al actualizar la sucursal.' },
+        { status: 500 }
+      )
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: `Sucursal renombrada a "${actualizada.nombre}".`,
+      sucursal: actualizada,
+    })
+  } catch (e) {
+    console.error('Error en PATCH sucursal:', e)
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Error inesperado.' },
+      { status: 500 }
+    )
+  }
+}
 
 /**
  * DELETE /api/sucursales/[id]
@@ -24,49 +119,14 @@ export async function DELETE(
     }
 
     const supabase = await createClient()
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user) {
-      return NextResponse.json({ error: 'No autenticado.' }, { status: 401 })
-    }
-
-    const { data: sucursal, error: sucursalError } = await supabase
-      .from('sucursales')
-      .select('id, fcp_id, nombre, es_predeterminada')
-      .eq('id', sucursalId)
-      .single()
-
-    if (sucursalError || !sucursal) {
-      return NextResponse.json(
-        { error: 'Sucursal no encontrada.' },
-        { status: 404 }
-      )
-    }
+    const auth = await obtenerSucursalConPermiso(supabase, sucursalId)
+    if ('error' in auth && auth.error) return auth.error
+    const { sucursal } = auth as { sucursal: { id: string; es_predeterminada: boolean; nombre: string } }
 
     if (sucursal.es_predeterminada) {
       return NextResponse.json(
         { error: 'No se puede eliminar la sucursal predeterminada.' },
         { status: 400 }
-      )
-    }
-
-    const { data: miembro, error: miembroError } = await supabase
-      .from('fcp_miembros')
-      .select('id, rol')
-      .eq('usuario_id', user.id)
-      .eq('fcp_id', sucursal.fcp_id)
-      .eq('activo', true)
-      .in('rol', ['director', 'secretario'])
-      .limit(1)
-      .maybeSingle()
-
-    if (miembroError || !miembro) {
-      return NextResponse.json(
-        { error: 'No tienes permiso para eliminar sucursales (solo director o secretario).' },
-        { status: 403 }
       )
     }
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -27,6 +27,8 @@ import { Input } from '@/components/ui/input'
 import { AulaDialog } from './AulaDialog'
 import { AulaTutorDialog } from './AulaTutorDialog'
 import { AulaEditDialog } from './AulaEditDialog'
+import { SucursalEditDialog } from './SucursalEditDialog'
+import { SucursalCreateDialog } from './SucursalCreateDialog'
 import { ordenarSucursales, type Sucursal } from './SucursalField'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
@@ -122,6 +124,8 @@ export function AulaList() {
   const [sucursales, setSucursales] = useState<Sucursal[]>([])
   const [eliminarSucursal, setEliminarSucursal] = useState<Sucursal | null>(null)
   const [eliminarSucursalLoading, setEliminarSucursalLoading] = useState(false)
+  const [editarSucursal, setEditarSucursal] = useState<Sucursal | null>(null)
+  const [crearSucursalOpen, setCrearSucursalOpen] = useState(false)
   const [selectedFCP, setSelectedFCP] = useState<string | null>(null)
   const [userFCPs, setUserFCPs] = useState<Array<{ id: string; nombre: string; numero_identificacion?: string; razon_social?: string }>>([])
   const [loadingFCPs, setLoadingFCPs] = useState(true)
@@ -159,6 +163,27 @@ export function AulaList() {
     !membershipsLoading &&
     ((roleInFcp !== null && (roleInFcp === 'director' || roleInFcp === 'secretario')) ||
       rolesInFcp.some((r) => r === 'director' || r === 'secretario'))
+
+  const fcpIdActivo = selectedFCP || fcpIdFromRole || ''
+
+  const recargarSucursalesYAulas = () => {
+    loadAulas()
+    if (fcpIdActivo) loadSucursales(fcpIdActivo)
+  }
+
+  const sucursalesGestionables = useMemo(
+    () => sucursales.filter((s) => !s.es_predeterminada),
+    [sucursales]
+  )
+
+  const aulasPorSucursal = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const aula of aulas) {
+      if (!aula.sucursal_id) continue
+      map.set(aula.sucursal_id, (map.get(aula.sucursal_id) ?? 0) + 1)
+    }
+    return map
+  }, [aulas])
 
   useEffect(() => {
     loadUserFCPs()
@@ -222,11 +247,6 @@ export function AulaList() {
     if (ada !== adb) return ada - adb
     return (a.nombre || '').localeCompare(b.nombre || '')
   })
-
-  /** Sucursales (no predeterminadas) sin aulas: candidatas a eliminación. */
-  const sucursalesVacias = sucursales.filter(
-    (s) => !s.es_predeterminada && !aulas.some((a) => a.sucursal_id === s.id)
-  )
 
   const itemsPerPage = isMobile ? 8 : 24
   const totalPages = Math.max(1, Math.ceil(orderedAulas.length / itemsPerPage))
@@ -796,10 +816,23 @@ export function AulaList() {
                 return (
                   <Fragment key={aula.id}>
                   {showHeader && (
-                    <div className="col-span-1 md:col-span-2 lg:col-span-3 mt-2 first:mt-0">
-                      <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground border-b pb-1">
+                    <div className="col-span-1 md:col-span-2 lg:col-span-3 mt-2 first:mt-0 flex items-center justify-between gap-2 border-b pb-1">
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground">
                         {suc?.nombre}
                       </h3>
+                      {canManageAulas && suc && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2 text-muted-foreground hover:text-foreground"
+                          title="Editar sucursal"
+                          onClick={() => setEditarSucursal(suc)}
+                        >
+                          <Edit className="h-4 w-4 mr-1" />
+                          Editar
+                        </Button>
+                      )}
                     </div>
                   )}
                   <Card
@@ -1038,35 +1071,87 @@ export function AulaList() {
         </>
       )}
 
-      {canManageAulas && sucursalesVacias.length > 0 && (
+      {canManageAulas && fcpIdActivo && (
         <div className="mt-8 pt-4 border-t">
-          <h3 className="text-sm font-semibold text-muted-foreground mb-3">
-            Sucursales sin aulas
-          </h3>
-          <div className="flex flex-wrap gap-2">
-            {sucursalesVacias.map((s) => (
-              <span
-                key={s.id}
-                className="inline-flex items-center gap-2 rounded-full border bg-muted/40 px-3 py-1 text-sm"
-              >
-                <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                {s.nombre}
-                <button
-                  type="button"
-                  title="Eliminar sucursal"
-                  onClick={() => setEliminarSucursal(s)}
-                  className="text-muted-foreground hover:text-destructive transition-colors"
-                >
-                  <XCircle className="h-4 w-4" />
-                </button>
-              </span>
-            ))}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
+            <h3 className="text-sm font-semibold text-muted-foreground">
+              Gestionar sucursales
+            </h3>
+            <Button type="button" variant="outline" size="sm" onClick={() => setCrearSucursalOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" />
+              Nueva sucursal
+            </Button>
           </div>
+          {sucursalesGestionables.length === 0 ? (
+            <p className="text-sm text-muted-foreground mb-2">
+              Aún no hay sucursales adicionales. Crea una para agrupar aulas por sede o distrito.
+            </p>
+          ) : (
+          <div className="space-y-2">
+            {sucursalesGestionables.map((s) => {
+              const totalAulas = aulasPorSucursal.get(s.id) ?? 0
+              return (
+                <div
+                  key={s.id}
+                  className="flex flex-col gap-2 rounded-lg border bg-muted/20 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Building2 className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                    <span className="font-medium truncate">{s.nombre}</span>
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                      {totalAulas} aula{totalAulas !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setEditarSucursal(s)}
+                    >
+                      <Edit className="h-4 w-4 mr-1" />
+                      Editar
+                    </Button>
+                    {totalAulas === 0 && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => setEliminarSucursal(s)}
+                      >
+                        <XCircle className="h-4 w-4 mr-1" />
+                        Eliminar
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          )}
           <p className="text-xs text-muted-foreground mt-2">
-            Solo puedes eliminar sucursales que no tengan aulas asociadas.
+            Puedes renombrar cualquier sucursal. Solo puedes eliminar las que no tengan aulas asociadas.
+            La sucursal Principal no se puede editar ni eliminar.
           </p>
         </div>
       )}
+
+      <SucursalCreateDialog
+        open={crearSucursalOpen}
+        onOpenChange={setCrearSucursalOpen}
+        onSuccess={recargarSucursalesYAulas}
+        fcpId={fcpIdActivo}
+      />
+
+      <SucursalEditDialog
+        open={!!editarSucursal}
+        onOpenChange={(open) => {
+          if (!open) setEditarSucursal(null)
+        }}
+        onSuccess={recargarSucursalesYAulas}
+        sucursal={editarSucursal}
+      />
 
       <AulaDialog
         open={isDialogOpen}
@@ -1218,10 +1303,8 @@ export function AulaList() {
               return
             }
             toast.success('Sucursal eliminada', data.message || 'La sucursal se eliminó correctamente.')
-            const fcpId = selectedFCP || fcpIdFromRole || ''
             setEliminarSucursal(null)
-            loadAulas()
-            if (fcpId) loadSucursales(fcpId)
+            recargarSucursalesYAulas()
           } catch (e) {
             toast.error('Error', e instanceof Error ? e.message : 'No se pudo eliminar la sucursal.')
           } finally {
