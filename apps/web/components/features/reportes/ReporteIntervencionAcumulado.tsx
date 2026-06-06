@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -20,7 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { FileSpreadsheet, Search, BarChart3 } from 'lucide-react'
+import { Calendar, FileSpreadsheet, Search, BarChart3 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useSelectedRole } from '@/contexts/SelectedRoleContext'
@@ -54,17 +55,25 @@ interface FilaEstudiante {
   porcentaje: number
 }
 
+interface DiaIncompleto {
+  fecha: string
+  fechaFormateada: string
+  marcados: number
+  total: number
+}
+
 interface ReporteData {
   intervencion: IntervencionOption
   fechaInicio: string
   fechaFin: string
+  diasCompletos: number
   filas: FilaEstudiante[]
+  diasIncompletos: DiaIncompleto[]
 }
 
-function calcularPorcentaje(presente: number, faltas: number): number {
-  const denom = presente + faltas
-  if (denom <= 0) return 0
-  return Math.round((presente / denom) * 1000) / 10
+function calcularPorcentaje(presente: number, diasCompletos: number): number {
+  if (diasCompletos <= 0) return 0
+  return Math.round((presente / diasCompletos) * 1000) / 10
 }
 
 function fechaHoyLocal(): string {
@@ -75,13 +84,39 @@ function fechaHoyLocal(): string {
   return `${y}-${m}-${day}`
 }
 
+function enumerarFechas(inicio: string, fin: string): string[] {
+  const [y1, m1, d1] = inicio.split('-').map(Number)
+  const [y2, m2, d2] = fin.split('-').map(Number)
+  const cur = new Date(y1, m1 - 1, d1)
+  const end = new Date(y2, m2 - 1, d2)
+  const fechas: string[] = []
+  while (cur <= end) {
+    const y = cur.getFullYear()
+    const m = String(cur.getMonth() + 1).padStart(2, '0')
+    const day = String(cur.getDate()).padStart(2, '0')
+    fechas.push(`${y}-${m}-${day}`)
+    cur.setDate(cur.getDate() + 1)
+  }
+  return fechas
+}
+
+function formatearFecha(fechaStr: string): string {
+  const [y, m, d] = fechaStr.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('es-PE', {
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'America/Lima',
+  })
+}
+
 export function ReporteIntervencionAcumulado({
   fcpId: fcpIdProp,
   soloAulasIds = null,
 }: ReporteIntervencionAcumuladoProps) {
+  const router = useRouter()
   const { selectedRole } = useSelectedRole()
   const fcpId = fcpIdProp || selectedRole?.fcpId || null
-  const { canViewReports, loading: roleLoading } = useUserRole(fcpId)
+  const { canViewReports, loading: roleLoading, role } = useUserRole(fcpId)
 
   const [intervenciones, setIntervenciones] = useState<IntervencionOption[]>([])
   const [selectedIntervencionId, setSelectedIntervencionId] = useState<string>('')
@@ -192,12 +227,50 @@ export function ReporteIntervencionAcumulado({
         fechaFin
       )).filter((a) => a.aula_id === intervencionSeleccionada.id)
 
+      const registroPorEstudianteFecha = new Map<
+        string,
+        { estado: string; registro_tardio: boolean }
+      >()
+      const marcadosPorFecha = new Map<string, Set<string>>()
+
       for (const a of asistencias) {
         if (!estudiantesMap.has(a.estudiante_id)) continue
-        const s = stats.get(a.estudiante_id)!
-        if (a.estado === 'presente') s.presente++
-        else if (a.estado === 'falto') s.falto++
-        if (a.registro_tardio) s.tardanzas++
+        registroPorEstudianteFecha.set(`${a.estudiante_id}|${a.fecha}`, {
+          estado: a.estado,
+          registro_tardio: !!a.registro_tardio,
+        })
+        if (!marcadosPorFecha.has(a.fecha)) marcadosPorFecha.set(a.fecha, new Set())
+        marcadosPorFecha.get(a.fecha)!.add(a.estudiante_id)
+      }
+
+      const registrados = estudiantesMap.size
+      const diasIncompletos: DiaIncompleto[] = []
+      let diasCompletos = 0
+
+      for (const fecha of enumerarFechas(fechaInicio, fechaFin)) {
+        if (registrados === 0) break
+
+        const marcados = marcadosPorFecha.get(fecha)?.size ?? 0
+
+        // Igual que reportes regulares: solo días donde TODOS tienen registro cuentan
+        if (marcados === registrados) {
+          diasCompletos++
+          for (const estudianteId of estudiantesMap.keys()) {
+            const rec = registroPorEstudianteFecha.get(`${estudianteId}|${fecha}`)
+            if (!rec) continue
+            const s = stats.get(estudianteId)!
+            if (rec.estado === 'presente') s.presente++
+            else if (rec.estado === 'falto') s.falto++
+            if (rec.registro_tardio) s.tardanzas++
+          }
+        } else if (marcados > 0 && marcados < registrados) {
+          diasIncompletos.push({
+            fecha,
+            fechaFormateada: formatearFecha(fecha),
+            marcados,
+            total: registrados,
+          })
+        }
       }
 
       const filas: FilaEstudiante[] = [...estudiantesMap.entries()]
@@ -210,7 +283,7 @@ export function ReporteIntervencionAcumulado({
             asistencias: s.presente,
             faltas: s.falto,
             tardanzas: s.tardanzas,
-            porcentaje: calcularPorcentaje(s.presente, s.falto),
+            porcentaje: calcularPorcentaje(s.presente, diasCompletos),
           }
         })
         .sort((a, b) => compareNombreCompleto(a.nombreCompleto, b.nombreCompleto))
@@ -219,7 +292,9 @@ export function ReporteIntervencionAcumulado({
         intervencion: intervencionSeleccionada,
         fechaInicio,
         fechaFin,
+        diasCompletos,
         filas,
+        diasIncompletos: diasIncompletos.sort((a, b) => a.fecha.localeCompare(b.fecha)),
       })
     } catch (e) {
       console.error(e)
@@ -247,6 +322,8 @@ export function ReporteIntervencionAcumulado({
       ['Asistencia acumulada de la intervención'],
       [titulo, codigo],
       [`Periodo: ${reporte.fechaInicio} – ${reporte.fechaFin}`],
+      [`Días de atención (completos): ${reporte.diasCompletos}`],
+      [`Días con asistencia incompleta: ${reporte.diasIncompletos.length}`],
       [],
       ['Estudiante', 'Código', 'Asistencias', 'Faltas', 'Tardanzas', '% Asistencia'],
       ...reporte.filas.map((f) => [
@@ -359,7 +436,8 @@ export function ReporteIntervencionAcumulado({
               </CardTitle>
               <p className="text-sm text-muted-foreground mt-1">
                 Del {reporte.fechaInicio} al {reporte.fechaFin} · {reporte.filas.length} estudiante
-                {reporte.filas.length !== 1 ? 's' : ''}
+                {reporte.filas.length !== 1 ? 's' : ''} · {reporte.diasCompletos} día
+                {reporte.diasCompletos !== 1 ? 's' : ''} de atención
               </p>
             </div>
             <Button variant="outline" size="sm" onClick={exportarExcel}>
@@ -368,6 +446,43 @@ export function ReporteIntervencionAcumulado({
             </Button>
           </CardHeader>
           <CardContent>
+            {reporte.diasIncompletos.length > 0 && (
+              <div className="mb-4 rounded-md bg-warning/20 border border-warning/50 p-4">
+                <h4 className="font-semibold text-warning-foreground mb-2">
+                  Días con asistencia incompleta
+                </h4>
+                <p className="text-sm text-warning-foreground mb-2">
+                  Estos días no se incluyen en asistencias, faltas ni en el % del reporte:
+                </p>
+                <ul className="text-sm text-warning-foreground space-y-2">
+                  {reporte.diasIncompletos.map((dia) => {
+                    const [year, month] = dia.fecha.split('-').map(Number)
+                    const asistenciasUrl = `/asistencias?fcpId=${fcpId}&aulaId=${reporte.intervencion.id}&month=${month - 1}&year=${year}&date=${dia.fecha}`
+                    return (
+                      <li
+                        key={dia.fecha}
+                        className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-2 rounded-md bg-warning/30 border border-warning/60"
+                      >
+                        <span>
+                          <strong>{dia.fechaFormateada}</strong> — Marcados: {dia.marcados}/{dia.total}{' '}
+                          estudiantes
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => router.push(asistenciasUrl)}
+                          className="sm:ml-auto whitespace-nowrap"
+                        >
+                          <Calendar className="h-4 w-4 mr-1.5" />
+                          {role === 'facilitador' ? 'Ver asistencia' : 'Corregir asistencia'}
+                        </Button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            )}
             <div className="relative mb-4 max-w-sm">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -415,8 +530,8 @@ export function ReporteIntervencionAcumulado({
               </Table>
             </div>
             <p className="text-xs text-muted-foreground mt-3">
-              % Asistencia = asistencias ÷ (asistencias + faltas). Tardanzas = registros marcados como registro
-              tardío en el periodo.
+              % Asistencia = asistencias ÷ días de atención completos (solo días donde todos los estudiantes
+              inscritos tienen registro). Tardanzas = registros marcados como registro tardío en esos días.
             </p>
           </CardContent>
         </Card>
