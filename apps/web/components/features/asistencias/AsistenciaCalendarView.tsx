@@ -26,6 +26,7 @@ import {
   ESTADO_INTERVENCION_LABEL,
   fechaEnTemporadaIntervencion,
   mesEnTemporadaIntervencion,
+  fetchEstudiantesDeIntervencion,
 } from '@/lib/utils/aulaIntervencion'
 import type { AulaTipo, EstadoIntervencion } from '@/lib/utils/aulaIntervencion'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -732,28 +733,11 @@ export function AsistenciaCalendarView({
 
       if (esInt) {
         setPeriodosQuitables(new Map())
-        const { data: idsRango, error: rangoError } = await supabase.rpc('estudiantes_de_intervencion', {
-          p_aula_id: selectedAula,
-        })
-        if (rangoError) throw rangoError
-        const ids = (idsRango || []).flatMap((x: unknown) => {
-          if (typeof x === 'string') return [x]
-          if (x && typeof x === 'object') {
-            const v = (x as Record<string, unknown>)['estudiante_id'] ?? Object.values(x as object)[0]
-            return typeof v === 'string' ? [v] : []
-          }
-          return []
-        })
-        let nuevosEstudiantes: Estudiante[] = []
-        if (ids.length > 0) {
-          const { data: estData, error: errEst } = await supabase
-            .from('estudiantes')
-            .select('id, codigo, nombre_completo')
-            .in('id', ids)
-            .order('nombre_completo', { ascending: true })
-          if (errEst) throw errEst
-          nuevosEstudiantes = estData || []
-        }
+        const nuevosEstudiantes = await fetchEstudiantesDeIntervencion<Estudiante>(
+          supabase,
+          selectedAula,
+          'id, codigo, nombre_completo',
+        )
         setEstudiantes(sortByNombreCompleto(nuevosEstudiantes))
         setLoading(false)
         return

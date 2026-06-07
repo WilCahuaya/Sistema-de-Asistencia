@@ -52,7 +52,13 @@ import { Building2 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { sortByNombreCompleto } from '@/lib/utils/sortEstudiantes'
 import { SUCURSAL_SELECT, extraerSucursal, SucursalTag } from '@/lib/utils/aulaSucursal'
-import { esIntervencion, esIntervencionActiva, formatTemporada, ESTADO_INTERVENCION_LABEL } from '@/lib/utils/aulaIntervencion'
+import {
+  esIntervencion,
+  esIntervencionActiva,
+  formatTemporada,
+  ESTADO_INTERVENCION_LABEL,
+  fetchEstudiantesDeIntervencion,
+} from '@/lib/utils/aulaIntervencion'
 import type { AulaTipo, EstadoIntervencion } from '@/lib/utils/aulaIntervencion'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
@@ -630,26 +636,11 @@ export function EstudianteList() {
       }
 
       if (esIntCtx && selectedAula) {
-        const { data: rows, error: intErr } = await supabase
-          .from('intervencion_estudiantes')
-          .select(`
-            estudiante:estudiantes(
-              *,
-              aula:aulas(id, nombre),
-              fcp:fcps(razon_social)
-            )
-          `)
-          .eq('aula_id', selectedAula)
-          .eq('activo', true)
-
-        if (intErr) throw intErr
-
-        const estudiantesCargados = (rows || [])
-          .map((r: { estudiante: Estudiante | Estudiante[] | null }) => {
-            const e = Array.isArray(r.estudiante) ? r.estudiante[0] : r.estudiante
-            return e
-          })
-          .filter((e): e is Estudiante => !!e)
+        const estudiantesCargados = await fetchEstudiantesDeIntervencion<Estudiante>(
+          supabase,
+          selectedAula,
+          `*, aula:aulas(id, nombre), fcp:fcps(razon_social)`,
+        )
 
         setEstudiantesCompletos(estudiantesCargados)
         setTotalEstudiantes(estudiantesCargados.length)

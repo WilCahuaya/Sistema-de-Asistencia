@@ -1,5 +1,7 @@
 /** Tipos y helpers compartidos para aulas regulares e intervenciones. */
 
+import type { SupabaseClient } from '@supabase/supabase-js'
+
 export type AulaTipo = 'REGULAR' | 'INTERVENTION'
 export type EstadoIntervencion = 'ACTIVA' | 'FINALIZADA' | 'SUSPENDIDA'
 
@@ -97,3 +99,39 @@ export function mesEnTemporadaIntervencion(
 
 /** Campos extra a incluir en selects de aulas. */
 export const AULA_TIPO_SELECT = 'tipo, fecha_inicio, fecha_fin, estado_intervencion'
+
+/** Normaliza SETOF UUID de RPC (string[] o filas con una columna). */
+export function parseSetofUuidRpc(rows: unknown[] | null | undefined): string[] {
+  return (rows || []).flatMap((x: unknown) => {
+    if (typeof x === 'string') return [x]
+    if (x && typeof x === 'object') {
+      const v = (x as Record<string, unknown>)['estudiante_id'] ?? Object.values(x as object)[0]
+      return typeof v === 'string' ? [v] : []
+    }
+    return []
+  })
+}
+
+/** Roster activo de una intervención (RPC + lectura de estudiantes con RLS). */
+export async function fetchEstudiantesDeIntervencion<T = Record<string, unknown>>(
+  supabase: SupabaseClient,
+  aulaId: string,
+  select: string
+): Promise<T[]> {
+  const { data: idsRango, error: rangoError } = await supabase.rpc('estudiantes_de_intervencion', {
+    p_aula_id: aulaId,
+  })
+  if (rangoError) throw rangoError
+
+  const ids = parseSetofUuidRpc(idsRango as unknown[] | null)
+  if (ids.length === 0) return []
+
+  const { data, error } = await supabase
+    .from('estudiantes')
+    .select(select)
+    .in('id', ids)
+    .order('nombre_completo', { ascending: true })
+
+  if (error) throw error
+  return (data || []) as T[]
+}
