@@ -6,6 +6,8 @@ import { ThemeProvider } from "@/contexts/ThemeContext";
 import { SelectedRoleProvider } from "@/contexts/SelectedRoleContext";
 import { Toaster } from "@/components/ui/sonner";
 import { Suspense } from "react";
+import { LoadingConCerrarSesion } from "@/components/layout/LoadingConCerrarSesion";
+import { CargaLentaOverlay } from "@/components/layout/CargaLentaOverlay";
 
 export const metadata: Metadata = {
   title: "Sistema de Gestión de Asistencias - FCP",
@@ -57,10 +59,13 @@ export default function RootLayout({
         <AuthProvider>
           <ThemeProvider>
             <SelectedRoleProvider>
-              <Suspense fallback={<div>Cargando...</div>}>
+              <Suspense fallback={<LoadingConCerrarSesion />}>
                 <FCPProvider>
                   {children}
                 </FCPProvider>
+              </Suspense>
+              <Suspense fallback={null}>
+                <CargaLentaOverlay />
               </Suspense>
             </SelectedRoleProvider>
           </ThemeProvider>

@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Building2, User, Loader2, LogOut } from 'lucide-react'
+import { LoadingConCerrarSesion } from '@/components/layout/LoadingConCerrarSesion'
 import { getRolDisplayName, getRolBadgeColor } from '@/lib/utils/roles'
 import { toast } from '@/lib/toast'
 
@@ -275,14 +276,7 @@ export default function SeleccionarRolPage() {
   }
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
-          <p className="text-muted-foreground">Cargando tus roles...</p>
-        </div>
-      </div>
-    )
+    return <LoadingConCerrarSesion mensaje="Cargando tus roles…" />
   }
 
   return (
