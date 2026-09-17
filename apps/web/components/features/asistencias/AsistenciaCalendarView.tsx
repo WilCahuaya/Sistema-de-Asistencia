@@ -2079,7 +2079,8 @@ export function AsistenciaCalendarView({
             ) : puedeEditarMes && permisoAnualActivo && esDirectorOSecretarioEnFcp ? (
               <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-200">
                 <strong>Puedes registrar o corregir asistencias de {formatMonthYear(selectedMonth, selectedYear)}</strong>{' '}
-                por el <strong>permiso anual</strong> de la FCP.
+                por el <strong>permiso anual</strong> de la FCP. Los estudiantes de cada salón ya
+                aparecen en todos los meses de este año; no hace falta agregarlos mes a mes.
                 {permisoAnualFechaLimite && (
                   <>
                     {' '}

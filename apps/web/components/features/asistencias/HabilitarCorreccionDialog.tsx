@@ -76,13 +76,16 @@ export function HabilitarCorreccionDialog({
         p_dias: 15,
       })
       if (error) throw error
-      const result = data as { ok?: boolean; error?: string; fecha_limite?: string }
+      const result = data as { ok?: boolean; error?: string; fecha_limite?: string; periodos_creados?: number }
       if (!result?.ok && result?.error) {
         throw new Error(result.error)
       }
+      const periodos = typeof result?.periodos_creados === 'number' ? result.periodos_creados : 0
       toast.success(
         'Permiso anual habilitado',
-        `Ventana anual activada. Fecha límite: ${result?.fecha_limite ?? 'N/A'}.`
+        periodos > 0
+          ? `Ventana de 15 días activa hasta ${result?.fecha_limite ?? 'N/A'}. Los estudiantes ya aparecen de enero al mes actual en su salón; no hace falta agregarlos mes a mes.`
+          : `Ventana de 15 días activa hasta ${result?.fecha_limite ?? 'N/A'}. Los estudiantes aparecerán de enero al mes actual al cargarlos.`
       )
       await onSuccess()
       onOpenChange(false)
@@ -126,10 +129,11 @@ export function HabilitarCorreccionDialog({
             </RadioGroup>
           </div>
           <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
-            <p className="font-medium">Permiso anual único</p>
+            <p className="font-medium">Permiso anual único (FCP nueva o tardía)</p>
             <p>
-              Si la FCP empezó tarde, puedes habilitar una ventana excepcional para registro/corrección
-              de meses pasados por 15 días. Solo se puede usar una vez por año.
+              Si la FCP empezó tarde, habilita 15 días (una vez al año) para registrar o corregir
+              cualquier mes pasado. Los estudiantes activos aparecerán de enero al mes actual en su
+              salón de ahora: no hay que agregarlos mes a mes.
             </p>
           </div>
         </div>

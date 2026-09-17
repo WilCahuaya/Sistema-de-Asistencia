@@ -127,3 +127,85 @@ LEFT JOIN public.intervencion_estudiantes ie ON ie.aula_id = a.id
 WHERE u.email = 'orfishr@gmail.com'
 GROUP BY a.id, a.nombre, a.codigo_aula
 ORDER BY a.nombre;
+
+-- ─── PASO 4: RLS asistencias (guardar presente/permiso/faltó en intervención) ─
+-- Si ya aplicaste la migración 20240605000002, este bloque es idempotente.
+
+DROP POLICY IF EXISTS "Facilitators can view all attendances, others view their FCP attendances" ON public.asistencias;
+
+CREATE POLICY "Facilitators can view all attendances, others view their FCP attendances"
+ON public.asistencias
+FOR SELECT
+USING (
+    public.es_facilitador(auth.uid())
+    OR EXISTS (
+        SELECT 1 FROM public.fcp_miembros
+        WHERE usuario_id = auth.uid() AND fcp_id = asistencias.fcp_id
+        AND rol IN ('director', 'secretario') AND activo = true
+    )
+    OR EXISTS (
+        SELECT 1 FROM public.fcp_miembros fm
+        JOIN public.tutor_aula ta ON ta.fcp_miembro_id = fm.id
+        WHERE fm.usuario_id = auth.uid() AND fm.rol = 'tutor' AND fm.activo = true
+        AND ta.activo = true AND asistencias.aula_id = ta.aula_id
+        AND (
+            EXISTS (SELECT 1 FROM public.estudiantes e WHERE e.id = asistencias.estudiante_id AND e.aula_id = ta.aula_id)
+            OR EXISTS (SELECT 1 FROM public.intervencion_estudiantes ie WHERE ie.estudiante_id = asistencias.estudiante_id AND ie.aula_id = ta.aula_id AND ie.activo = true)
+        )
+    )
+);
+
+DROP POLICY IF EXISTS "asistencias_insert" ON public.asistencias;
+
+CREATE POLICY "asistencias_insert"
+ON public.asistencias
+FOR INSERT
+WITH CHECK (
+    public.es_facilitador(auth.uid())
+    OR EXISTS (
+        SELECT 1 FROM public.fcp_miembros
+        WHERE usuario_id = auth.uid() AND fcp_id = asistencias.fcp_id
+        AND rol IN ('director', 'secretario') AND activo = true
+    )
+    OR (
+        public.tutor_puede_registrar_asistencia_aula(auth.uid(), asistencias.fcp_id, asistencias.aula_id)
+        AND (
+            EXISTS (SELECT 1 FROM public.estudiantes e WHERE e.id = asistencias.estudiante_id AND e.aula_id = asistencias.aula_id)
+            OR EXISTS (SELECT 1 FROM public.intervencion_estudiantes ie WHERE ie.estudiante_id = asistencias.estudiante_id AND ie.aula_id = asistencias.aula_id AND ie.activo = true)
+        )
+    )
+);
+
+DROP POLICY IF EXISTS "asistencias_update" ON public.asistencias;
+
+CREATE POLICY "asistencias_update"
+ON public.asistencias
+FOR UPDATE
+USING (
+    public.es_facilitador(auth.uid())
+    OR EXISTS (
+        SELECT 1 FROM public.fcp_miembros
+        WHERE usuario_id = auth.uid() AND fcp_id = asistencias.fcp_id
+        AND rol IN ('director', 'secretario') AND activo = true
+    )
+    OR (
+        public.tutor_puede_registrar_asistencia_aula(auth.uid(), asistencias.fcp_id, asistencias.aula_id)
+        AND (
+            EXISTS (SELECT 1 FROM public.estudiantes e WHERE e.id = asistencias.estudiante_id AND e.aula_id = asistencias.aula_id)
+            OR EXISTS (SELECT 1 FROM public.intervencion_estudiantes ie WHERE ie.estudiante_id = asistencias.estudiante_id AND ie.aula_id = asistencias.aula_id AND ie.activo = true)
+        )
+    )
+);
+
+-- ¿La tutora tiene habilitado registrar asistencia en INT-01?
+SELECT
+  a.nombre AS intervencion,
+  a.codigo_aula,
+  ta.puede_registrar_asistencia,
+  ta.activo AS tutor_aula_activo
+FROM auth.users u
+JOIN public.fcp_miembros fm ON fm.usuario_id = u.id AND fm.rol = 'tutor' AND fm.activo = true
+JOIN public.tutor_aula ta ON ta.fcp_miembro_id = fm.id
+JOIN public.aulas a ON a.id = ta.aula_id AND a.tipo = 'INTERVENTION'
+WHERE u.email = 'orfishr@gmail.com'
+ORDER BY a.nombre;
