@@ -752,6 +752,17 @@ export function AsistenciaCalendarView({
       let nuevosEstudiantes: Estudiante[] = []
       
       if (esMesAnterior) {
+        if (permisoAnualActivo && fcpId) {
+          const { error: errRelleno } = await supabase.rpc('rellenar_periodos_anio_permiso_tardio', {
+            p_fcp_id: fcpId,
+            p_estudiante_id: null,
+            p_incluir_mes_actual: true,
+          })
+          if (errRelleno) {
+            console.error('No se pudieron completar períodos del permiso anual:', errRelleno)
+          }
+        }
+
         // Mes anterior: usar estudiantes_activos_en_rango (estudiante_periodos)
         const firstDay = toLocalDateString(new Date(selectedYear, selectedMonth, 1))
         const lastDay = toLocalDateString(new Date(selectedYear, selectedMonth + 1, 0))
